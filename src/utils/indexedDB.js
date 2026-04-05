@@ -173,36 +173,49 @@ export async function indexMessage(message) {
   }
 
   const db = await openDatabase();
-  const transaction = db.transaction([STORES.SEARCH_INDEX], "readwrite");
-  const store = transaction.objectStore(STORES.SEARCH_INDEX);
 
-  // Tokenize message text
-  const terms = tokenize(message.text);
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORES.SEARCH_INDEX], "readwrite");
+    const store = transaction.objectStore(STORES.SEARCH_INDEX);
 
-  // Create index entries for each term
-  const promises = terms.map((term) => {
-    return new Promise((resolve, reject) => {
-      const entry = {
-        messageId: message.id,
-        channelId: message.channelId,
-        term: term.toLowerCase(),
-        timestamp: message.timestamp,
-      };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
 
-      const request = store.add(entry);
-      request.onsuccess = () => resolve();
-      request.onerror = () => {
-        // Ignore duplicate key errors
-        if (request.error?.name === "ConstraintError") {
-          resolve();
-        } else {
-          reject(request.error);
+    // De-duplicate terms within the current message text.
+    const terms = [...new Set(tokenize(message.text).map((term) => term.toLowerCase()))];
+
+    // Remove any existing index entries for this message so re-indexing does not
+    // accumulate duplicate rows when the store uses an auto-increment primary key.
+    const deleteExistingRequest = store.openCursor();
+
+    deleteExistingRequest.onerror = () => reject(deleteExistingRequest.error);
+    deleteExistingRequest.onsuccess = (event) => {
+      const cursor = event.target.result;
+
+      if (cursor) {
+        if (cursor.value.messageId === message.id) {
+          const deleteRequest = cursor.delete();
+          deleteRequest.onerror = () => reject(deleteRequest.error);
         }
-      };
-    });
-  });
+        cursor.continue();
+        return;
+      }
 
-  return Promise.all(promises);
+      // Re-create index entries for the current set of terms.
+      terms.forEach((term) => {
+        const entry = {
+          messageId: message.id,
+          channelId: message.channelId,
+          term,
+          timestamp: message.timestamp,
+        };
+
+        const addRequest = store.add(entry);
+        addRequest.onerror = () => reject(addRequest.error);
+      });
+    };
+  });
 }
 
 /**
