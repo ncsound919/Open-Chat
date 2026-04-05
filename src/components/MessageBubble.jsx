@@ -1,4 +1,5 @@
 import React, { useState, memo } from "react";
+import PropTypes from "prop-types";
 import { SimpleMarkdown } from "../utils/markdown.jsx";
 import {
   CopyIcon,
@@ -164,3 +165,17 @@ export const MessageBubble = memo(function MessageBubble({
     </div>
   );
 });
+
+MessageBubble.propTypes = {
+  msg: PropTypes.shape({
+    role: PropTypes.oneOf(["user", "assistant"]).isRequired,
+    text: PropTypes.string,
+    error: PropTypes.bool,
+    streaming: PropTypes.bool,
+    read: PropTypes.bool,
+  }).isRequired,
+  bot: PropTypes.shape({
+    color: PropTypes.string.isRequired,
+  }).isRequired,
+  onDelete: PropTypes.func.isRequired,
+};

@@ -1,4 +1,5 @@
 import React from "react";
+import PropTypes from "prop-types";
 import {
   SearchIcon,
   PlusIcon,
@@ -309,3 +310,24 @@ export function Inbox({
     </div>
   );
 }
+
+Inbox.propTypes = {
+  bots: PropTypes.arrayOf(
+    PropTypes.shape({
+      id: PropTypes.string.isRequired,
+      name: PropTypes.string.isRequired,
+      avatar: PropTypes.string,
+      color: PropTypes.string.isRequired,
+      protocol: PropTypes.string.isRequired,
+    })
+  ).isRequired,
+  history: PropTypes.object.isRequired,
+  statuses: PropTypes.object.isRequired,
+  search: PropTypes.string.isRequired,
+  onSearch: PropTypes.func.isRequired,
+  onOpenChat: PropTypes.func.isRequired,
+  onOpenSettings: PropTypes.func.isRequired,
+  onAddBot: PropTypes.func.isRequired,
+  mode: PropTypes.string.isRequired,
+  onToggleMode: PropTypes.func.isRequired,
+};

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import PropTypes from "prop-types";
 import { MessageBubble } from "./MessageBubble.jsx";
 import {
   BackIcon,
@@ -330,3 +331,24 @@ export function Chat({
     </div>
   );
 }
+
+Chat.propTypes = {
+  bot: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    name: PropTypes.string.isRequired,
+    avatar: PropTypes.string,
+    color: PropTypes.string.isRequired,
+    tagline: PropTypes.string,
+  }).isRequired,
+  messages: PropTypes.array.isRequired,
+  status: PropTypes.string.isRequired,
+  input: PropTypes.string.isRequired,
+  streaming: PropTypes.bool.isRequired,
+  onInputChange: PropTypes.func.isRequired,
+  onSend: PropTypes.func.isRequired,
+  onInterrupt: PropTypes.func.isRequired,
+  onBack: PropTypes.func.isRequired,
+  onOpenSettings: PropTypes.func.isRequired,
+  onDeleteMessage: PropTypes.func.isRequired,
+  onClearChat: PropTypes.func.isRequired,
+};
