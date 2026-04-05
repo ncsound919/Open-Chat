@@ -349,7 +349,7 @@ Settings.propTypes = {
     tagline: PropTypes.string,
     protocol: PropTypes.string,
     host: PropTypes.string,
-    port: PropTypes.string,
+    port: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     token: PropTypes.string,
   }).isRequired,
   isNew: PropTypes.bool.isRequired,
