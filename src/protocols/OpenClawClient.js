@@ -1,4 +1,11 @@
 import { uuid } from "../utils/helpers.js";
+import { isValidMessageSize, safeLog } from "../utils/security.js";
+
+/** Maximum number of automatic reconnect attempts before giving up. */
+const MAX_RECONNECT_ATTEMPTS = 10;
+
+/** Initial connection handshake timeout in milliseconds. */
+const CONNECT_TIMEOUT_MS = 30_000;
 
 /**
  * OpenClaw WebSocket client
@@ -22,6 +29,24 @@ export class OpenClawClient {
       if (this._destroyed) {
         return reject(new Error("Client destroyed"));
       }
+
+      // Enforce reconnect attempt limit
+      if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        this.onStatusChange?.("error");
+        return reject(
+          new Error(
+            `Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Check your connection settings.`
+          )
+        );
+      }
+
+      // Connection handshake timeout
+      let connectTimeoutId = setTimeout(() => {
+        this.ws?.close();
+        reject(new Error("Connection timed out"));
+      }, CONNECT_TIMEOUT_MS);
+
+      const clearConnectTimeout = () => clearTimeout(connectTimeoutId);
 
       this.ws = new WebSocket(this.url);
 
@@ -52,6 +77,12 @@ export class OpenClawClient {
       };
 
       this.ws.onmessage = (e) => {
+        // Reject oversized messages before parsing
+        if (!isValidMessageSize(e.data)) {
+          safeLog("Oversized message rejected", `${e.data.length} bytes`);
+          return;
+        }
+
         let msg;
         try {
           msg = JSON.parse(e.data);
@@ -61,6 +92,7 @@ export class OpenClawClient {
 
         // Hello-ok → connected
         if (msg.type === "res" && msg.payload?.type === "hello-ok") {
+          clearConnectTimeout();
           if (msg.payload.auth?.deviceToken) {
             this.deviceToken = msg.payload.auth.deviceToken;
           }
@@ -71,6 +103,7 @@ export class OpenClawClient {
 
         // Error on connect
         if (msg.type === "res" && msg.error) {
+          clearConnectTimeout();
           this.onStatusChange?.("error");
           reject(new Error(msg.error?.message || "Connection failed"));
           return;
@@ -112,10 +145,11 @@ export class OpenClawClient {
       };
 
       this.ws.onclose = () => {
+        clearConnectTimeout();
         this.onStatusChange?.("disconnected");
 
-        // Auto-reconnect with exponential backoff
-        if (!this._destroyed) {
+        // Auto-reconnect with exponential backoff, capped at MAX_RECONNECT_ATTEMPTS
+        if (!this._destroyed && this._reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           const delay = Math.min(5000 * Math.pow(1.5, this._reconnectAttempts), 30000);
           this._reconnectAttempts++;
 
@@ -127,10 +161,13 @@ export class OpenClawClient {
               });
             }
           }, delay);
+        } else if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+          this.onStatusChange?.("error");
         }
       };
 
       this.ws.onerror = () => {
+        clearConnectTimeout();
         this.onStatusChange?.("error");
         reject(new Error("WebSocket error"));
       };

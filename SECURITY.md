@@ -184,51 +184,70 @@ Using third-party messaging platforms as a bot communication layer introduces a 
 
 ---
 
-## Why Open Chat's Local WebSocket Gateway Eliminates These Vulnerabilities
+## Why Open Chat's Local WebSocket Gateway Reduces These Vulnerabilities
 
-**All of the above risks disappear when you connect directly to `ws://127.0.0.1:18789` (OpenClaw) or `http://127.0.0.1:8642` (Hermes) via Open Chat:**
+**Connecting directly to `ws://127.0.0.1:18789` (OpenClaw) or `http://127.0.0.1:8642` (Hermes) via Open Chat removes the third-party platform layer entirely — but some risks still depend on how you run and configure the app.**
 
-### ✅ No Token Exposure Risk
-- **No third-party token to steal** — authentication is local and scoped
-- Credentials never leave your machine
-- No risk of accidental commits to GitHub or logs
-- No token refresh or rotation required
+> **Threat Model Assumptions:** The security properties below hold when Open Chat is run with the default localhost-only configuration, the host machine is not compromised, and no malicious browser extensions are installed. If you configure a remote host, expose ports on a public network, or run on a shared machine, the assumptions break and additional hardening is required.
 
-### ✅ True End-to-End Control
-- **No server-side message storage** — history lives in `localStorage` or a local DB you control
-- Messages never transit through third-party infrastructure
-- No platform employees can read your conversations
-- You own the encryption keys (if implemented)
+### ✅ No Third-Party Token to Steal
+- **No third-party platform token** — there is no Telegram/Discord/Slack API key that can be leaked to GitHub or CI logs
+- Local auth tokens (if used) are scoped to your machine and not registered on any external service
+- ⚠️ **Current limitation:** Bot tokens entered in Settings are stored in `localStorage` as plaintext JSON. Avoid using high-value tokens until local encryption is implemented.
+
+### ✅ No Third-Party Message Transit
+- **Messages never leave your machine** when using the default `127.0.0.1` configuration
+- No platform server stores or processes your conversations
+- ⚠️ **Current limitation:** Message history is stored in `localStorage` with no at-rest encryption. Keep the browser profile secure.
 
 ### ✅ No Platform ToS or Ban Risk
-- **No platform ToS to violate** — no ban risk
+- **No platform ToS to violate** — no ban risk, no arbitrary account suspensions
 - You control the entire communication stack
-- No arbitrary account suspensions
 - Guaranteed availability as long as your local agent is running
 
 ### ✅ No External Rate Limits
 - **No rate limits imposed by an external service**
 - Process messages as fast as your local hardware allows
 - No throttling, queuing, or 429 errors
-- Predictable, deterministic performance
 
-### ✅ Zero C2 Attack Surface
-- **Traffic never leaves `127.0.0.1`** — no network exposure
+### ✅ No Shared C2 Infrastructure
+- **Traffic never leaves `127.0.0.1`** by default — no network exposure
 - Not vulnerable to platform-wide C2 infrastructure abuse
-- Isolated from malware campaigns on public platforms
-- No shared infrastructure with threat actors
+- Isolated from malware campaigns targeting public bot APIs
 
 ### ✅ Complete Data Sovereignty
 - **You own the entire communication path** — no third-party data access
-- GDPR/HIPAA compliance simplified (data never leaves device)
+- GDPR/HIPAA compliance simplified (data never leaves device when using localhost)
 - No data retention policies to navigate
 - No vendor lock-in or migration concerns
 
 ### ✅ No Third-Party Infrastructure Dependency
 - **Zero reliance on external service availability**
 - No platform outages affect your agents
-- No API versioning or breaking changes
-- Full control over updates and maintenance
+- No API versioning or breaking changes from an upstream platform
+
+---
+
+## Current Implementation Status
+
+The following security controls are **implemented** in the current build:
+
+| Control | Status | Notes |
+|---------|--------|-------|
+| Localhost-only enforcement warning | ✅ Implemented | UI warns when non-localhost host is entered in Settings |
+| Input sanitization (XSS) | ✅ Implemented | HTML/script stripping in `security.js` |
+| WebSocket message size limit | ✅ Implemented | 1 MB limit in `OpenClawClient.js` |
+| Connection timeout | ✅ Implemented | 30 s for both WebSocket and HTTP |
+| Max reconnect attempts | ✅ Implemented | Capped at 10 in `OpenClawClient.js` |
+| Token masking in UI | ✅ Implemented | Shows only last 4 chars in Settings |
+| Safe error logging | ✅ Implemented | Tokens/keys redacted before `console.error` |
+| Message history limits | ✅ Implemented | 10,000 messages per bot, auto-pruned |
+| Storage data validation | ✅ Implemented | Corruption detection with graceful reset |
+| Storage quota monitoring | ✅ Implemented | Console warning at 4 MB |
+| React Error Boundary | ✅ Implemented | Graceful UI recovery on render errors |
+| CSP / security headers | ✅ Implemented | Via Vite server/preview config and meta tags |
+| Token encryption at rest | 🔜 Future | `localStorage` tokens currently stored as plaintext |
+| IndexedDB with encryption | 🔜 Future | Planned for Phase 2+ |
 
 ---
 

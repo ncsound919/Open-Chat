@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { BackIcon } from "./icons/Icons.jsx";
+import { isLocalhost, maskToken } from "../utils/security.js";
 
 /**
  * Settings panel for bot configuration
@@ -152,6 +153,23 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
             onChange={updateField("host")}
             placeholder="127.0.0.1"
           />
+          {form.host && !isLocalhost(form.host) && (
+            <div
+              style={{
+                marginTop: 6,
+                padding: "6px 10px",
+                background: "#2d1f0a",
+                border: "1px solid #7c4b12",
+                borderRadius: 6,
+                fontSize: 11,
+                color: "#f59e0b",
+                lineHeight: 1.5,
+              }}
+            >
+              ⚠️ Non-localhost host detected. Use <strong>127.0.0.1</strong> for
+              security — remote hosts expose your agent to the network.
+            </div>
+          )}
         </div>
 
         <div>
@@ -177,6 +195,18 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
             placeholder="Leave blank if none"
             type="password"
           />
+          {form.token && (
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 11,
+                color: "#555568",
+                fontFamily: "monospace",
+              }}
+            >
+              Stored as: {maskToken(form.token)}
+            </div>
+          )}
         </div>
 
         <div

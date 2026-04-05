@@ -18,9 +18,11 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 - 📊 **Data Retention** — Your messages stored indefinitely on third-party servers
 - 🌐 **Platform Dependency** — Outages, API changes, and vendor lock-in
 
-**Open Chat eliminates ALL of these risks** by connecting directly to your local agents via `127.0.0.1`. No tokens to steal, no messages to intercept, no platforms to ban you.
+**Open Chat's local-first architecture removes the third-party platform layer** — connecting directly to `127.0.0.1` means no platform server ever sees your messages or credentials. The current build ships with input sanitization, connection timeouts, host validation warnings, token masking, and an Error Boundary for graceful recovery.
 
-👉 **[Read the full security analysis](./SECURITY.md)** to understand why local-first is the only secure approach for AI agents.
+> ⚠️ **Threat model note:** Full security requires running with the default localhost-only configuration. Bot tokens stored in Settings are currently saved as plaintext in `localStorage` — avoid high-value tokens until token encryption is added in a future release.
+
+👉 **[Read the full security analysis and implementation status](./SECURITY.md)**
 
 ## Features
 
