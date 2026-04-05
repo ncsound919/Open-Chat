@@ -77,6 +77,8 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
               ? "Uplift Bridge API"
               : form.protocol === "subteam"
               ? "SubTeam / Draymond"
+              : form.protocol === "draymond"
+              ? "Draymond Orchestrator"
               : "Unknown Protocol"}
           </div>
         </div>
@@ -139,6 +141,7 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
                 <option value="openclaw">OpenClaw (WebSocket)</option>
                 <option value="uplift-bridge">Uplift Bridge (Uplift Agent)</option>
                 <option value="subteam">SubTeam (CPU Design / Draymond)</option>
+                <option value="draymond">Draymond Orchestrator (Multi-Agent)</option>
               </select>
             </div>
             <div>
@@ -252,6 +255,14 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
                 /v1/chat/completions
                 <br />→ SubTeam / Draymond orchestrator · stream: true
                 <br />→ 5-tool pipeline: spec → microarch → impl → verify → run
+              </>
+            ) : form.protocol === "draymond" ? (
+              <>
+                http://{form.host || "127.0.0.1"}:{form.port || 8644}
+                /v1/orchestrate
+                <br />→ Multi-agent coordination · Agent discovery
+                <br />→ Workflow tracking · Tool execution monitoring
+                <br />→ Real-time SSE event stream
               </>
             ) : (
               <>

@@ -6,11 +6,18 @@ import { OpenClawClient } from "./protocols/OpenClawClient.js";
 import { hermesStream, hermesHealthCheck } from "./protocols/HermesClient.js";
 import { UpliftBridgeClient } from "./protocols/UpliftBridgeClient.js";
 import { subTeamStream, subTeamHealthCheck } from "./protocols/SubTeamClient.js";
+import { DraymondOrchestratorClient } from "./protocols/DraymondOrchestratorClient.js";
 import {
   loadHist,
   saveHist,
   loadBots,
   saveBots,
+  loadWorkflows,
+  saveWorkflows,
+  loadAgentRegistry,
+  saveAgentRegistry,
+  loadToolLog,
+  saveToolLog,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
 
@@ -28,13 +35,19 @@ export default function App() {
   const [statuses, setStatuses] = useState({});
   const [search, setSearch] = useState("");
 
+  // Orchestrator state
+  const [workflows, setWorkflows] = useState(loadWorkflows);
+  const [agentRegistry, setAgentRegistry] = useState(loadAgentRegistry);
+  const [toolLog, setToolLog] = useState(loadToolLog);
+
   // UI state
   const [showCfg, setShowCfg] = useState(false);
   const [cfgBot, setCfgBot] = useState(null);
   const [isNewBot, setIsNewBot] = useState(false);
 
   // Refs
-  const clawRefs = useRef({}); // botId → OpenClawClient
+  const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
+  const orchestratorRefs = useRef({}); // botId → DraymondOrchestratorClient
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
 
@@ -49,6 +62,18 @@ export default function App() {
   useEffect(() => {
     saveBots(bots);
   }, [bots]);
+
+  useEffect(() => {
+    saveWorkflows(workflows);
+  }, [workflows]);
+
+  useEffect(() => {
+    saveAgentRegistry(agentRegistry);
+  }, [agentRegistry]);
+
+  useEffect(() => {
+    saveToolLog(toolLog);
+  }, [toolLog]);
 
   // ── Status management ───────────────────────────────────────────────────────
   const setStatus = useCallback((id, status) => {
@@ -103,6 +128,46 @@ export default function App() {
     [setStatus]
   );
 
+  // ── Draymond Orchestrator connection ────────────────────────────────────────
+  const connectDraymond = useCallback(
+    async (bot) => {
+      // Disconnect existing client
+      if (orchestratorRefs.current[bot.id]) {
+        orchestratorRefs.current[bot.id].disconnect();
+        delete orchestratorRefs.current[bot.id];
+      }
+
+      const client = new DraymondOrchestratorClient(
+        bot.host,
+        bot.port,
+        bot.token
+      );
+
+      // Set up callbacks
+      client.onStatusChange = (status) => setStatus(bot.id, status);
+      client.onWorkflowUpdate = (workflow) => {
+        setWorkflows((prev) => ({ ...prev, [workflow.id]: workflow }));
+      };
+      client.onAgentDiscovered = (agent) => {
+        setAgentRegistry((prev) => ({ ...prev, [agent.id]: agent }));
+      };
+      client.onToolExecution = (execution) => {
+        setToolLog((prev) => [...prev, execution].slice(-1000));
+      };
+
+      orchestratorRefs.current[bot.id] = client;
+
+      setStatus(bot.id, "connecting");
+      try {
+        await client.connect();
+      } catch (e) {
+        console.error(`Failed to connect to ${bot.name}:`, e);
+        setStatus(bot.id, "error");
+      }
+    },
+    [setStatus]
+  );
+
   // ── Auto-connect bots on mount and when bots list changes ──────────────────
   useEffect(() => {
     // Connect OpenClaw bots
@@ -142,7 +207,16 @@ export default function App() {
           .then((ok) => setStatus(b.id, ok ? "connected" : "error"))
           .catch(() => setStatus(b.id, "disconnected"));
       });
-  }, [bots, connectClaw, connectUpliftBridge, setStatus]);
+
+    // Connect Draymond Orchestrator bots
+    bots
+      .filter((b) => b.protocol === "draymond")
+      .forEach((b) => {
+        if (!orchestratorRefs.current[b.id]) {
+          connectDraymond(b);
+        }
+      });
+  }, [bots, connectClaw, connectUpliftBridge, connectDraymond, setStatus]);
 
   // ── Disconnect all clients on unmount ───────────────────────────────────────
   useEffect(() => {
@@ -152,6 +226,10 @@ export default function App() {
       // registered during the component's lifetime, including those added after mount.
       // eslint-disable-next-line react-hooks/exhaustive-deps
       Object.values(clawRefs.current).forEach((client) => client.disconnect());
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      Object.values(orchestratorRefs.current).forEach((client) =>
+        client.disconnect()
+      );
     };
   }, []);
 
@@ -338,6 +416,58 @@ export default function App() {
         updateLastMessage(bot.id, {
           text: streamBuf.current,
           streaming: false,
+        });
+
+        // Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
+      } else if (bot.protocol === "draymond") {
+        // Draymond Orchestrator
+        const client = orchestratorRefs.current[bot.id];
+        if (!client || client.status !== "connected") {
+          throw new Error("Orchestrator not connected — check Settings");
+        }
+
+        abortRef.current = new AbortController();
+
+        const workflowId = uuid();
+        const result = await client.orchestrate(
+          {
+            workflowId,
+            task: text,
+            onPhaseUpdate: (phase) => {
+              // Update message with current phase info
+              updateLastMessage(bot.id, {
+                text: streamBuf.current,
+                streaming: true,
+                workflowId,
+                currentPhase: phase,
+              });
+            },
+            onToolExecution: (execution) => {
+              // Tool executions are already logged via callback
+              console.log("Tool executed:", execution);
+            },
+            onChunk: (delta) => {
+              streamBuf.current += delta;
+              updateLastMessage(bot.id, {
+                text: streamBuf.current,
+                streaming: true,
+                workflowId,
+              });
+            },
+          },
+          abortRef.current.signal
+        );
+
+        updateLastMessage(bot.id, {
+          text: streamBuf.current || result.text || "✓",
+          streaming: false,
+          workflowId,
         });
 
         // Mark user message as read

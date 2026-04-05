@@ -1,6 +1,9 @@
 // Storage keys
 const HIST_KEY = "openchat_hist_v1";
 const CONF_KEY = "openchat_conf_v1";
+const WORKFLOWS_KEY = "openchat_workflows_v1";
+const AGENTS_KEY = "openchat_agents_v1";
+const TOOLLOG_KEY = "openchat_toollog_v1";
 
 // Safety limits
 export const MAX_MESSAGES_PER_BOT = 10_000;
@@ -130,11 +133,95 @@ export function saveBots(bots) {
   }
 }
 
+// Load workflows from localStorage
+export function loadWorkflows() {
+  try {
+    const raw = localStorage.getItem(WORKFLOWS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
+      console.warn("[OpenChat] Workflows data corrupted — resetting.");
+      return {};
+    }
+    return parsed;
+  } catch {
+    console.warn("[OpenChat] Workflows data could not be parsed — resetting.");
+    return {};
+  }
+}
+
+// Save workflows to localStorage
+export function saveWorkflows(data) {
+  try {
+    localStorage.setItem(WORKFLOWS_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error("Failed to save workflows:", e);
+  }
+}
+
+// Load agent registry from localStorage
+export function loadAgentRegistry() {
+  try {
+    const raw = localStorage.getItem(AGENTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
+      console.warn("[OpenChat] Agent registry data corrupted — resetting.");
+      return {};
+    }
+    return parsed;
+  } catch {
+    console.warn("[OpenChat] Agent registry data could not be parsed — resetting.");
+    return {};
+  }
+}
+
+// Save agent registry to localStorage
+export function saveAgentRegistry(data) {
+  try {
+    localStorage.setItem(AGENTS_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error("Failed to save agent registry:", e);
+  }
+}
+
+// Load tool execution log from localStorage
+export function loadToolLog() {
+  try {
+    const raw = localStorage.getItem(TOOLLOG_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      console.warn("[OpenChat] Tool log data corrupted — resetting.");
+      return [];
+    }
+    // Limit to last 1000 executions
+    return parsed.slice(-1000);
+  } catch {
+    console.warn("[OpenChat] Tool log data could not be parsed — resetting.");
+    return [];
+  }
+}
+
+// Save tool execution log to localStorage
+export function saveToolLog(data) {
+  try {
+    // Limit to last 1000 executions to prevent unbounded growth
+    const limited = Array.isArray(data) ? data.slice(-1000) : [];
+    localStorage.setItem(TOOLLOG_KEY, JSON.stringify(limited));
+  } catch (e) {
+    console.error("Failed to save tool log:", e);
+  }
+}
+
 // Clear all stored data (useful for debugging)
 export function clearAllStorage() {
   try {
     localStorage.removeItem(HIST_KEY);
     localStorage.removeItem(CONF_KEY);
+    localStorage.removeItem(WORKFLOWS_KEY);
+    localStorage.removeItem(AGENTS_KEY);
+    localStorage.removeItem(TOOLLOG_KEY);
   } catch (e) {
     console.error("Failed to clear storage:", e);
   }
