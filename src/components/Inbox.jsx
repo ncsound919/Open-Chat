@@ -74,6 +74,8 @@ export function Inbox({
                 cursor: "pointer",
                 transition: "all .15s",
               }}
+              aria-pressed={mode === "dev"}
+              aria-label={`Switch to ${mode === "basic" ? "Dev" : "Basic"} mode`}
               title={`Switch to ${mode === "basic" ? "Dev" : "Basic"} mode`}
             >
               {getModeLabel(mode)}

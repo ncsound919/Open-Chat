@@ -1,7 +1,15 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { BackIcon } from "./icons/Icons.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
 import { isFieldVisible, getAvailableProtocols, getModeDefaults, MODES } from "../utils/modeConfig.js";
+
+const PROTOCOL_DEFAULT_PORTS = {
+  openclaw: "18789",
+  hermes: "8642",
+  "uplift-bridge": "8642",
+  draymond: "8644",
+  // subteam omitted intentionally — port is deployment-specific
+};
 
 /**
  * Settings panel for bot configuration
@@ -18,6 +26,8 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack, mode }) {
 
   const updateField = (key) => (e) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
+
+  const availableProtocols = useMemo(() => getAvailableProtocols(mode), [mode]);
 
   const inputStyle = {
     width: "100%",
@@ -145,19 +155,19 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack, mode }) {
                   value={form.protocol}
                   onChange={updateField("protocol")}
                 >
-                  {getAvailableProtocols(mode).includes("hermes") && (
+                  {availableProtocols.includes("hermes") && (
                     <option value="hermes">Hermes (HTTP / OpenAI-compatible)</option>
                   )}
-                  {getAvailableProtocols(mode).includes("openclaw") && (
+                  {availableProtocols.includes("openclaw") && (
                     <option value="openclaw">OpenClaw (WebSocket)</option>
                   )}
-                  {getAvailableProtocols(mode).includes("uplift-bridge") && (
+                  {availableProtocols.includes("uplift-bridge") && (
                     <option value="uplift-bridge">Uplift Bridge (Uplift Agent)</option>
                   )}
-                  {getAvailableProtocols(mode).includes("subteam") && (
+                  {availableProtocols.includes("subteam") && (
                     <option value="subteam">SubTeam (CPU Design / Draymond)</option>
                   )}
-                  {getAvailableProtocols(mode).includes("draymond") && (
+                  {availableProtocols.includes("draymond") && (
                     <option value="draymond">Draymond Orchestrator (Multi-Agent)</option>
                   )}
                 </select>
@@ -211,7 +221,7 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack, mode }) {
               style={inputStyle}
               value={form.port}
               onChange={updateField("port")}
-              placeholder={form.protocol === "openclaw" ? "18789" : "8642"}
+              placeholder={PROTOCOL_DEFAULT_PORTS[form.protocol] ?? ""}
             />
           </div>
         )}
