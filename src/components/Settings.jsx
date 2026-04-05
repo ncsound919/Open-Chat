@@ -16,7 +16,19 @@ const PROTOCOL_DEFAULT_PORTS = {
  * Settings panel for bot configuration
  * Supports both editing existing bots and creating new ones
  */
-export function Settings({ bot, isNew, onSave, onDelete, onBack, mode }) {
+export function Settings({
+  bot,
+  isNew,
+  onSave,
+  onDelete,
+  onBack,
+  mode,
+  onOpenAuditLog,
+  onOpenToolConsole,
+  onOpenDevPanel,
+  onOpenTeamPanel,
+  onOpenScheduler,
+}) {
   // In Basic mode, pre-fill with mode defaults
   const [form, setForm] = useState(() => {
     if (isNew && mode === MODES.BASIC) {
@@ -312,6 +324,120 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack, mode }) {
           </div>
         </div>
         )}
+
+        {/* Phase 4 & 5 Developer Tools (Dev mode only) */}
+        {!isNew && mode === MODES.DEV && (
+          <div>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#e8e8f0",
+                marginBottom: 10,
+                marginTop: 10,
+              }}
+            >
+              Developer Tools
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {isFieldVisible("toolLogs", mode) && onOpenAuditLog && (
+                <button
+                  onClick={onOpenAuditLog}
+                  style={{
+                    width: "100%",
+                    background: "#1c1c28",
+                    border: "1px solid #2a2a38",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    color: "#e8e8f0",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  📋 Audit Log & Tool Execution History
+                </button>
+              )}
+
+              {isFieldVisible("toolExecutionConsole", mode) && onOpenToolConsole && (
+                <button
+                  onClick={onOpenToolConsole}
+                  style={{
+                    width: "100%",
+                    background: "#1c1c28",
+                    border: "1px solid #2a2a38",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    color: "#e8e8f0",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  🔧 Tool Execution Console
+                </button>
+              )}
+
+              {isFieldVisible("developerPanel", mode) && onOpenDevPanel && (
+                <button
+                  onClick={onOpenDevPanel}
+                  style={{
+                    width: "100%",
+                    background: "#1c1c28",
+                    border: "1px solid #2a2a38",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    color: "#e8e8f0",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  💻 Developer Panel (Config, Logs, Models)
+                </button>
+              )}
+
+              {isFieldVisible("automationScheduler", mode) && onOpenScheduler && (
+                <button
+                  onClick={onOpenScheduler}
+                  style={{
+                    width: "100%",
+                    background: "#1c1c28",
+                    border: "1px solid #2a2a38",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    color: "#e8e8f0",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  ⏰ Automation Scheduler
+                </button>
+              )}
+
+              {isFieldVisible("teamManagement", mode) && onOpenTeamPanel && (
+                <button
+                  onClick={onOpenTeamPanel}
+                  style={{
+                    width: "100%",
+                    background: "#1c1c28",
+                    border: "1px solid #2a2a38",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    color: "#e8e8f0",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  👥 Team Management
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Save Button */}
@@ -357,4 +483,9 @@ Settings.propTypes = {
   onDelete: PropTypes.func,
   onBack: PropTypes.func.isRequired,
   mode: PropTypes.string.isRequired,
+  onOpenAuditLog: PropTypes.func,
+  onOpenToolConsole: PropTypes.func,
+  onOpenDevPanel: PropTypes.func,
+  onOpenTeamPanel: PropTypes.func,
+  onOpenScheduler: PropTypes.func,
 };

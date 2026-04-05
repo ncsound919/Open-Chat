@@ -26,7 +26,20 @@ export const FIELD_VISIBILITY = {
 
   // Chat features
   workflowTracking: { basic: false, dev: true },
-  toolLogs: { basic: false, dev: true }
+  toolLogs: { basic: false, dev: true },
+
+  // Phase 4: Developer Mode features
+  toolExecutionConsole: { basic: false, dev: true },
+  developerPanel: { basic: false, dev: true },
+  automationScheduler: { basic: false, dev: true },
+  modelSwitcher: { basic: false, dev: true },
+  webhookTester: { basic: false, dev: true },
+
+  // Phase 5: Team & Collaboration features
+  teamManagement: { basic: false, dev: true },
+  sharedMemory: { basic: false, dev: true },
+  roleBasedAccess: { basic: false, dev: true },
+  activityFeed: { basic: false, dev: true },
 };
 
 /**

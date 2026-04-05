@@ -2,6 +2,11 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Inbox } from "./components/Inbox.jsx";
 import { Chat } from "./components/Chat.jsx";
 import { Settings } from "./components/Settings.jsx";
+import { AuditLog } from "./components/AuditLog.jsx";
+import { ToolExecutionConsole } from "./components/ToolExecutionConsole.jsx";
+import { DeveloperPanel } from "./components/DeveloperPanel.jsx";
+import { TeamPanel } from "./components/TeamPanel.jsx";
+import { AutomationScheduler } from "./components/AutomationScheduler.jsx";
 import { OpenClawClient } from "./protocols/OpenClawClient.js";
 import { hermesStream, hermesHealthCheck } from "./protocols/HermesClient.js";
 import { UpliftBridgeClient } from "./protocols/UpliftBridgeClient.js";
@@ -20,6 +25,10 @@ import {
   saveToolLog,
   loadMode,
   saveMode,
+  loadTeams,
+  saveTeams,
+  loadSchedules,
+  saveSchedules,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
 
@@ -47,6 +56,15 @@ export default function App() {
   const [cfgBot, setCfgBot] = useState(null);
   const [isNewBot, setIsNewBot] = useState(false);
   const [mode, setMode] = useState(loadMode);
+
+  // Phase 4 & 5 state
+  const [teams, setTeams] = useState(loadTeams);
+  const [schedules, setSchedules] = useState(loadSchedules);
+  const [showAuditLog, setShowAuditLog] = useState(false);
+  const [showToolConsole, setShowToolConsole] = useState(false);
+  const [showDevPanel, setShowDevPanel] = useState(false);
+  const [showTeamPanel, setShowTeamPanel] = useState(false);
+  const [showScheduler, setShowScheduler] = useState(false);
 
   // Refs
   const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
@@ -81,6 +99,14 @@ export default function App() {
   useEffect(() => {
     saveMode(mode);
   }, [mode]);
+
+  useEffect(() => {
+    saveTeams(teams);
+  }, [teams]);
+
+  useEffect(() => {
+    saveSchedules(schedules);
+  }, [schedules]);
 
   // ── Status management ───────────────────────────────────────────────────────
   const setStatus = useCallback((id, status) => {
@@ -602,6 +628,58 @@ export default function App() {
     setMode((prev) => (prev === "basic" ? "dev" : "basic"));
   }
 
+  // ── Phase 4 & 5 handlers ────────────────────────────────────────────────────
+
+  // Tool execution
+  function handleExecuteTool(toolName, parameters) {
+    const execution = {
+      executionId: uuid(),
+      timestamp: Date.now(),
+      toolName,
+      parameters,
+      agentId: bot?.id || "manual",
+      status: "completed",
+    };
+    setToolLog((prev) => [...prev, execution].slice(-1000));
+  }
+
+  // Team management
+  function handleCreateTeam(team) {
+    setTeams((prev) => [...prev, { ...team, id: uuid() }]);
+  }
+
+  function handleInviteMember(teamId, member) {
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId
+          ? { ...t, members: [...(t.members || []), member] }
+          : t
+      )
+    );
+  }
+
+  // Automation scheduler
+  function handleCreateSchedule(schedule) {
+    setSchedules((prev) => [...prev, schedule]);
+  }
+
+  function handleUpdateSchedule(scheduleId, updates) {
+    setSchedules((prev) =>
+      prev.map((s) => (s.id === scheduleId ? { ...s, ...updates } : s))
+    );
+  }
+
+  function handleDeleteSchedule(scheduleId) {
+    setSchedules((prev) => prev.filter((s) => s.id !== scheduleId));
+  }
+
+  // Developer panel bot update
+  function handleUpdateBotFromDevPanel(updatedBot) {
+    setBots((prev) =>
+      prev.map((b) => (b.id === updatedBot.id ? updatedBot : b))
+    );
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
@@ -685,9 +763,56 @@ export default function App() {
               setShowCfg(false);
             }}
             mode={mode}
+            onOpenAuditLog={() => setShowAuditLog(true)}
+            onOpenToolConsole={() => setShowToolConsole(true)}
+            onOpenDevPanel={() => setShowDevPanel(true)}
+            onOpenTeamPanel={() => setShowTeamPanel(true)}
+            onOpenScheduler={() => setShowScheduler(true)}
           />
         )}
       </div>
+
+      {/* Phase 4 & 5 Modals */}
+      {showAuditLog && (
+        <AuditLog
+          toolLog={toolLog}
+          onClose={() => setShowAuditLog(false)}
+        />
+      )}
+
+      {showToolConsole && (
+        <ToolExecutionConsole
+          onExecute={handleExecuteTool}
+          onClose={() => setShowToolConsole(false)}
+        />
+      )}
+
+      {showDevPanel && bot && (
+        <DeveloperPanel
+          bot={bot}
+          onUpdateBot={handleUpdateBotFromDevPanel}
+          onClose={() => setShowDevPanel(false)}
+        />
+      )}
+
+      {showTeamPanel && (
+        <TeamPanel
+          teams={teams}
+          onCreateTeam={handleCreateTeam}
+          onInviteMember={handleInviteMember}
+          onClose={() => setShowTeamPanel(false)}
+        />
+      )}
+
+      {showScheduler && (
+        <AutomationScheduler
+          schedules={schedules}
+          onCreateSchedule={handleCreateSchedule}
+          onUpdateSchedule={handleUpdateSchedule}
+          onDeleteSchedule={handleDeleteSchedule}
+          onClose={() => setShowScheduler(false)}
+        />
+      )}
     </div>
   );
 }

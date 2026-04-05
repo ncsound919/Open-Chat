@@ -6,6 +6,8 @@ const AGENTS_KEY = "openchat_agents_v1";
 const TOOLLOG_KEY = "openchat_toollog_v1";
 const MODE_KEY = "openchat_mode_v1";
 const CHANNELS_KEY = "openchat_channels_v1";
+const TEAMS_KEY = "openchat_teams_v1";
+const SCHEDULES_KEY = "openchat_schedules_v1";
 
 // Safety limits
 export const MAX_MESSAGES_PER_BOT = 10_000;
@@ -310,6 +312,8 @@ export function clearAllStorage() {
     localStorage.removeItem(TOOLLOG_KEY);
     localStorage.removeItem(MODE_KEY);
     localStorage.removeItem(CHANNELS_KEY);
+    localStorage.removeItem(TEAMS_KEY);
+    localStorage.removeItem(SCHEDULES_KEY);
   } catch (e) {
     console.error("Failed to clear storage:", e);
   }
@@ -340,5 +344,61 @@ export function saveChannels(channels) {
     localStorage.setItem(CHANNELS_KEY, serialised);
   } catch (e) {
     console.error("Failed to save channels:", e);
+  }
+}
+
+// Load teams from localStorage
+export function loadTeams() {
+  try {
+    const raw = localStorage.getItem(TEAMS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      console.warn("[OpenChat] Teams data corrupted — resetting.");
+      return [];
+    }
+    return parsed;
+  } catch {
+    console.warn("[OpenChat] Teams data could not be parsed — resetting.");
+    return [];
+  }
+}
+
+// Save teams to localStorage
+export function saveTeams(teams) {
+  try {
+    const serialised = JSON.stringify(teams);
+    checkStorageQuota(serialised.length, TEAMS_KEY);
+    localStorage.setItem(TEAMS_KEY, serialised);
+  } catch (e) {
+    console.error("Failed to save teams:", e);
+  }
+}
+
+// Load automation schedules from localStorage
+export function loadSchedules() {
+  try {
+    const raw = localStorage.getItem(SCHEDULES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      console.warn("[OpenChat] Schedules data corrupted — resetting.");
+      return [];
+    }
+    return parsed;
+  } catch {
+    console.warn("[OpenChat] Schedules data could not be parsed — resetting.");
+    return [];
+  }
+}
+
+// Save automation schedules to localStorage
+export function saveSchedules(schedules) {
+  try {
+    const serialised = JSON.stringify(schedules);
+    checkStorageQuota(serialised.length, SCHEDULES_KEY);
+    localStorage.setItem(SCHEDULES_KEY, serialised);
+  } catch (e) {
+    console.error("Failed to save schedules:", e);
   }
 }
