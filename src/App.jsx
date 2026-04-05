@@ -648,12 +648,6 @@ export default function App() {
     setTeams((prev) => [...prev, { ...team, id: uuid() }]);
   }
 
-  function handleUpdateTeam(teamId, updates) {
-    setTeams((prev) =>
-      prev.map((t) => (t.id === teamId ? { ...t, ...updates } : t))
-    );
-  }
-
   function handleInviteMember(teamId, member) {
     setTeams((prev) =>
       prev.map((t) =>
@@ -805,7 +799,6 @@ export default function App() {
         <TeamPanel
           teams={teams}
           onCreateTeam={handleCreateTeam}
-          onUpdateTeam={handleUpdateTeam}
           onInviteMember={handleInviteMember}
           onClose={() => setShowTeamPanel(false)}
         />

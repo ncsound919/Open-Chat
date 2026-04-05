@@ -5,9 +5,10 @@ import PropTypes from "prop-types";
  * Team Management Panel
  * Manage team spaces, members, roles, and permissions
  */
-export function TeamPanel({ teams, onCreateTeam, onUpdateTeam, onInviteMember, onClose }) {
+export function TeamPanel({ teams, onCreateTeam, onInviteMember, onClose }) {
   const [activeTab, setActiveTab] = useState("spaces");
-  const [selectedTeam, setSelectedTeam] = useState(null);
+  const [selectedTeamId, setSelectedTeamId] = useState(null);
+  const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
@@ -272,7 +273,7 @@ export function TeamPanel({ teams, onCreateTeam, onUpdateTeam, onInviteMember, o
                       marginBottom: 12,
                       cursor: "pointer",
                     }}
-                    onClick={() => setSelectedTeam(team)}
+                    onClick={() => setSelectedTeamId(team.id)}
                   >
                     <div
                       style={{
@@ -536,7 +537,6 @@ export function TeamPanel({ teams, onCreateTeam, onUpdateTeam, onInviteMember, o
 TeamPanel.propTypes = {
   teams: PropTypes.array.isRequired,
   onCreateTeam: PropTypes.func.isRequired,
-  onUpdateTeam: PropTypes.func.isRequired,
   onInviteMember: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };
