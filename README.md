@@ -7,6 +7,23 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Why Open Chat?
+
+**Third-party messaging platforms are fundamentally insecure for AI agent communication.** Telegram, Slack, Discord, and WhatsApp introduce critical vulnerabilities:
+
+- 🔓 **Token Exposure** — Bot credentials leak through GitHub, logs, and infrastructure breaches
+- 🕵️ **No E2E Encryption** — Platform employees and attackers can read all your conversations
+- 🎯 **C2 Attack Vector** — Your bot shares infrastructure with active malware operations
+- ⛔ **Rate Limits & Bans** — Arbitrary account suspensions and message throttling
+- 📊 **Data Retention** — Your messages stored indefinitely on third-party servers
+- 🌐 **Platform Dependency** — Outages, API changes, and vendor lock-in
+
+**Open Chat's local-first architecture removes the third-party platform layer** — connecting directly to `127.0.0.1` means no platform server ever sees your messages or credentials. The current build ships with input sanitization, connection timeouts, host validation warnings, token masking, and an Error Boundary for graceful recovery.
+
+> ⚠️ **Threat model note:** Full security requires running with the default localhost-only configuration. Bot tokens stored in Settings are currently saved as plaintext in `localStorage` — avoid high-value tokens until token encryption is added in a future release.
+
+👉 **[Read the full security analysis and implementation status](./SECURITY.md)**
+
 ## Features
 
 ### ✨ Current (MVP)

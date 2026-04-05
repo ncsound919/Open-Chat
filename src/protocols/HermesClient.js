@@ -2,22 +2,47 @@
  * Hermes HTTP/SSE streaming client
  * OpenAI-compatible API with Server-Sent Events
  */
+
+/** Connection timeout in milliseconds for the initial HTTP request. */
+const CONNECT_TIMEOUT_MS = 30_000;
+
 export async function hermesStream(host, port, token, messages, onChunk, signal) {
   const url = `http://${host}:${port}/v1/chat/completions`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    signal,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
-      model: "hermes-agent",
-      messages,
-      stream: true,
-    }),
-  });
+  // Combine caller's abort signal with a connection timeout
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), CONNECT_TIMEOUT_MS);
+
+  // Merge external signal (stop button) with the timeout signal
+  const combinedSignal = signal
+    ? AbortSignal.any
+      ? AbortSignal.any([signal, timeoutController.signal])
+      : (() => {
+          const merged = new AbortController();
+          signal.addEventListener("abort", () => merged.abort());
+          timeoutController.signal.addEventListener("abort", () => merged.abort());
+          return merged.signal;
+        })()
+    : timeoutController.signal;
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      signal: combinedSignal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        model: "hermes-agent",
+        messages,
+        stream: true,
+      }),
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
