@@ -62,8 +62,6 @@ export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSched
     const parts = cronExpression.split(" ");
     if (parts.length < 5) return "Invalid cron expression";
 
-    const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
-
     if (cronExpression === "0 0 * * *") return "Daily at midnight";
     if (cronExpression === "0 * * * *") return "Every hour";
     if (cronExpression === "*/5 * * * *") return "Every 5 minutes";
