@@ -309,7 +309,11 @@ export class DraymondOrchestratorClient {
       });
 
       if (res.ok) {
-        this.activeWorkflows[workflowId].status = "cancelled";
+        if (!this.activeWorkflows[workflowId]) {
+          this.activeWorkflows[workflowId] = { status: "cancelled" };
+        } else {
+          this.activeWorkflows[workflowId].status = "cancelled";
+        }
       }
     } catch (error) {
       console.warn("Failed to cancel workflow:", error);
