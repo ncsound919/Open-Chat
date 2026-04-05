@@ -9,7 +9,6 @@ import {
   getLastMessage,
   getUnreadCount,
   formatUnread,
-  STATUS_COLOR,
 } from "../utils/helpers.js";
 
 /**
