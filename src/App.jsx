@@ -448,9 +448,8 @@ export default function App() {
                 currentPhase: phase,
               });
             },
-            onToolExecution: (execution) => {
-              // Tool executions are already logged via callback
-              console.log("Tool executed:", execution);
+            onToolExecution: () => {
+              // Tool executions are handled elsewhere; avoid logging raw payloads here.
             },
             onChunk: (delta) => {
               streamBuf.current += delta;
