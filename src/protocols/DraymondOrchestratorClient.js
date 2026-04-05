@@ -408,47 +408,156 @@ export class DraymondOrchestratorClient {
       this.eventSource.close();
     }
 
-    const url = `${this.baseUrl}/v1/events${
-      this.token ? `?token=${encodeURIComponent(this.token)}` : ""
-    }`;
+    const url = `${this.baseUrl}/v1/events`;
+    const controller = new AbortController();
+    const connection = {
+      close: () => controller.abort(),
+    };
 
-    try {
-      this.eventSource = new EventSource(url);
+    this.eventSource = connection;
 
-      this.eventSource.onopen = () => {
+    const headers = this.token
+      ? { Authorization: `Bearer ${this.token}` }
+      : {};
+
+    const handleStreamError = (error) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      console.warn("Event stream error", error);
+      this.eventSource?.close();
+      this.eventSource = null;
+
+      // Reconnect with backoff
+      if (
+        this.status === "connected" &&
+        this.reconnectAttempts < this.maxReconnectAttempts
+      ) {
+        this.reconnectAttempts++;
+        setTimeout(() => {
+          if (this.status === "connected") {
+            this._connectEventStream();
+          }
+        }, EVENT_STREAM_RECONNECT_DELAY_MS * this.reconnectAttempts);
+      }
+    };
+
+    (async () => {
+      try {
+        const res = await fetch(url, {
+          headers,
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+
+        if (!res.body) {
+          throw new Error("Event stream response body is not available");
+        }
+
         console.log("Event stream connected");
         this.reconnectAttempts = 0;
-      };
 
-      this.eventSource.onerror = () => {
-        console.warn("Event stream error");
-        this.eventSource?.close();
-        this.eventSource = null;
+        await this._consumeEventStream(res.body, controller.signal);
 
-        // Reconnect with backoff
-        if (
-          this.status === "connected" &&
-          this.reconnectAttempts < this.maxReconnectAttempts
-        ) {
-          this.reconnectAttempts++;
-          setTimeout(() => {
-            if (this.status === "connected") {
-              this._connectEventStream();
-            }
-          }, EVENT_STREAM_RECONNECT_DELAY_MS * this.reconnectAttempts);
+        if (!controller.signal.aborted) {
+          handleStreamError(new Error("Event stream closed"));
         }
-      };
+      } catch (error) {
+        handleStreamError(error);
+      }
+    })();
+  }
 
-      this.eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          this._handleEvent(data);
-        } catch (e) {
-          console.warn("Failed to parse event:", e);
+  /**
+   * Consume an SSE response body
+   * @private
+   * @param {ReadableStream} body
+   * @param {AbortSignal} signal
+   */
+  async _consumeEventStream(body, signal) {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+
+        if (done) {
+          break;
         }
-      };
-    } catch (error) {
-      console.warn("Failed to connect event stream:", error);
+
+        if (signal.aborted) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        buffer = this._processEventStreamBuffer(buffer);
+      }
+
+      buffer += decoder.decode();
+      this._processEventStreamBuffer(buffer, true);
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /**
+   * Process buffered SSE data and return any incomplete trailing chunk
+   * @private
+   * @param {string} buffer
+   * @param {boolean} flush
+   * @returns {string}
+   */
+  _processEventStreamBuffer(buffer, flush = false) {
+    const normalizedBuffer = buffer.replace(/\r\n/g, "\n");
+    const delimiter = "\n\n";
+    const lastDelimiter = normalizedBuffer.lastIndexOf(delimiter);
+
+    if (lastDelimiter === -1) {
+      if (flush && normalizedBuffer.trim()) {
+        this._handleEventStreamChunk(normalizedBuffer);
+      }
+      return flush ? "" : normalizedBuffer;
+    }
+
+    const complete = normalizedBuffer.slice(0, lastDelimiter);
+    const remainder = normalizedBuffer.slice(lastDelimiter + delimiter.length);
+
+    for (const chunk of complete.split(delimiter)) {
+      this._handleEventStreamChunk(chunk);
+    }
+
+    return flush ? "" : remainder;
+  }
+
+  /**
+   * Handle a single SSE event chunk
+   * @private
+   * @param {string} chunk
+   */
+  _handleEventStreamChunk(chunk) {
+    const dataLines = [];
+
+    for (const line of chunk.split("\n")) {
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    }
+
+    if (dataLines.length === 0) {
+      return;
+    }
+
+    try {
+      const data = JSON.parse(dataLines.join("\n"));
+      this._handleEvent(data);
+    } catch (e) {
+      console.warn("Failed to parse event:", e);
     }
   }
 
