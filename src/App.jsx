@@ -9,7 +9,6 @@ import {
   saveHist,
   loadBots,
   saveBots,
-  DEFAULT_BOTS,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
 
