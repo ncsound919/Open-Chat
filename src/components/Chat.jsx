@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import { MessageBubble } from "./MessageBubble.jsx";
 import {
   BackIcon,
