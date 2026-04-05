@@ -7,6 +7,7 @@ import {
   DoubleCheck,
   TypingDots,
 } from "./icons/Icons.jsx";
+import { OnDeviceInsights } from "./OnDeviceInsights.jsx";
 
 /** Validate a CSS color string — only allow hex, rgb(a), hsl(a), named colors */
 const SAFE_COLOR_RE =
@@ -25,6 +26,7 @@ export const MessageBubble = memo(function MessageBubble({
   msg,
   bot,
   onDelete,
+  lastUserMessage,
 }) {
   const [menu, setMenu] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -61,7 +63,8 @@ export const MessageBubble = memo(function MessageBubble({
     <div
       style={{
         display: "flex",
-        justifyContent: isUser ? "flex-end" : "flex-start",
+        flexDirection: "column",
+        alignItems: isUser ? "flex-end" : "flex-start",
         marginBottom: 4,
         position: "relative",
       }}
@@ -73,6 +76,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div
         style={{
           maxWidth: "78%",
+          width: "100%",
           background: msg.error ? "#2a1a1a" : isUser ? color : "#1c1c28",
           color: msg.error ? "#ef4444" : isUser ? "#0d0d14" : "#e8e8f0",
           border: msg.error ? "1px solid #ef444440" : "none",
@@ -123,6 +127,16 @@ export const MessageBubble = memo(function MessageBubble({
           </span>
         )}
       </div>
+
+      {/* On-device companion insights — Draymond bot only, after streaming completes */}
+      {!isUser && !msg.streaming && !msg.error && bot.protocol === "draymond" && msg.text && (
+        <OnDeviceInsights
+          botMessage={msg.text}
+          userMessage={lastUserMessage || ""}
+          accentColor={color}
+          width="78%"
+        />
+      )}
 
       {/* Right-click context menu */}
       {menu && (
@@ -205,6 +219,8 @@ MessageBubble.propTypes = {
   }).isRequired,
   bot: PropTypes.shape({
     color: PropTypes.string.isRequired,
+    protocol: PropTypes.string,
   }).isRequired,
   onDelete: PropTypes.func.isRequired,
+  lastUserMessage: PropTypes.string,
 };

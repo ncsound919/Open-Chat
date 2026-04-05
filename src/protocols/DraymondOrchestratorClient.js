@@ -20,6 +20,8 @@
 /** Connection timeout in milliseconds */
 const CONNECT_TIMEOUT_MS = 30_000;
 
+const LOCALHOST_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+
 /** Polling interval for workflow status (ms) */
 const WORKFLOW_POLL_INTERVAL_MS = 1_000;
 
@@ -35,9 +37,28 @@ export class DraymondOrchestratorClient {
     this.host = host;
     this.port = port;
     this.token = token;
-    // Next.js App Router serves all API routes under /api, so the v1
-    // companion endpoints live at /api/v1/*, not /v1/*.
-    this.baseUrl = `http://${host}:${port}/api`;
+
+    // Support three forms:
+    //   1. Full URL  — "https://xxxx.trycloudflare.com"  → use as-is
+    //   2. Hostname with no port — "xxxx.trycloudflare.com" → prefix https://
+    //   3. Local host + port   — "127.0.0.1", 8644         → http://<host>:<port>
+    //
+    // Next.js App Router serves all API routes under /api, so v1 endpoints
+    // live at /api/v1/*, not /v1/*.
+    const trimmedHost = String(host || "").trim();
+    const isFullUrl = /^https?:\/\//i.test(trimmedHost);
+    const isRemoteHost = isFullUrl || !LOCALHOST_HOSTS.has(trimmedHost.toLowerCase());
+
+    if (isFullUrl) {
+      // Already a full URL
+      this.baseUrl = `${trimmedHost.replace(/\/$/, "")}/api`;
+    } else if (isRemoteHost) {
+      // Remote hostname — prefer HTTPS tunnel URL even if a stale port is still saved.
+      this.baseUrl = `https://${trimmedHost}/api`;
+    } else {
+      // Classic local host:port
+      this.baseUrl = `http://${trimmedHost}:${port}/api`;
+    }
 
     // Callbacks
     this.onStatusChange = null;
@@ -469,7 +490,7 @@ export class DraymondOrchestratorClient {
       ? { Authorization: `Bearer ${this.token}` }
       : {};
 
-    const handleStreamError = (error) => {
+    const handleStreamError = () => {
       if (controller.signal.aborted) {
         return;
       }

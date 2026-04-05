@@ -20,6 +20,26 @@ function safeColor(color, fallback = "#818cf8") {
     : fallback;
 }
 
+function isFullUrl(value) {
+  return /^https?:\/\//i.test(String(value || "").trim());
+}
+
+function isLocalhostHost(value) {
+  const host = String(value || "").trim().toLowerCase();
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+}
+
+function getDraymondConnectionLabel(bot) {
+  const host = String(bot.host || "127.0.0.1").trim();
+  if (isFullUrl(host)) {
+    return `${host.replace(/\/$/, "")}/api/v1`;
+  }
+  if (!isLocalhostHost(host)) {
+    return `https://${host}/api/v1`;
+  }
+  return `http://${host}:${bot.port || 8644}/api/v1`;
+}
+
 /**
  * Chat component - displays conversation with a single bot
  */
@@ -261,7 +281,7 @@ export function Chat({
                 return `Connects to Uplift Bridge at\nhttp://${bot.host}:${bot.port}`;
               }
               if (bot.protocol === "draymond") {
-                return `Connects to Draymond Orchestrator at\nhttp://${bot.host}:${bot.port}/api/v1`;
+                return `Connects to Draymond Orchestrator at\n${getDraymondConnectionLabel(bot)}`;
               }
               if (bot.protocol === "subteam") {
                 return `Connects to SubTeam agent at\nhttp://${bot.host}:${bot.port}`;
@@ -272,14 +292,28 @@ export function Chat({
           </div>
         )}
 
-        {messages.map((msg, i) => (
-          <MessageBubble
-            key={msg.id || i}
-            msg={msg}
-            bot={bot}
-            onDelete={() => onDeleteMessage(msg.id)}
-          />
-        ))}
+        {messages.map((msg, i) => {
+          // For bot messages, find the nearest preceding user message text
+          // so OnDeviceInsights can use it as context for the insight prompt.
+          let lastUserMessage = "";
+          if (msg.role !== "user") {
+            for (let j = i - 1; j >= 0; j--) {
+              if (messages[j].role === "user") {
+                lastUserMessage = messages[j].text || "";
+                break;
+              }
+            }
+          }
+          return (
+            <MessageBubble
+              key={msg.id || i}
+              msg={msg}
+              bot={bot}
+              onDelete={() => onDeleteMessage(msg.id)}
+              lastUserMessage={lastUserMessage}
+            />
+          );
+        })}
 
         <div ref={bottomRef} />
       </div>

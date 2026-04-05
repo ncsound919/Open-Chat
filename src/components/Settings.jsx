@@ -62,6 +62,19 @@ export function Settings({
     marginBottom: 2,
   };
 
+  const isFullUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
+
+  const getDraymondBaseUrl = (host, port) => {
+    const normalizedHost = String(host || "127.0.0.1").trim();
+    if (isFullUrl(normalizedHost)) {
+      return normalizedHost.replace(/\/$/, "");
+    }
+    if (!isLocalhost(normalizedHost)) {
+      return `https://${normalizedHost}`;
+    }
+    return `http://${normalizedHost}:${port || 8644}`;
+  };
+
   return (
     <div
       style={{
@@ -200,14 +213,39 @@ export function Settings({
 
         {isFieldVisible("host", mode) && (
           <div>
-            <span style={labelStyle}>Host</span>
+            <span style={labelStyle}>
+              {form.protocol === "draymond" ? "Host / Tunnel URL" : "Host"}
+            </span>
             <input
               style={inputStyle}
               value={form.host}
               onChange={updateField("host")}
-              placeholder="127.0.0.1"
+              placeholder={
+                form.protocol === "draymond"
+                  ? "xxxx-xxxx.trycloudflare.com"
+                  : "127.0.0.1"
+              }
             />
-            {form.host && !isLocalhost(form.host) && (
+            {/* Draymond is designed for remote access via Cloudflare tunnel */}
+            {form.protocol === "draymond" && form.host && !isLocalhost(form.host) && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 10px",
+                  background: "#0a1f1a",
+                  border: "1px solid #12715a",
+                  borderRadius: 6,
+                  fontSize: 11,
+                  color: "#34d399",
+                  lineHeight: 1.5,
+                }}
+              >
+                Remote tunnel detected — Open-Chat will connect over HTTPS.
+                Saved ports are ignored for remote tunnel hosts.
+              </div>
+            )}
+            {/* Warn about remote hosts for local-only protocols */}
+            {form.protocol !== "draymond" && form.host && !isLocalhost(form.host) && (
               <div
                 style={{
                   marginTop: 6,
@@ -220,7 +258,7 @@ export function Settings({
                   lineHeight: 1.5,
                 }}
               >
-                ⚠️ Non-localhost host detected. Use <strong>127.0.0.1</strong> for
+                ⚠ Non-localhost host detected. Use <strong>127.0.0.1</strong> for
                 security — remote hosts expose your agent to the network.
               </div>
             )}
@@ -307,8 +345,7 @@ export function Settings({
               </>
             ) : form.protocol === "draymond" ? (
               <>
-                http://{form.host || "127.0.0.1"}:{form.port || 8644}
-                /v1/orchestrate
+                {getDraymondBaseUrl(form.host, form.port)}/api/v1/orchestrate
                 <br />→ Multi-agent coordination · Agent discovery
                 <br />→ Workflow tracking · Tool execution monitoring
                 <br />→ Real-time SSE event stream
