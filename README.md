@@ -27,7 +27,7 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 ## Features
 
 ### ✨ Current (MVP)
-- **Multi-Agent Support**: Chat with OpenClaw (WebSocket) and Hermes (HTTP) agents
+- **Multi-Agent Support**: Chat with OpenClaw (WebSocket), Hermes (HTTP), Uplift Bridge, and SubTeam agents
 - **Real-Time Streaming**: See AI responses as they're generated, token by token
 - **Markdown Rendering**: Code blocks, lists, bold, italic, inline code — all beautifully formatted
 - **Local-First**: All data stored in your browser — zero telemetry, 100% private
@@ -37,12 +37,13 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 - **Connection Status**: Real-time indicators for each agent
 - **Auto-Reconnect**: WebSocket connections automatically recover
 - **Responsive Design**: Works perfectly on desktop and mobile browsers
+- **4 Protocol Support**: OpenClaw, Hermes, Uplift Bridge, SubTeam/Draymond
 
 ## Quick Start
 
 ### Prerequisites
 - **Node.js** 18+ and npm
-- **OpenClaw** or **Hermes** agent running locally
+- **One or more agents**: OpenClaw, Hermes, Uplift Agent, or SubTeam
 
 ### Installation
 
@@ -88,6 +89,28 @@ npm run preview
    - **Protocol**: Hermes (HTTP)
    - **Host**: `127.0.0.1` / **Port**: `8642`
    - **Token**: Your `API_SERVER_KEY` (if set)
+
+### Uplift Bridge Setup
+
+1. Start Uplift in remote control mode: `uplift remote-control`
+2. Complete OAuth authentication to get your access token
+3. In Open-Chat, configure your bot:
+   - **Protocol**: Uplift Bridge (Uplift Agent)
+   - **Host**: Your bridge endpoint host
+   - **Port**: Your bridge endpoint port
+   - **Token**: Your OAuth access token
+
+### SubTeam / Draymond Setup
+
+1. Set up a SubTeam HTTP wrapper (see [AGENT_INTEGRATION.md](./AGENT_INTEGRATION.md))
+2. Start your wrapper server
+3. In Open-Chat, configure your bot:
+   - **Protocol**: SubTeam (CPU Design / Draymond)
+   - **Host**: `127.0.0.1`
+   - **Port**: Your wrapper port (e.g., `8643`)
+   - **Token**: Optional auth token
+
+📘 **For detailed setup instructions**, see [AGENT_INTEGRATION.md](./AGENT_INTEGRATION.md)
 
 ## Usage
 
