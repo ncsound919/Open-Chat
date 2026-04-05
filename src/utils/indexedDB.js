@@ -14,16 +14,28 @@ const STORES = {
   MEMORY: "memory",
 };
 
+// Cached database connection promise – reused across all operations
+let dbPromise = null;
+
 /**
- * Open or create the IndexedDB database
+ * Open or create the IndexedDB database.
+ * The connection is cached so subsequent calls reuse the same handle.
  * @returns {Promise<IDBDatabase>}
  */
 export function openDatabase() {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+
+  dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () => {
+      dbPromise = null; // Allow retry after error
+      reject(request.error);
+    };
     request.onsuccess = () => resolve(request.result);
+    request.onblocked = () => {
+      console.warn("OpenChatDB: upgrade blocked by another open connection");
+    };
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
@@ -143,17 +155,19 @@ export async function clearChannelMessages(channelId) {
     const store = transaction.objectStore(STORES.MESSAGES);
     const index = store.index("channelId");
 
-    const request = index.openCursor(IDBKeyRange.only(channelId));
     let count = 0;
 
+    transaction.oncomplete = () => resolve(count);
+    transaction.onabort = () => reject(transaction.error);
+    transaction.onerror = () => reject(transaction.error);
+
+    const request = index.openCursor(IDBKeyRange.only(channelId));
     request.onsuccess = (event) => {
       const cursor = event.target.result;
       if (cursor) {
         cursor.delete();
         count++;
         cursor.continue();
-      } else {
-        resolve(count);
       }
     };
 

@@ -60,20 +60,25 @@ export function AdvancedSearch({ bots, onSelectMessage, onClose }) {
   }, [query, filters]);
 
   const highlightQuery = (text) => {
-    if (!query.trim()) return text;
+    if (!query.trim() || !text) return text;
 
     const terms = query
       .toLowerCase()
       .split(/\s+/)
       .filter((t) => t.length > 0);
-    let result = text;
 
-    terms.forEach((term) => {
-      const regex = new RegExp(`(${term})`, "gi");
-      result = result.replace(regex, "<mark>$1</mark>");
-    });
+    // Escape regex metacharacters in each term to prevent ReDoS / incorrect matches
+    const escapedTerms = terms.map((t) =>
+      t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    );
 
-    return result;
+    const regex = new RegExp(`(${escapedTerms.join("|")})`, "gi");
+
+    // Split on captured matches: odd indices are matches, even indices are plain text
+    const parts = text.split(regex);
+    return parts.map((part, i) =>
+      i % 2 === 1 ? <mark key={`${i}-${part}`}>{part}</mark> : part
+    );
   };
 
   const formatDate = (timestamp) => {
@@ -402,10 +407,9 @@ export function AdvancedSearch({ bots, onSelectMessage, onClose }) {
                         maxHeight: 100,
                         overflow: "hidden",
                       }}
-                      dangerouslySetInnerHTML={{
-                        __html: highlightQuery(msg.text?.substring(0, 300) || ""),
-                      }}
-                    />
+                    >
+                      {highlightQuery(msg.text?.substring(0, 300) || "")}
+                    </div>
                   </div>
                 );
               })}

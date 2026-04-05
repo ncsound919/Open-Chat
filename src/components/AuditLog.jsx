@@ -9,8 +9,8 @@ export function AuditLog({ toolLog, onClose }) {
   const [filter, setFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
 
-  // Convert toolLog object to sorted array
-  const entries = Object.values(toolLog).sort(
+  // Sort entries newest-first (slice to avoid mutating the prop)
+  const entries = toolLog.slice().sort(
     (a, b) => b.timestamp - a.timestamp
   );
 
@@ -354,6 +354,6 @@ export function AuditLog({ toolLog, onClose }) {
 }
 
 AuditLog.propTypes = {
-  toolLog: PropTypes.object.isRequired,
+  toolLog: PropTypes.array.isRequired,
   onClose: PropTypes.func.isRequired,
 };
