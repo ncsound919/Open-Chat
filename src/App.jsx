@@ -18,6 +18,8 @@ import {
   saveAgentRegistry,
   loadToolLog,
   saveToolLog,
+  loadMode,
+  saveMode,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
 
@@ -44,6 +46,7 @@ export default function App() {
   const [showCfg, setShowCfg] = useState(false);
   const [cfgBot, setCfgBot] = useState(null);
   const [isNewBot, setIsNewBot] = useState(false);
+  const [mode, setMode] = useState(loadMode);
 
   // Refs
   const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
@@ -74,6 +77,10 @@ export default function App() {
   useEffect(() => {
     saveToolLog(toolLog);
   }, [toolLog]);
+
+  useEffect(() => {
+    saveMode(mode);
+  }, [mode]);
 
   // ── Status management ───────────────────────────────────────────────────────
   const setStatus = useCallback((id, status) => {
@@ -583,6 +590,10 @@ export default function App() {
     setActiveId(null);
   }
 
+  function toggleMode() {
+    setMode((prev) => (prev === "basic" ? "dev" : "basic"));
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
@@ -613,6 +624,8 @@ export default function App() {
           onOpenChat={openChat}
           onOpenSettings={openSettings}
           onAddBot={addBot}
+          mode={mode}
+          onToggleMode={toggleMode}
         />
       </div>
 
@@ -663,6 +676,7 @@ export default function App() {
               setCfgBot(null);
               setShowCfg(false);
             }}
+            mode={mode}
           />
         )}
       </div>

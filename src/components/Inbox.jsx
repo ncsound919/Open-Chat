@@ -10,6 +10,7 @@ import {
   getUnreadCount,
   formatUnread,
 } from "../utils/helpers.js";
+import { isFieldVisible, getModeLabel } from "../utils/modeConfig.js";
 
 /**
  * Inbox component - shows list of all bots
@@ -23,6 +24,8 @@ export function Inbox({
   onOpenChat,
   onOpenSettings,
   onAddBot,
+  mode,
+  onToggleMode,
 }) {
   const filtered = bots.filter((b) =>
     b.name.toLowerCase().includes(search.toLowerCase())
@@ -47,16 +50,37 @@ export function Inbox({
             marginBottom: 16,
           }}
         >
-          <h1
-            style={{
-              fontSize: 28,
-              fontWeight: 700,
-              color: "#f0f0f5",
-              letterSpacing: "-0.02em",
-            }}
-          >
-            Messages
-          </h1>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <h1
+              style={{
+                fontSize: 28,
+                fontWeight: 700,
+                color: "#f0f0f5",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Messages
+            </h1>
+            <button
+              onClick={onToggleMode}
+              style={{
+                background: mode === "dev" ? "#34d39920" : "#1c1c28",
+                border: mode === "dev" ? "1px solid #34d39940" : "1px solid #2c2c38",
+                borderRadius: 8,
+                padding: "4px 10px",
+                fontSize: 11,
+                fontWeight: 600,
+                color: mode === "dev" ? "#34d399" : "#888",
+                cursor: "pointer",
+                transition: "all .15s",
+              }}
+              aria-pressed={mode === "dev"}
+              aria-label={`Switch to ${mode === "basic" ? "Dev" : "Basic"} mode`}
+              title={`Switch to ${mode === "basic" ? "Dev" : "Basic"} mode`}
+            >
+              {getModeLabel(mode)}
+            </button>
+          </div>
           <button
             onClick={onAddBot}
             style={{
@@ -189,17 +213,19 @@ export function Inbox({
                     >
                       {bot.name}
                     </span>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        color: "#333347",
-                        background: "#1c1c28",
-                        padding: "1px 6px",
-                        borderRadius: 4,
-                      }}
-                    >
-                      {bot.protocol === "openclaw" ? "WS" : "HTTP"}
-                    </span>
+                    {isFieldVisible("protocolBadge", mode) && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: "#333347",
+                          background: "#1c1c28",
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                        }}
+                      >
+                        {bot.protocol === "openclaw" ? "WS" : "HTTP"}
+                      </span>
+                    )}
                   </div>
                   {lastMsg && (
                     <span
