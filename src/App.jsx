@@ -673,6 +673,21 @@ export default function App() {
     setSchedules((prev) => prev.filter((s) => s.id !== scheduleId));
   }
 
+  // Workflow management
+  function handleCreateWorkflow(workflow) {
+    setWorkflows((prev) => [...prev, workflow]);
+  }
+
+  function handleUpdateWorkflow(workflowId, updates) {
+    setWorkflows((prev) =>
+      prev.map((w) => (w.id === workflowId ? { ...w, ...updates } : w))
+    );
+  }
+
+  function handleDeleteWorkflow(workflowId) {
+    setWorkflows((prev) => prev.filter((w) => w.id !== workflowId));
+  }
+
   // Developer panel bot update
   function handleUpdateBotFromDevPanel(updatedBot) {
     setBots((prev) =>
@@ -807,9 +822,13 @@ export default function App() {
       {showScheduler && (
         <AutomationScheduler
           schedules={schedules}
+          workflows={workflows}
           onCreateSchedule={handleCreateSchedule}
           onUpdateSchedule={handleUpdateSchedule}
           onDeleteSchedule={handleDeleteSchedule}
+          onCreateWorkflow={handleCreateWorkflow}
+          onUpdateWorkflow={handleUpdateWorkflow}
+          onDeleteWorkflow={handleDeleteWorkflow}
           onClose={() => setShowScheduler(false)}
         />
       )}

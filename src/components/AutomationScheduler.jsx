@@ -1,12 +1,16 @@
 import React, { useState } from "react";
 import PropTypes from "prop-types";
+import { WorkflowBuilder } from "./WorkflowBuilder.jsx";
 
 /**
  * Automation Scheduler
- * Configure cron jobs and scheduled tasks for agents
+ * Configure cron jobs, scheduled tasks, and workflows for agents
  */
-export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSchedule, onDeleteSchedule, onClose }) {
+export function AutomationScheduler({ schedules, workflows, onCreateSchedule, onUpdateSchedule, onDeleteSchedule, onCreateWorkflow, onUpdateWorkflow, onDeleteWorkflow, onClose }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showWorkflowBuilder, setShowWorkflowBuilder] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState(null);
+  const [activeTab, setActiveTab] = useState("schedules"); // schedules | workflows
   const [newSchedule, setNewSchedule] = useState({
     name: "",
     cronExpression: "0 0 * * *",
@@ -140,7 +144,41 @@ export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSched
             </button>
           </div>
           <div style={{ fontSize: 13, color: "#9090a0" }}>
-            Schedule automated tasks and cron jobs for your agents
+            Schedule automated tasks, cron jobs, and multi-step workflows
+          </div>
+
+          {/* Tabs */}
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+            <button
+              onClick={() => setActiveTab("schedules")}
+              style={{
+                background: activeTab === "schedules" ? "#2a2a38" : "transparent",
+                color: activeTab === "schedules" ? "#e8e8f0" : "#9090a0",
+                border: "none",
+                borderRadius: 6,
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              Simple Schedules
+            </button>
+            <button
+              onClick={() => setActiveTab("workflows")}
+              style={{
+                background: activeTab === "workflows" ? "#2a2a38" : "transparent",
+                color: activeTab === "workflows" ? "#e8e8f0" : "#9090a0",
+                border: "none",
+                borderRadius: 6,
+                padding: "8px 16px",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+            >
+              Workflows
+            </button>
           </div>
         </div>
 
@@ -152,33 +190,35 @@ export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSched
             padding: "20px 24px",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ fontSize: 14, fontWeight: 500, color: "#e8e8f0" }}>
-              Scheduled Tasks
-            </div>
-            <button
-              onClick={() => setShowCreateForm(!showCreateForm)}
-              style={{
-                background: "#818cf8",
-                color: "#0d0d14",
-                border: "none",
-                borderRadius: 8,
-                padding: "8px 16px",
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: "pointer",
-              }}
-            >
-              + New Schedule
-            </button>
-          </div>
+          {activeTab === "schedules" && (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 500, color: "#e8e8f0" }}>
+                  Scheduled Tasks
+                </div>
+                <button
+                  onClick={() => setShowCreateForm(!showCreateForm)}
+                  style={{
+                    background: "#818cf8",
+                    color: "#0d0d14",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  + New Schedule
+                </button>
+              </div>
 
           {/* Create Form */}
           {showCreateForm && (
@@ -475,6 +515,167 @@ export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSched
               </div>
             ))
           )}
+            </>
+          )}
+
+          {/* Workflows Tab */}
+          {activeTab === "workflows" && (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 500, color: "#e8e8f0" }}>
+                  Automation Workflows
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingWorkflow(null);
+                    setShowWorkflowBuilder(true);
+                  }}
+                  style={{
+                    background: "#818cf8",
+                    color: "#0d0d14",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  + New Workflow
+                </button>
+              </div>
+
+              {!workflows || workflows.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "40px 20px",
+                    color: "#666680",
+                  }}
+                >
+                  No workflows yet. Create a multi-step workflow to automate complex tasks.
+                </div>
+              ) : (
+                workflows.map((workflow) => (
+                  <div
+                    key={workflow.id}
+                    style={{
+                      background: "#0d0d14",
+                      border: "1px solid #2a2a38",
+                      borderRadius: 8,
+                      padding: "14px 16px",
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: 15,
+                            fontWeight: 500,
+                            color: "#e8e8f0",
+                            marginBottom: 4,
+                          }}
+                        >
+                          {workflow.name}
+                        </div>
+                        {workflow.description && (
+                          <div style={{ fontSize: 12, color: "#666680", marginBottom: 6 }}>
+                            {workflow.description}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 12, color: "#9090a0", marginBottom: 6 }}>
+                          {workflow.steps.length} step{workflow.steps.length !== 1 ? "s" : ""} •{" "}
+                          {workflow.trigger.type === "schedule"
+                            ? "Scheduled"
+                            : workflow.trigger.type === "event"
+                            ? "Event-triggered"
+                            : "Manual"}
+                          {workflow.parallelExecution && " • Parallel execution"}
+                          {workflow.retryPolicy?.enabled && " • Auto-retry"}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <button
+                          onClick={() => {
+                            setEditingWorkflow(workflow);
+                            setShowWorkflowBuilder(true);
+                          }}
+                          style={{
+                            background: "#2a2a38",
+                            color: "#e8e8f0",
+                            border: "none",
+                            borderRadius: 6,
+                            padding: "6px 12px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (onUpdateWorkflow) {
+                              onUpdateWorkflow(workflow.id, {
+                                ...workflow,
+                                enabled: !workflow.enabled,
+                              });
+                            }
+                          }}
+                          style={{
+                            background: workflow.enabled ? "#10b981" : "#6b7280",
+                            color: "#fff",
+                            border: "none",
+                            borderRadius: 6,
+                            padding: "6px 12px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {workflow.enabled ? "Enabled" : "Disabled"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (onDeleteWorkflow) {
+                              onDeleteWorkflow(workflow.id);
+                            }
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#ef4444",
+                            fontSize: 18,
+                            cursor: "pointer",
+                            padding: 4,
+                          }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -503,14 +704,42 @@ export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSched
           </button>
         </div>
       </div>
+
+      {/* Workflow Builder Modal */}
+      {showWorkflowBuilder && (
+        <WorkflowBuilder
+          workflow={editingWorkflow}
+          onSave={(workflow) => {
+            if (editingWorkflow) {
+              if (onUpdateWorkflow) {
+                onUpdateWorkflow(workflow.id, workflow);
+              }
+            } else {
+              if (onCreateWorkflow) {
+                onCreateWorkflow(workflow);
+              }
+            }
+            setShowWorkflowBuilder(false);
+            setEditingWorkflow(null);
+          }}
+          onCancel={() => {
+            setShowWorkflowBuilder(false);
+            setEditingWorkflow(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 AutomationScheduler.propTypes = {
   schedules: PropTypes.array.isRequired,
+  workflows: PropTypes.array,
   onCreateSchedule: PropTypes.func.isRequired,
   onUpdateSchedule: PropTypes.func.isRequired,
   onDeleteSchedule: PropTypes.func.isRequired,
+  onCreateWorkflow: PropTypes.func,
+  onUpdateWorkflow: PropTypes.func,
+  onDeleteWorkflow: PropTypes.func,
   onClose: PropTypes.func.isRequired,
 };
