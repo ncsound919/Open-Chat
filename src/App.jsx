@@ -545,6 +545,8 @@ export default function App() {
       connectClaw(updated);
     } else if (updated.protocol === "uplift-bridge") {
       connectUpliftBridge(updated);
+    } else if (updated.protocol === "draymond") {
+      connectDraymond(updated);
     } else if (updated.protocol === "subteam") {
       setStatus(updated.id, "connecting");
       subTeamHealthCheck(updated.host, updated.port, updated.token)

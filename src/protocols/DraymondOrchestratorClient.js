@@ -35,7 +35,9 @@ export class DraymondOrchestratorClient {
     this.host = host;
     this.port = port;
     this.token = token;
-    this.baseUrl = `http://${host}:${port}`;
+    // Next.js App Router serves all API routes under /api, so the v1
+    // companion endpoints live at /api/v1/*, not /v1/*.
+    this.baseUrl = `http://${host}:${port}/api`;
 
     // Callbacks
     this.onStatusChange = null;

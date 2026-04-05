@@ -230,9 +230,21 @@ export function Chat({
                 lineHeight: 1.6,
               }}
             >
-              {bot.protocol === "openclaw"
-                ? `Connects to OpenClaw gateway at\nws://${bot.host}:${bot.port}`
-                : `Connects to Hermes API at\nhttp://${bot.host}:${bot.port}`}
+            {(() => {
+              if (bot.protocol === "openclaw") {
+                return `Connects to OpenClaw gateway at\nws://${bot.host}:${bot.port}`;
+              }
+              if (bot.protocol === "uplift-bridge") {
+                return `Connects to Uplift Bridge at\nhttp://${bot.host}:${bot.port}`;
+              }
+              if (bot.protocol === "draymond") {
+                return `Connects to Draymond Orchestrator at\nhttp://${bot.host}:${bot.port}/api/v1`;
+              }
+              if (bot.protocol === "subteam") {
+                return `Connects to SubTeam agent at\nhttp://${bot.host}:${bot.port}`;
+              }
+              return `Connects to Hermes API at\nhttp://${bot.host}:${bot.port}`;
+            })()}
             </div>
           </div>
         )}
