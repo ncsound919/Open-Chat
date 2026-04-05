@@ -377,9 +377,9 @@ export function TeamPanel({ teams, onCreateTeam, onUpdateTeam, onInviteMember, o
                   >
                     {selectedTeam.name} Members
                   </div>
-                  {selectedTeam.members.map((member, idx) => (
+                  {selectedTeam.members.map((member) => (
                     <div
-                      key={idx}
+                      key={member.email}
                       style={{
                         background: "#0d0d14",
                         border: "1px solid #2a2a38",
