@@ -163,7 +163,7 @@ export default function App() {
           throw new Error("Not connected — check Settings");
         }
 
-        await client.send(text, (delta) => {
+        const finalText = await client.send(text, (delta) => {
           streamBuf.current += delta;
           updateLastMessage(bot.id, {
             text: streamBuf.current,
@@ -172,7 +172,7 @@ export default function App() {
         });
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || "✓",
+          text: streamBuf.current || finalText || "✓",
           streaming: false,
         });
 

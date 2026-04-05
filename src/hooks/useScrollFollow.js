@@ -1,13 +1,16 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useLayoutEffect } from "react";
 
 /**
- * Smart auto-scroll that only follows if user is near bottom
- * Returns a ref to attach to the scroll container's bottom element
+ * Smart auto-scroll that only follows if user is near bottom.
+ * Attaches a scroll listener to keep the "near bottom" state accurate
+ * even when the user scrolls without triggering a React render.
+ * Returns a ref to attach to the scroll container's bottom sentinel element.
  */
 export function useScrollFollow(deps = [], threshold = 80) {
   const bottomRef = useRef(null);
   const wasNearBottomRef = useRef(true);
 
+  // Attach a scroll listener to update wasNearBottomRef whenever the user scrolls
   useEffect(() => {
     const element = bottomRef.current;
     if (!element) return;
@@ -15,16 +18,21 @@ export function useScrollFollow(deps = [], threshold = 80) {
     const container = element.parentElement;
     if (!container) return;
 
-    // Check if user is near bottom before content changes
-    const isNearBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight <
-      threshold;
+    const onScroll = () => {
+      wasNearBottomRef.current =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        threshold;
+    };
 
-    wasNearBottomRef.current = isNearBottom;
-  });
+    // Set initial value
+    onScroll();
 
-  useEffect(() => {
-    // Only scroll if user was near bottom
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, [threshold]);
+
+  // Use useLayoutEffect to scroll before the browser paints, avoiding visible jumps
+  useLayoutEffect(() => {
     if (wasNearBottomRef.current && bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
