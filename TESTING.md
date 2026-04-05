@@ -399,7 +399,7 @@ Test in multiple browsers:
 ## Security Testing
 
 - [ ] No console warnings about insecure content
-- [ ] localStorage data encrypted (basic obfuscation)
+- [ ] localStorage contains only expected app data (no encryption/obfuscation implemented)
 - [ ] No tokens leaked in console
 - [ ] No external network requests (except to localhost agents)
 
