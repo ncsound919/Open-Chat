@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import PropTypes from "prop-types";
 import { BackIcon } from "./icons/Icons.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
 import { isFieldVisible, getAvailableProtocols, getModeDefaults, MODES } from "../utils/modeConfig.js";
@@ -338,3 +339,22 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack, mode }) {
     </div>
   );
 }
+
+Settings.propTypes = {
+  bot: PropTypes.shape({
+    id: PropTypes.string,
+    name: PropTypes.string,
+    avatar: PropTypes.string,
+    color: PropTypes.string,
+    tagline: PropTypes.string,
+    protocol: PropTypes.string,
+    host: PropTypes.string,
+    port: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    token: PropTypes.string,
+  }).isRequired,
+  isNew: PropTypes.bool.isRequired,
+  onSave: PropTypes.func.isRequired,
+  onDelete: PropTypes.func,
+  onBack: PropTypes.func.isRequired,
+  mode: PropTypes.string.isRequired,
+};
