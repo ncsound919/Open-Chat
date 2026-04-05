@@ -38,11 +38,6 @@ export function DeveloperPanel({ bot, onUpdateBot, onClose }) {
     }
   };
 
-  const addLog = (level, message) => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs((prev) => [...prev.slice(-99), { timestamp, level, message }]);
-  };
-
   const clearLogs = () => {
     setLogs([]);
   };
