@@ -103,7 +103,7 @@ export default function App() {
     [setStatus]
   );
 
-  // ── Auto-connect bots on mount ──────────────────────────────────────────────
+  // ── Auto-connect bots on mount and when bots list changes ──────────────────
   useEffect(() => {
     // Connect OpenClaw bots
     bots
@@ -142,9 +142,15 @@ export default function App() {
           .then((ok) => setStatus(b.id, ok ? "connected" : "error"))
           .catch(() => setStatus(b.id, "disconnected"));
       });
+  }, [bots, connectClaw, connectUpliftBridge, setStatus]);
 
-    // Cleanup on unmount
+  // ── Disconnect all clients on unmount ───────────────────────────────────────
+  useEffect(() => {
     return () => {
+      // Empty deps [] is intentional — this cleanup runs only when the component
+      // unmounts. clawRefs.current is read at that point to reach every client
+      // registered during the component's lifetime, including those added after mount.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       Object.values(clawRefs.current).forEach((client) => client.disconnect());
     };
   }, []);
@@ -275,13 +281,19 @@ export default function App() {
           throw new Error("Not connected — check Settings");
         }
 
-        const finalText = await client.send(text, (delta) => {
-          streamBuf.current += delta;
-          updateLastMessage(bot.id, {
-            text: streamBuf.current,
-            streaming: true,
-          });
-        });
+        abortRef.current = new AbortController();
+
+        const finalText = await client.send(
+          text,
+          (delta) => {
+            streamBuf.current += delta;
+            updateLastMessage(bot.id, {
+              text: streamBuf.current,
+              streaming: true,
+            });
+          },
+          abortRef.current.signal
+        );
 
         updateLastMessage(bot.id, {
           text: streamBuf.current || finalText || "✓",
@@ -350,9 +362,9 @@ export default function App() {
   }
 
   function interruptMessage() {
-    // Only Hermes requests are wired to the AbortController referenced by abortRef.
-    // OpenClaw streaming uses a separate transport/client, so flipping the UI state
-    // to non-streaming here would desynchronize the UI while callbacks continue.
+    // Only OpenClaw streaming uses a separate transport and can't be aborted
+    // via AbortController; all other protocols (hermes, uplift-bridge, subteam)
+    // use abortRef.
     if (!bot || bot.protocol === "openclaw") return;
     abortRef.current?.abort();
     setStreaming(false);
@@ -395,6 +407,13 @@ export default function App() {
     // Reconnect if needed
     if (updated.protocol === "openclaw") {
       connectClaw(updated);
+    } else if (updated.protocol === "uplift-bridge") {
+      connectUpliftBridge(updated);
+    } else if (updated.protocol === "subteam") {
+      setStatus(updated.id, "connecting");
+      subTeamHealthCheck(updated.host, updated.port, updated.token)
+        .then((ok) => setStatus(updated.id, ok ? "connected" : "error"))
+        .catch(() => setStatus(updated.id, "disconnected"));
     } else {
       setStatus(updated.id, "connecting");
       hermesHealthCheck(updated.host, updated.port, updated.token)

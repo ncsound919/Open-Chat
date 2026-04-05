@@ -194,6 +194,8 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
           <span style={labelStyle}>
             {form.protocol === "openclaw"
               ? "OPENCLAW_GATEWAY_TOKEN"
+              : form.protocol === "uplift-bridge"
+              ? "UPLIFT_OAUTH_TOKEN"
               : "API_SERVER_KEY"}
           </span>
           <input
@@ -236,6 +238,20 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
               <>
                 ws://{form.host || "127.0.0.1"}:{form.port || 18789}
                 <br />→ role:operator · scope:chat · streams via event:agent
+              </>
+            ) : form.protocol === "uplift-bridge" ? (
+              <>
+                http://{form.host || "127.0.0.1"}:{form.port || 8642}
+                /v1/environments/bridge
+                <br />→ POST to register, polls /work/poll every 2 s
+                <br />→ OAuth token required (UPLIFT_OAUTH_TOKEN)
+              </>
+            ) : form.protocol === "subteam" ? (
+              <>
+                http://{form.host || "127.0.0.1"}:{form.port || 8642}
+                /v1/chat/completions
+                <br />→ SubTeam / Draymond orchestrator · stream: true
+                <br />→ 5-tool pipeline: spec → microarch → impl → verify → run
               </>
             ) : (
               <>

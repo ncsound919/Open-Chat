@@ -34,7 +34,6 @@ export class UpliftBridgeClient {
     this.onStatusChange = null;
     this._destroyed = false;
     this.pendingMessages = [];
-    this.responseCallback = null;
   }
 
   async connect() {
@@ -120,17 +119,23 @@ export class UpliftBridgeClient {
     if (work.data.type === "session_start") {
       this.sessionId = work.data.id;
       this.sessionToken = work.data.session_token;
+    }
 
-      // Acknowledge work
+    // Acknowledge every work item so the queue drains, regardless of type.
+    // Use sessionToken when available (post session_start), else environmentSecret.
+    const authToken = this.sessionToken || this.environmentSecret;
+    try {
       await this._fetch(
         `/v1/environments/${this.environmentId}/work/${work.id}/ack`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${this.sessionToken}`,
+            Authorization: `Bearer ${authToken}`,
           },
         }
       );
+    } catch (e) {
+      safeLog("Failed to acknowledge work item:", e.message);
     }
 
     // Handle incoming messages
@@ -145,32 +150,91 @@ export class UpliftBridgeClient {
     }
   }
 
-  async send(text, onChunk) {
+  async send(text, onChunk, signal) {
     if (!this.sessionId || !this.sessionToken) {
       throw new Error("No active session - check connection");
     }
 
-    // Store callback for streaming simulation
-    this.responseCallback = onChunk;
+    // POST assistant message as a session event to the bridge
+    const response = await this._fetch(
+      `/v1/sessions/${this.sessionId}/events`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.sessionToken}`,
+        },
+        body: JSON.stringify({
+          type: "message",
+          role: "assistant",
+          content: text,
+        }),
+      },
+      signal
+    );
 
-    // In a real implementation, we'd send this as an assistant message
-    // For now, simulate a streaming response
-    const response = `Received: ${text}`;
-
-    // Simulate streaming by chunking
-    const chunkSize = 5;
-    for (let i = 0; i < response.length; i += chunkSize) {
-      const chunk = response.slice(i, i + chunkSize);
-      onChunk?.(chunk);
-      await new Promise(resolve => setTimeout(resolve, 50));
+    if (!response.ok) {
+      throw new Error(`Bridge send failed: ${response.status}`);
     }
 
-    return response;
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("text/event-stream")) {
+      // Stream SSE chunks from the bridge response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      outer: while (true) {
+        if (signal?.aborted) break;
+        const { done, value } = await reader.read();
+        if (done) break;
+        const raw = decoder.decode(value, { stream: true });
+        for (const line of raw.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") break outer;
+          try {
+            const parsed = JSON.parse(data);
+            const delta =
+              parsed.choices?.[0]?.delta?.content ?? parsed.text ?? "";
+            if (delta) {
+              fullText += delta;
+              onChunk?.(delta);
+            }
+          } catch {
+            if (data) {
+              fullText += data;
+              onChunk?.(data);
+            }
+          }
+        }
+      }
+
+      return fullText;
+    }
+
+    // Non-streaming response: emit full content as a single chunk
+    const data = await response.json().catch(() => null);
+    const responseText = data?.content ?? data?.message ?? "";
+    if (responseText) onChunk?.(responseText);
+    return responseText;
   }
 
-  async _fetch(path, options = {}) {
+  async _fetch(path, options = {}, externalSignal = null) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), CONNECT_TIMEOUT_MS);
+
+    // Forward external abort (e.g. user-initiated interrupt) to our controller
+    let externalHandler;
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        clearTimeout(timeout);
+        controller.abort();
+      } else {
+        externalHandler = () => controller.abort();
+        externalSignal.addEventListener("abort", externalHandler, { once: true });
+      }
+    }
 
     try {
       const response = await fetch(`${this.baseUrl}${path}`, {
@@ -187,6 +251,9 @@ export class UpliftBridgeClient {
       return response;
     } finally {
       clearTimeout(timeout);
+      if (externalSignal && externalHandler) {
+        externalSignal.removeEventListener("abort", externalHandler);
+      }
     }
   }
 

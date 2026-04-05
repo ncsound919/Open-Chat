@@ -31,12 +31,13 @@ export function useScrollFollow(deps = [], threshold = 80) {
     return () => container.removeEventListener("scroll", onScroll);
   }, [threshold]);
 
-  // Use useLayoutEffect to scroll before the browser paints, avoiding visible jumps
+  // Use useLayoutEffect to scroll before the browser paints, avoiding visible jumps.
+  // deps is forwarded from the caller; static analysis cannot verify a dynamic array.
   useLayoutEffect(() => {
     if (wasNearBottomRef.current && bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, deps);
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
 
   return bottomRef;
 }
