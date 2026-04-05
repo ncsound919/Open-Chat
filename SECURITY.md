@@ -270,7 +270,7 @@ For any serious AI agent deployment — especially those handling sensitive data
 **API Security**
 - [14] Webhook Security Best Practices (OWASP API Security Project)
 - [15] Telegram API Rate Limits (https://core.telegram.org/bots/faq#broadcasting-to-users)
-- [16] WhatsApp Account Enumeration Vulnerability (CVE-2025-XXXX)
+- [16] WhatsApp Account Enumeration Vulnerability
 - [17] Discord Rate Limiting Documentation (https://discord.com/developers/docs/topics/rate-limits)
 
 **Compliance & Retention**
