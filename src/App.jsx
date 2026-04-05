@@ -4,6 +4,8 @@ import { Chat } from "./components/Chat.jsx";
 import { Settings } from "./components/Settings.jsx";
 import { OpenClawClient } from "./protocols/OpenClawClient.js";
 import { hermesStream, hermesHealthCheck } from "./protocols/HermesClient.js";
+import { UpliftBridgeClient } from "./protocols/UpliftBridgeClient.js";
+import { subTeamStream, subTeamHealthCheck } from "./protocols/SubTeamClient.js";
 import {
   loadHist,
   saveHist,
@@ -77,6 +79,30 @@ export default function App() {
     [setStatus]
   );
 
+  // ── Uplift Bridge connection ────────────────────────────────────────────────
+  const connectUpliftBridge = useCallback(
+    async (bot) => {
+      // Disconnect existing client
+      if (clawRefs.current[bot.id]) {
+        clawRefs.current[bot.id].disconnect();
+        delete clawRefs.current[bot.id];
+      }
+
+      const client = new UpliftBridgeClient(bot.host, bot.port, bot.token);
+      client.onStatusChange = (status) => setStatus(bot.id, status);
+      clawRefs.current[bot.id] = client;
+
+      setStatus(bot.id, "connecting");
+      try {
+        await client.connect();
+      } catch (e) {
+        console.error(`Failed to connect to ${bot.name}:`, e);
+        setStatus(bot.id, "error");
+      }
+    },
+    [setStatus]
+  );
+
   // ── Auto-connect bots on mount ──────────────────────────────────────────────
   useEffect(() => {
     // Connect OpenClaw bots
@@ -85,6 +111,15 @@ export default function App() {
       .forEach((b) => {
         if (!clawRefs.current[b.id]) {
           connectClaw(b);
+        }
+      });
+
+    // Connect Uplift Bridge bots
+    bots
+      .filter((b) => b.protocol === "uplift-bridge")
+      .forEach((b) => {
+        if (!clawRefs.current[b.id]) {
+          connectUpliftBridge(b);
         }
       });
 
@@ -98,11 +133,21 @@ export default function App() {
           .catch(() => setStatus(b.id, "disconnected"));
       });
 
+    // Health check SubTeam bots
+    bots
+      .filter((b) => b.protocol === "subteam")
+      .forEach((b) => {
+        setStatus(b.id, "connecting");
+        subTeamHealthCheck(b.host, b.port, b.token)
+          .then((ok) => setStatus(b.id, ok ? "connected" : "error"))
+          .catch(() => setStatus(b.id, "disconnected"));
+      });
+
     // Cleanup on unmount
     return () => {
       Object.values(clawRefs.current).forEach((client) => client.disconnect());
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Message management ──────────────────────────────────────────────────────
   function addMessage(botId, msg) {
@@ -197,6 +242,73 @@ export default function App() {
         prior.push({ role: "user", content: text });
 
         await hermesStream(
+          bot.host,
+          bot.port,
+          bot.token,
+          prior,
+          (delta) => {
+            streamBuf.current += delta;
+            updateLastMessage(bot.id, {
+              text: streamBuf.current,
+              streaming: true,
+            });
+          },
+          abortRef.current.signal
+        );
+
+        updateLastMessage(bot.id, {
+          text: streamBuf.current,
+          streaming: false,
+        });
+
+        // Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
+      } else if (bot.protocol === "uplift-bridge") {
+        // Uplift Bridge
+        const client = clawRefs.current[bot.id];
+        if (!client || !client.sessionId) {
+          throw new Error("Not connected — check Settings");
+        }
+
+        const finalText = await client.send(text, (delta) => {
+          streamBuf.current += delta;
+          updateLastMessage(bot.id, {
+            text: streamBuf.current,
+            streaming: true,
+          });
+        });
+
+        updateLastMessage(bot.id, {
+          text: streamBuf.current || finalText || "✓",
+          streaming: false,
+        });
+
+        // Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
+      } else if (bot.protocol === "subteam") {
+        // SubTeam HTTP/SSE
+        abortRef.current = new AbortController();
+
+        const prior = (history[bot.id] || [])
+          .filter((m) => m.role === "user" || (m.role === "bot" && !m.streaming))
+          .slice(-20)
+          .map((m) => ({
+            role: m.role === "user" ? "user" : "assistant",
+            content: m.text,
+          }));
+        prior.push({ role: "user", content: text });
+
+        await subTeamStream(
           bot.host,
           bot.port,
           bot.token,

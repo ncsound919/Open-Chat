@@ -71,7 +71,13 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
           <div style={{ fontSize: 12, color: "#444455" }}>
             {form.protocol === "openclaw"
               ? "OpenClaw WebSocket"
-              : "Hermes HTTP"}
+              : form.protocol === "hermes"
+              ? "Hermes HTTP"
+              : form.protocol === "uplift-bridge"
+              ? "Uplift Bridge API"
+              : form.protocol === "subteam"
+              ? "SubTeam / Draymond"
+              : "Unknown Protocol"}
           </div>
         </div>
         {!isNew && (
@@ -131,6 +137,8 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
               >
                 <option value="hermes">Hermes (HTTP / OpenAI-compatible)</option>
                 <option value="openclaw">OpenClaw (WebSocket)</option>
+                <option value="uplift-bridge">Uplift Bridge (Uplift Agent)</option>
+                <option value="subteam">SubTeam (CPU Design / Draymond)</option>
               </select>
             </div>
             <div>

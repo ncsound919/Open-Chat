@@ -36,7 +36,7 @@ export function useScrollFollow(deps = [], threshold = 80) {
     if (wasNearBottomRef.current && bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+  }, deps);
 
   return bottomRef;
 }
