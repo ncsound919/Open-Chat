@@ -173,35 +173,21 @@ export function getMentionedAgents(messageText, bots) {
  * Wraps @mentions in a special marker for UI rendering
  */
 export function highlightMentions(messageText, bots) {
-  let result = messageText;
   const mentionPattern = /@(\w+)/g;
-  const matches = [];
 
-  let match;
-  while ((match = mentionPattern.exec(messageText)) !== null) {
-    matches.push({
-      mention: match[0],
-      name: match[1],
-      index: match.index,
-    });
-  }
-
-  // Process in reverse to maintain string indices
-  matches.reverse().forEach(({ mention, name }) => {
+  return messageText.replace(mentionPattern, (mention, name) => {
+    const normalizedName = name.toLowerCase();
     const bot = bots.find(
       (b) =>
-        b.name.toLowerCase() === name.toLowerCase() ||
-        b.id.toLowerCase() === name.toLowerCase() ||
-        b.id.toLowerCase().startsWith(name.toLowerCase())
+        b.name.toLowerCase() === normalizedName ||
+        b.id.toLowerCase() === normalizedName ||
+        b.id.toLowerCase().startsWith(normalizedName)
     );
 
-    if (bot) {
-      result = result.replace(
-        mention,
-        `<mention data-bot-id="${bot.id}">${mention}</mention>`
-      );
+    if (!bot) {
+      return mention;
     }
-  });
 
-  return result;
+    return `<mention data-bot-id="${bot.id}">${mention}</mention>`;
+  });
 }
