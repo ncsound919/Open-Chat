@@ -9,7 +9,16 @@ const TOOLLOG_KEY = "openchat_toollog_v1";
 export const MAX_MESSAGES_PER_BOT = 10_000;
 const STORAGE_WARN_BYTES = 4 * 1024 * 1024; // warn at 4 MB (browsers allow ~5–10 MB)
 
-// Default bot configurations
+// Maximum number of workflows to persist (newest retained)
+const MAX_STORED_WORKFLOWS = 100;
+
+// Maximum number of agents to persist
+const MAX_STORED_AGENTS = 200;
+
+// Fields retained when normalising an agent record for storage
+const AGENT_STORAGE_FIELDS = ["id", "name", "capabilities", "status", "lastHeartbeat"];
+
+
 export const DEFAULT_BOTS = [
   {
     id: "openclaw",
@@ -86,13 +95,14 @@ export function pruneHistory(hist) {
 /**
  * Warn the user when localStorage usage is approaching browser limits.
  * @param {number} incomingBytes  Byte length of the value about to be stored.
+ * @param {string} excludeKey     The key about to be overwritten (excluded to avoid double-counting).
  */
-function checkStorageQuota(incomingBytes) {
+function checkStorageQuota(incomingBytes, excludeKey = HIST_KEY) {
   try {
     let totalBytes = incomingBytes;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key !== HIST_KEY) {
+      if (key !== excludeKey) {
         totalBytes += (localStorage.getItem(key) || "").length;
       }
     }
@@ -153,10 +163,40 @@ export function loadWorkflows() {
 // Save workflows to localStorage
 export function saveWorkflows(data) {
   try {
-    localStorage.setItem(WORKFLOWS_KEY, JSON.stringify(data));
+    // Prune to the newest MAX_STORED_WORKFLOWS entries to prevent unbounded growth
+    const pruned = pruneWorkflows(data);
+    const serialised = JSON.stringify(pruned);
+    checkStorageQuota(serialised.length, WORKFLOWS_KEY);
+    localStorage.setItem(WORKFLOWS_KEY, serialised);
   } catch (e) {
     console.error("Failed to save workflows:", e);
   }
+}
+
+/**
+ * Keep only the newest MAX_STORED_WORKFLOWS workflows.
+ * Completed/failed workflows are eligible for eviction before in-progress ones.
+ */
+export function pruneWorkflows(workflows) {
+  const entries = Object.values(workflows);
+  if (entries.length <= MAX_STORED_WORKFLOWS) {
+    return workflows;
+  }
+
+  // Sort: keep in-progress first, then by startTime descending (newest first)
+  entries.sort((a, b) => {
+    const aActive = a.status === "in_progress" ? 0 : 1;
+    const bActive = b.status === "in_progress" ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    return (b.startTime || 0) - (a.startTime || 0);
+  });
+
+  const kept = entries.slice(0, MAX_STORED_WORKFLOWS);
+  const pruned = {};
+  for (const wf of kept) {
+    pruned[wf.id] = wf;
+  }
+  return pruned;
 }
 
 // Load agent registry from localStorage
@@ -179,10 +219,34 @@ export function loadAgentRegistry() {
 // Save agent registry to localStorage
 export function saveAgentRegistry(data) {
   try {
-    localStorage.setItem(AGENTS_KEY, JSON.stringify(data));
+    // Normalise to only the fields needed for display/reconnect and cap count
+    const normalised = normaliseAgentRegistry(data);
+    const serialised = JSON.stringify(normalised);
+    checkStorageQuota(serialised.length, AGENTS_KEY);
+    localStorage.setItem(AGENTS_KEY, serialised);
   } catch (e) {
     console.error("Failed to save agent registry:", e);
   }
+}
+
+/**
+ * Normalise agent records to AGENT_STORAGE_FIELDS only and cap at MAX_STORED_AGENTS.
+ * Agents with the most recent heartbeat are retained when over the cap.
+ */
+export function normaliseAgentRegistry(registry) {
+  const entries = Object.values(registry);
+  // Sort by lastHeartbeat descending so we keep the most recently seen agents
+  entries.sort((a, b) => (b.lastHeartbeat || 0) - (a.lastHeartbeat || 0));
+  const capped = entries.slice(0, MAX_STORED_AGENTS);
+  const normalised = {};
+  for (const agent of capped) {
+    const slim = {};
+    for (const field of AGENT_STORAGE_FIELDS) {
+      if (field in agent) slim[field] = agent[field];
+    }
+    if (slim.id) normalised[slim.id] = slim;
+  }
+  return normalised;
 }
 
 // Load tool execution log from localStorage

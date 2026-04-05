@@ -51,6 +51,8 @@ export class DraymondOrchestratorClient {
     this.eventSource = null;
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;
+    this._reconnectTimerId = null;
+    this._shouldReconnect = false;
   }
 
   /**
@@ -71,6 +73,7 @@ export class DraymondOrchestratorClient {
       this.registeredAgents = agents;
 
       // Start event stream
+      this._shouldReconnect = true;
       this._connectEventStream();
 
       this._setStatus("connected");
@@ -89,6 +92,13 @@ export class DraymondOrchestratorClient {
    */
   disconnect() {
     this._setStatus("disconnecting");
+
+    // Stop any pending reconnect
+    this._shouldReconnect = false;
+    if (this._reconnectTimerId !== null) {
+      clearTimeout(this._reconnectTimerId);
+      this._reconnectTimerId = null;
+    }
 
     // Close event stream
     if (this.eventSource) {
@@ -180,8 +190,21 @@ export class DraymondOrchestratorClient {
       agents: [],
     };
 
-    // Start polling workflow status in background
-    this._pollWorkflowStatus(workflowId, onPhaseUpdate, onToolExecution);
+    // Cancel workflow and stop polling when the caller aborts
+    if (signal) {
+      signal.addEventListener(
+        "abort",
+        () => {
+          this.cancelWorkflow(workflowId).catch((err) => {
+            console.warn("Failed to cancel workflow on abort:", err);
+          });
+        },
+        { once: true }
+      );
+    }
+
+    // Start polling workflow status in background (tied to abort signal)
+    this._pollWorkflowStatus(workflowId, onPhaseUpdate, onToolExecution, signal);
 
     // Stream response
     const reader = res.body.getReader();
@@ -435,12 +458,16 @@ export class DraymondOrchestratorClient {
 
       // Reconnect with backoff
       if (
-        this.status === "connected" &&
+        this._shouldReconnect &&
         this.reconnectAttempts < this.maxReconnectAttempts
       ) {
         this.reconnectAttempts++;
-        setTimeout(() => {
-          if (this.status === "connected") {
+        this._reconnectTimerId = setTimeout(() => {
+          // Clear the timer ID before calling _connectEventStream so that
+          // disconnect() cannot clearTimeout an already-fired timer, and any
+          // new timer set by _connectEventStream gets its own fresh ID.
+          this._reconnectTimerId = null;
+          if (this._shouldReconnect) {
             this._connectEventStream();
           }
         }, EVENT_STREAM_RECONNECT_DELAY_MS * this.reconnectAttempts);
@@ -654,8 +681,11 @@ export class DraymondOrchestratorClient {
    * Poll workflow status
    * @private
    */
-  _pollWorkflowStatus(workflowId, onPhaseUpdate, onToolExecution) {
+  _pollWorkflowStatus(workflowId, onPhaseUpdate, onToolExecution, signal) {
     const poll = async () => {
+      // Stop if caller aborted
+      if (signal?.aborted) return;
+
       const workflow = this.activeWorkflows[workflowId];
       if (!workflow || workflow.status === "completed" || workflow.status === "failed") {
         return;
@@ -677,8 +707,8 @@ export class DraymondOrchestratorClient {
           }
         }
 
-        // Continue polling if still active
-        if (status.status === "in_progress") {
+        // Continue polling if still active and not aborted
+        if (status.status === "in_progress" && !signal?.aborted) {
           setTimeout(poll, WORKFLOW_POLL_INTERVAL_MS);
         }
       }
