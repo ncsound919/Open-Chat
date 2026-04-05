@@ -566,10 +566,16 @@ export default function App() {
   function deleteBot(botId) {
     if (!confirm("Delete this bot and all its messages?")) return;
 
-    // Disconnect if OpenClaw
+    // Disconnect persistent clients (OpenClaw / Uplift Bridge)
     if (clawRefs.current[botId]) {
       clawRefs.current[botId].disconnect();
       delete clawRefs.current[botId];
+    }
+
+    // Disconnect Draymond Orchestrator client
+    if (orchestratorRefs.current[botId]) {
+      orchestratorRefs.current[botId].disconnect();
+      delete orchestratorRefs.current[botId];
     }
 
     // Remove bot and its history

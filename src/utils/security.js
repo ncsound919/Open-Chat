@@ -11,7 +11,7 @@ const DANGEROUS_PATTERNS = [
   /<script[\s\S]*?>[\s\S]*?<\/script\s*>/gi,
   /<[^>]+\s+on\w+\s*=[\s\S]*?>/gi, // inline event handlers
   /javascript\s*:/gi,
-  /data\s*:/gi,
+  /(?:href|src)\s*=\s*["']?\s*data\s*:/gi,
 ];
 
 /** Maximum allowed WebSocket / SSE message size in bytes (1 MB) */

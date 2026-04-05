@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { MessageBubble } from "./MessageBubble.jsx";
 import {
@@ -10,6 +10,15 @@ import {
 import { useAutoResize } from "../hooks/useAutoResize.js";
 import { useScrollFollow } from "../hooks/useScrollFollow.js";
 import { STATUS_LABEL, STATUS_COLOR } from "../utils/helpers.js";
+
+/** Validate a CSS color string — only allow hex, rgb(a), hsl(a), named colors */
+const SAFE_COLOR_RE =
+  /^(#[0-9a-fA-F]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/]+\)|[a-zA-Z]{1,20})$/;
+function safeColor(color, fallback = "#818cf8") {
+  return typeof color === "string" && SAFE_COLOR_RE.test(color.trim())
+    ? color.trim()
+    : fallback;
+}
 
 /**
  * Chat component - displays conversation with a single bot
@@ -31,6 +40,17 @@ export function Chat({
   const [showMenu, setShowMenu] = useState(false);
   const inputRef = useAutoResize(input);
   const bottomRef = useScrollFollow([messages, streaming]);
+  const color = safeColor(bot.color);
+
+  // Close menu on Escape key
+  useEffect(() => {
+    if (!showMenu) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setShowMenu(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showMenu]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -61,10 +81,11 @@ export function Chat({
       >
         <button
           onClick={onBack}
+          aria-label="Back"
           style={{
             background: "none",
             border: "none",
-            color: bot.color,
+            color: color,
             cursor: "pointer",
             display: "flex",
           }}
@@ -77,8 +98,8 @@ export function Chat({
             width: 38,
             height: 38,
             borderRadius: "50%",
-            background: `${bot.color}20`,
-            border: `1.5px solid ${bot.color}40`,
+            background: `${color}20`,
+            border: `1.5px solid ${color}40`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -100,6 +121,7 @@ export function Chat({
         <div style={{ position: "relative" }}>
           <button
             onClick={() => setShowMenu(!showMenu)}
+            aria-label="Chat menu"
             style={{
               background: "none",
               border: "none",
@@ -300,6 +322,7 @@ export function Chat({
         {streaming ? (
           <button
             onClick={onInterrupt}
+            aria-label="Stop responding"
             style={{
               width: 44,
               height: 44,
@@ -321,11 +344,12 @@ export function Chat({
           <button
             onClick={onSend}
             disabled={!input.trim()}
+            aria-label="Send message"
             style={{
               width: 44,
               height: 44,
               borderRadius: "50%",
-              background: input.trim() ? bot.color : "#1c1c28",
+              background: input.trim() ? color : "#1c1c28",
               border: "none",
               cursor: input.trim() ? "pointer" : "default",
               display: "flex",

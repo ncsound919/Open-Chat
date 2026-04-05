@@ -1,6 +1,13 @@
-// Generate a simple UUID
+// Generate a cryptographically random UUID
 export function uuid() {
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  // crypto.randomUUID is available in all modern browsers and Node 19+
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for older environments — still uses crypto.getRandomValues
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  );
 }
 
 // Format timestamp for display
@@ -15,6 +22,7 @@ export function ts() {
 export const STATUS_LABEL = {
   connected: "online",
   connecting: "connecting…",
+  disconnecting: "disconnecting…",
   disconnected: "offline",
   error: "error",
 };
@@ -22,6 +30,7 @@ export const STATUS_LABEL = {
 export const STATUS_COLOR = {
   connected: "#22c55e",
   connecting: "#f59e0b",
+  disconnecting: "#f59e0b",
   disconnected: "#555568",
   error: "#ef4444",
 };

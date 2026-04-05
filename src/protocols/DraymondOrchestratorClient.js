@@ -55,6 +55,7 @@ export class DraymondOrchestratorClient {
     this.maxReconnectAttempts = 5;
     this._reconnectTimerId = null;
     this._shouldReconnect = false;
+    this._pollTimerIds = new Set();
   }
 
   /**
@@ -83,7 +84,7 @@ export class DraymondOrchestratorClient {
 
       return agents;
     } catch (error) {
-      console.error("Failed to connect to Draymond Orchestrator:", error);
+      console.error("Failed to connect to Draymond Orchestrator");
       this._setStatus("error");
       throw error;
     }
@@ -101,6 +102,12 @@ export class DraymondOrchestratorClient {
       clearTimeout(this._reconnectTimerId);
       this._reconnectTimerId = null;
     }
+
+    // Cancel all workflow poll timers
+    for (const timerId of this._pollTimerIds) {
+      clearTimeout(timerId);
+    }
+    this._pollTimerIds.clear();
 
     // Close event stream
     if (this.eventSource) {
@@ -143,18 +150,20 @@ export class DraymondOrchestratorClient {
       CONNECT_TIMEOUT_MS
     );
 
-    const combinedSignal = signal
-      ? AbortSignal.any
-        ? AbortSignal.any([signal, timeoutController.signal])
-        : (() => {
-            const merged = new AbortController();
-            signal.addEventListener("abort", () => merged.abort());
-            timeoutController.signal.addEventListener("abort", () =>
-              merged.abort()
-            );
-            return merged.signal;
-          })()
-      : timeoutController.signal;
+    // Polyfill AbortSignal.any — use a merged controller to avoid event listener leaks
+    let mergedController = null;
+    let combinedSignal;
+    if (signal && AbortSignal.any) {
+      combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+    } else if (signal) {
+      mergedController = new AbortController();
+      const onAbort = () => mergedController.abort();
+      signal.addEventListener("abort", onAbort, { once: true });
+      timeoutController.signal.addEventListener("abort", onAbort, { once: true });
+      combinedSignal = mergedController.signal;
+    } else {
+      combinedSignal = timeoutController.signal;
+    }
 
     let res;
     try {
@@ -197,8 +206,8 @@ export class DraymondOrchestratorClient {
       signal.addEventListener(
         "abort",
         () => {
-          this.cancelWorkflow(workflowId).catch((err) => {
-            console.warn("Failed to cancel workflow on abort:", err);
+          this.cancelWorkflow(workflowId).catch(() => {
+            // Swallow — already aborting
           });
         },
         { once: true }
@@ -240,17 +249,24 @@ export class DraymondOrchestratorClient {
           this._updateWorkflow(workflowId, parsed.workflow);
         }
       } catch (e) {
-        console.warn("Failed to parse SSE data:", e);
+        console.warn("Failed to parse SSE data");
       }
 
       return false;
     };
 
+    try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
+
+      // Message size validation — prevent memory exhaustion
+      if (buffer.length > 1_048_576) {
+        throw new Error("Response too large");
+      }
+
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() || "";
 
@@ -294,6 +310,10 @@ export class DraymondOrchestratorClient {
     }
 
     return { text: fullText, workflowId };
+    } catch (err) {
+      reader.cancel().catch(() => {});
+      throw err;
+    }
   }
 
   /**
@@ -341,7 +361,7 @@ export class DraymondOrchestratorClient {
         }
       }
     } catch (error) {
-      console.warn("Failed to cancel workflow:", error);
+      console.warn("Failed to cancel workflow");
     }
   }
 
@@ -423,7 +443,7 @@ export class DraymondOrchestratorClient {
 
       return agents;
     } catch (error) {
-      console.warn("Failed to discover agents:", error);
+      console.warn("Failed to discover agents");
       return {};
     }
   }
@@ -454,7 +474,7 @@ export class DraymondOrchestratorClient {
         return;
       }
 
-      console.warn("Event stream error", error);
+      console.warn("Event stream disconnected");
       this.eventSource?.close();
       this.eventSource = null;
 
@@ -491,7 +511,7 @@ export class DraymondOrchestratorClient {
           throw new Error("Event stream response body is not available");
         }
 
-        console.log("Event stream connected");
+        // Event stream connected — reset reconnect counter
         this.reconnectAttempts = 0;
 
         await this._consumeEventStream(res.body, controller.signal);
@@ -547,7 +567,7 @@ export class DraymondOrchestratorClient {
    * @returns {string}
    */
   _processEventStreamBuffer(buffer, flush = false) {
-    const normalizedBuffer = buffer.replace(/\r\n/g, "\n");
+    const normalizedBuffer = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     const delimiter = "\n\n";
     const lastDelimiter = normalizedBuffer.lastIndexOf(delimiter);
 
@@ -590,7 +610,7 @@ export class DraymondOrchestratorClient {
       const data = JSON.parse(dataLines.join("\n"));
       this._handleEvent(data);
     } catch (e) {
-      console.warn("Failed to parse event:", e);
+      console.warn("Failed to parse event data");
     }
   }
 
@@ -711,13 +731,15 @@ export class DraymondOrchestratorClient {
 
         // Continue polling if still active and not aborted
         if (status.status === "in_progress" && !signal?.aborted) {
-          setTimeout(poll, WORKFLOW_POLL_INTERVAL_MS);
+          const tid = setTimeout(poll, WORKFLOW_POLL_INTERVAL_MS);
+          this._pollTimerIds.add(tid);
         }
       }
     };
 
     // Start polling after initial delay
-    setTimeout(poll, WORKFLOW_POLL_INTERVAL_MS);
+    const initialTid = setTimeout(poll, WORKFLOW_POLL_INTERVAL_MS);
+    this._pollTimerIds.add(initialTid);
   }
 
   /**

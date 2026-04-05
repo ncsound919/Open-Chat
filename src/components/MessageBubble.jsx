@@ -1,4 +1,4 @@
-import React, { useState, memo } from "react";
+import React, { useState, useEffect, useRef, memo } from "react";
 import PropTypes from "prop-types";
 import { SimpleMarkdown } from "../utils/markdown.jsx";
 import {
@@ -7,6 +7,15 @@ import {
   DoubleCheck,
   TypingDots,
 } from "./icons/Icons.jsx";
+
+/** Validate a CSS color string — only allow hex, rgb(a), hsl(a), named colors */
+const SAFE_COLOR_RE =
+  /^(#[0-9a-fA-F]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/]+\)|[a-zA-Z]{1,20})$/;
+function safeColor(color, fallback = "#818cf8") {
+  return typeof color === "string" && SAFE_COLOR_RE.test(color.trim())
+    ? color.trim()
+    : fallback;
+}
 
 /**
  * MessageBubble component with context menu
@@ -19,12 +28,32 @@ export const MessageBubble = memo(function MessageBubble({
 }) {
   const [menu, setMenu] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef(null);
   const isUser = msg.role === "user";
+  const color = safeColor(bot.color);
+
+  // Clean up copy timer on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  // Dismiss context menu on Escape
+  useEffect(() => {
+    if (!menu) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setMenu(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menu]);
 
   const copy = () => {
     navigator.clipboard?.writeText(msg.text).catch(() => {});
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
     setMenu(false);
   };
 
@@ -44,7 +73,7 @@ export const MessageBubble = memo(function MessageBubble({
       <div
         style={{
           maxWidth: "78%",
-          background: msg.error ? "#2a1a1a" : isUser ? bot.color : "#1c1c28",
+          background: msg.error ? "#2a1a1a" : isUser ? color : "#1c1c28",
           color: msg.error ? "#ef4444" : isUser ? "#0d0d14" : "#e8e8f0",
           border: msg.error ? "1px solid #ef444440" : "none",
           borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
@@ -63,7 +92,7 @@ export const MessageBubble = memo(function MessageBubble({
           <SimpleMarkdown text={msg.text || (msg.streaming ? "" : "…")} />
         )}
 
-        {msg.streaming && <TypingDots color={isUser ? "#0d0d14" : bot.color} />}
+        {msg.streaming && <TypingDots color={isUser ? "#0d0d14" : color} />}
 
         {isUser && !msg.streaming && (
           <span
