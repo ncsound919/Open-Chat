@@ -5,6 +5,7 @@ const WORKFLOWS_KEY = "openchat_workflows_v1";
 const AGENTS_KEY = "openchat_agents_v1";
 const TOOLLOG_KEY = "openchat_toollog_v1";
 const MODE_KEY = "openchat_mode_v1";
+const CHANNELS_KEY = "openchat_channels_v1";
 
 // Safety limits
 export const MAX_MESSAGES_PER_BOT = 10_000;
@@ -308,7 +309,36 @@ export function clearAllStorage() {
     localStorage.removeItem(AGENTS_KEY);
     localStorage.removeItem(TOOLLOG_KEY);
     localStorage.removeItem(MODE_KEY);
+    localStorage.removeItem(CHANNELS_KEY);
   } catch (e) {
     console.error("Failed to clear storage:", e);
+  }
+}
+
+// Load channels from localStorage
+export function loadChannels() {
+  try {
+    const raw = localStorage.getItem(CHANNELS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      console.warn("[OpenChat] Channels data corrupted — resetting.");
+      return [];
+    }
+    return parsed;
+  } catch {
+    console.warn("[OpenChat] Channels data could not be parsed — resetting.");
+    return [];
+  }
+}
+
+// Save channels to localStorage
+export function saveChannels(channels) {
+  try {
+    const serialised = JSON.stringify(channels);
+    checkStorageQuota(serialised.length, CHANNELS_KEY);
+    localStorage.setItem(CHANNELS_KEY, serialised);
+  } catch (e) {
+    console.error("Failed to save channels:", e);
   }
 }
