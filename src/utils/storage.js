@@ -4,6 +4,7 @@ const CONF_KEY = "openchat_conf_v1";
 const WORKFLOWS_KEY = "openchat_workflows_v1";
 const AGENTS_KEY = "openchat_agents_v1";
 const TOOLLOG_KEY = "openchat_toollog_v1";
+const MODE_KEY = "openchat_mode_v1";
 
 // Safety limits
 export const MAX_MESSAGES_PER_BOT = 10_000;
@@ -278,6 +279,26 @@ export function saveToolLog(data) {
   }
 }
 
+// Load mode preference from localStorage
+export function loadMode() {
+  try {
+    const stored = localStorage.getItem(MODE_KEY);
+    if (!stored) return "basic"; // Default to basic mode
+    return stored === "dev" ? "dev" : "basic";
+  } catch {
+    return "basic";
+  }
+}
+
+// Save mode preference to localStorage
+export function saveMode(mode) {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch (e) {
+    console.error("Failed to save mode:", e);
+  }
+}
+
 // Clear all stored data (useful for debugging)
 export function clearAllStorage() {
   try {
@@ -286,6 +307,7 @@ export function clearAllStorage() {
     localStorage.removeItem(WORKFLOWS_KEY);
     localStorage.removeItem(AGENTS_KEY);
     localStorage.removeItem(TOOLLOG_KEY);
+    localStorage.removeItem(MODE_KEY);
   } catch (e) {
     console.error("Failed to clear storage:", e);
   }

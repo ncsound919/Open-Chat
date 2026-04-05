@@ -1,13 +1,20 @@
 import React, { useState } from "react";
 import { BackIcon } from "./icons/Icons.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
+import { isFieldVisible, getAvailableProtocols, getModeDefaults, MODES } from "../utils/modeConfig.js";
 
 /**
  * Settings panel for bot configuration
  * Supports both editing existing bots and creating new ones
  */
-export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
-  const [form, setForm] = useState({ ...bot });
+export function Settings({ bot, isNew, onSave, onDelete, onBack, mode }) {
+  // In Basic mode, pre-fill with mode defaults
+  const [form, setForm] = useState(() => {
+    if (isNew && mode === MODES.BASIC) {
+      return { ...bot, ...getModeDefaults(mode) };
+    }
+    return { ...bot };
+  });
 
   const updateField = (key) => (e) =>
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
@@ -82,7 +89,7 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
               : "Unknown Protocol"}
           </div>
         </div>
-        {!isNew && (
+        {!isNew && isFieldVisible("deleteBot", mode) && (
           <button
             onClick={onDelete}
             style={{
@@ -130,20 +137,32 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
                 placeholder="🤖"
               />
             </div>
-            <div>
-              <span style={labelStyle}>Protocol</span>
-              <select
-                style={{ ...inputStyle, cursor: "pointer" }}
-                value={form.protocol}
-                onChange={updateField("protocol")}
-              >
-                <option value="hermes">Hermes (HTTP / OpenAI-compatible)</option>
-                <option value="openclaw">OpenClaw (WebSocket)</option>
-                <option value="uplift-bridge">Uplift Bridge (Uplift Agent)</option>
-                <option value="subteam">SubTeam (CPU Design / Draymond)</option>
-                <option value="draymond">Draymond Orchestrator (Multi-Agent)</option>
-              </select>
-            </div>
+            {isFieldVisible("protocol", mode) && (
+              <div>
+                <span style={labelStyle}>Protocol</span>
+                <select
+                  style={{ ...inputStyle, cursor: "pointer" }}
+                  value={form.protocol}
+                  onChange={updateField("protocol")}
+                >
+                  {getAvailableProtocols(mode).includes("hermes") && (
+                    <option value="hermes">Hermes (HTTP / OpenAI-compatible)</option>
+                  )}
+                  {getAvailableProtocols(mode).includes("openclaw") && (
+                    <option value="openclaw">OpenClaw (WebSocket)</option>
+                  )}
+                  {getAvailableProtocols(mode).includes("uplift-bridge") && (
+                    <option value="uplift-bridge">Uplift Bridge (Uplift Agent)</option>
+                  )}
+                  {getAvailableProtocols(mode).includes("subteam") && (
+                    <option value="subteam">SubTeam (CPU Design / Draymond)</option>
+                  )}
+                  {getAvailableProtocols(mode).includes("draymond") && (
+                    <option value="draymond">Draymond Orchestrator (Multi-Agent)</option>
+                  )}
+                </select>
+              </div>
+            )}
             <div>
               <span style={labelStyle}>Accent Color</span>
               <input
@@ -156,44 +175,49 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
           </>
         )}
 
-        <div>
-          <span style={labelStyle}>Host</span>
-          <input
-            style={inputStyle}
-            value={form.host}
-            onChange={updateField("host")}
-            placeholder="127.0.0.1"
-          />
-          {form.host && !isLocalhost(form.host) && (
-            <div
-              style={{
-                marginTop: 6,
-                padding: "6px 10px",
-                background: "#2d1f0a",
-                border: "1px solid #7c4b12",
-                borderRadius: 6,
-                fontSize: 11,
-                color: "#f59e0b",
-                lineHeight: 1.5,
-              }}
-            >
-              ⚠️ Non-localhost host detected. Use <strong>127.0.0.1</strong> for
-              security — remote hosts expose your agent to the network.
-            </div>
-          )}
-        </div>
+        {isFieldVisible("host", mode) && (
+          <div>
+            <span style={labelStyle}>Host</span>
+            <input
+              style={inputStyle}
+              value={form.host}
+              onChange={updateField("host")}
+              placeholder="127.0.0.1"
+            />
+            {form.host && !isLocalhost(form.host) && (
+              <div
+                style={{
+                  marginTop: 6,
+                  padding: "6px 10px",
+                  background: "#2d1f0a",
+                  border: "1px solid #7c4b12",
+                  borderRadius: 6,
+                  fontSize: 11,
+                  color: "#f59e0b",
+                  lineHeight: 1.5,
+                }}
+              >
+                ⚠️ Non-localhost host detected. Use <strong>127.0.0.1</strong> for
+                security — remote hosts expose your agent to the network.
+              </div>
+            )}
+          </div>
+        )}
 
-        <div>
-          <span style={labelStyle}>Port</span>
-          <input
-            style={inputStyle}
-            value={form.port}
-            onChange={updateField("port")}
-            placeholder={form.protocol === "openclaw" ? "18789" : "8642"}
-          />
-        </div>
+        {isFieldVisible("port", mode) && (
+          <div>
+            <span style={labelStyle}>Port</span>
+            <input
+              style={inputStyle}
+              value={form.port}
+              onChange={updateField("port")}
+              placeholder={form.protocol === "openclaw" ? "18789" : "8642"}
+            />
+          </div>
+        )}
 
-        <div>
+        {isFieldVisible("token", mode) && (
+          <div>
           <span style={labelStyle}>
             {form.protocol === "openclaw"
               ? "OPENCLAW_GATEWAY_TOKEN"
@@ -221,14 +245,16 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
             </div>
           )}
         </div>
+        )}
 
-        <div
-          style={{
-            background: "#1a1a26",
-            borderRadius: 10,
-            padding: "12px 14px",
-          }}
-        >
+        {isFieldVisible("connectionInfo", mode) && (
+          <div
+            style={{
+              background: "#1a1a26",
+              borderRadius: 10,
+              padding: "12px 14px",
+            }}
+          >
           <div
             style={{
               fontSize: 11,
@@ -274,6 +300,7 @@ export function Settings({ bot, isNew, onSave, onDelete, onBack }) {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Save Button */}
