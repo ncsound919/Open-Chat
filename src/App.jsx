@@ -239,6 +239,10 @@ export default function App() {
   }
 
   function interruptMessage() {
+    // Only Hermes requests are wired to the AbortController referenced by abortRef.
+    // OpenClaw streaming uses a separate transport/client, so flipping the UI state
+    // to non-streaming here would desynchronize the UI while callbacks continue.
+    if (!bot || bot.protocol === "openclaw") return;
     abortRef.current?.abort();
     setStreaming(false);
   }
