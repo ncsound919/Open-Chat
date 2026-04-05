@@ -27,7 +27,7 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 ## Features
 
 ### ✨ Current (MVP)
-- **Multi-Agent Support**: Chat with OpenClaw (WebSocket), Hermes (HTTP), Uplift Bridge, and SubTeam agents
+- **Multi-Agent Support**: Chat with OpenClaw (WebSocket), Hermes (HTTP), Uplift Bridge, SubTeam, and Draymond Orchestrator agents
 - **Real-Time Streaming**: See AI responses as they're generated, token by token
 - **Markdown Rendering**: Code blocks, lists, bold, italic, inline code — all beautifully formatted
 - **Local-First**: All data stored in your browser — zero telemetry, 100% private
@@ -37,13 +37,14 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 - **Connection Status**: Real-time indicators for each agent
 - **Auto-Reconnect**: WebSocket connections automatically recover
 - **Responsive Design**: Works perfectly on desktop and mobile browsers
-- **4 Protocol Support**: OpenClaw, Hermes, Uplift Bridge, SubTeam/Draymond
+- **5 Protocol Support**: OpenClaw, Hermes, Uplift Bridge, SubTeam, Draymond Orchestrator
+- **Orchestrator Integration**: Deep integration with Draymond for multi-agent coordination, workflow tracking, and agent discovery
 
 ## Quick Start
 
 ### Prerequisites
 - **Node.js** 18+ and npm
-- **One or more agents**: OpenClaw, Hermes, Uplift Agent, or SubTeam
+- **One or more agents**: OpenClaw, Hermes, Uplift Agent, SubTeam, or Draymond Orchestrator
 
 ### Installation
 
@@ -109,6 +110,23 @@ npm run preview
    - **Host**: `127.0.0.1`
    - **Port**: Your wrapper port (e.g., `8643`)
    - **Token**: Optional auth token
+
+### Draymond Orchestrator Setup
+
+1. Start Draymond Orchestrator with all agents registered
+2. Ensure the orchestrator API is running (default port: `8644`)
+3. In Open-Chat, configure your bot:
+   - **Protocol**: Draymond Orchestrator (Multi-Agent)
+   - **Host**: `127.0.0.1`
+   - **Port**: `8644`
+   - **Token**: Your orchestrator API key (if required)
+
+This enables deep integration features:
+- **Agent Discovery**: Automatically discover available agents and their capabilities
+- **Multi-Agent Coordination**: Submit tasks that coordinate across multiple specialized agents
+- **Workflow Tracking**: Monitor multi-phase workflows with real-time status updates
+- **Tool Execution Monitoring**: Track which agents are executing which tools
+- **Event Stream**: Real-time SSE updates for all orchestrator activities
 
 📘 **For detailed setup instructions**, see [AGENT_INTEGRATION.md](./AGENT_INTEGRATION.md)
 

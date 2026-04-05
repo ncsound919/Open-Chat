@@ -1,6 +1,6 @@
 # Agent Protocol Integration Guide
 
-Open-Chat now supports **four protocols** for connecting to AI agents:
+Open-Chat now supports **five protocols** for connecting to AI agents:
 
 ## 📋 Supported Protocols
 
@@ -29,6 +29,13 @@ Open-Chat now supports **four protocols** for connecting to AI agents:
 - **Use Case**: CPU design automation via Sub-Team agent
 - **Draymond Integration**: Registered in Draymond orchestrator
 - **Endpoint**: `http://127.0.0.1:<port>/v1/chat/completions`
+
+### 5. **Draymond Orchestrator (Multi-Agent)** 🆕
+- **Type**: HTTP with SSE + Real-time event stream
+- **Default Port**: 8644
+- **Use Case**: Multi-agent coordination and workflow orchestration
+- **Deep Integration**: Agent discovery, workflow tracking, tool execution monitoring
+- **Endpoint**: `http://127.0.0.1:8644/v1/orchestrate`
 
 ---
 
@@ -140,17 +147,129 @@ python subteam_wrapper.py
 
 Then connect Open-Chat to `127.0.0.1:8643` using the SubTeam protocol.
 
+### Setting Up Draymond Orchestrator
+
+Draymond Orchestrator provides deep multi-agent coordination capabilities.
+
+#### Prerequisites
+
+1. **Running Draymond Orchestrator**: Ensure you have the orchestrator running with agents registered
+2. **API Endpoint**: The orchestrator must expose its API (default port: `8644`)
+3. **Registered Agents**: At least one agent registered in the orchestrator
+
+#### Connection Steps
+
+1. **Start Draymond Orchestrator**:
+   ```bash
+   # Example startup (actual command depends on your setup)
+   draymond-orchestrator --port 8644 --api-key YOUR_KEY
+   ```
+
+2. **Verify Agent Registration**:
+   ```bash
+   # Check registered agents
+   curl http://127.0.0.1:8644/v1/agents
+   ```
+
+3. **Add Bot in Open-Chat**:
+   - Click `+` to add a new bot
+   - Select **"Draymond Orchestrator (Multi-Agent)"**
+   - Enter host: `127.0.0.1`
+   - Enter port: `8644`
+   - (Optional) Add API key if required
+   - Save configuration
+
+4. **Verify Connection**:
+   - Check that the bot status shows "connected" (green dot)
+   - The orchestrator will automatically discover available agents
+   - Agent capabilities are stored locally for offline reference
+
+#### Deep Integration Features
+
+Once connected, you get access to advanced orchestrator features:
+
+**Agent Discovery**
+- Open-Chat automatically discovers all agents registered in the orchestrator
+- Agent capabilities are cached locally
+- Real-time updates when agents are added/removed
+
+**Multi-Agent Coordination**
+- Submit complex tasks that require multiple specialized agents
+- The orchestrator automatically routes work to appropriate agents
+- Parallel execution where possible
+
+**Workflow Tracking**
+- Monitor multi-phase workflows in real-time
+- See which phase is currently executing
+- Track progress across agent boundaries
+
+**Tool Execution Monitoring**
+- View which agents are executing which tools
+- Track execution duration and results
+- Execution log persisted locally (last 1000 executions)
+
+**Event Stream**
+- Real-time SSE updates for all orchestrator events
+- Agent status changes, workflow updates, tool executions
+- Automatic reconnection with exponential backoff
+
+#### Expected API Endpoints
+
+The Draymond Orchestrator integration expects these endpoints:
+
+**Agent Management**:
+- `GET /v1/agents` - List all registered agents with capabilities
+- `GET /v1/health` - Health check
+
+**Orchestration**:
+- `POST /v1/orchestrate` - Submit task for multi-agent coordination
+  ```json
+  {
+    "workflow_id": "uuid",
+    "task": "Design a RISC-V CPU with 5-stage pipeline",
+    "stream": true,
+    "metadata": {
+      "client": "open-chat",
+      "version": "1.0.0"
+    }
+  }
+  ```
+
+**Workflow Tracking**:
+- `GET /v1/workflows/{workflowId}` - Get workflow status
+- `DELETE /v1/workflows/{workflowId}` - Cancel workflow
+
+**Events (SSE)**:
+- `GET /v1/events?token={token}` - Real-time event stream
+  - Events: `agent.registered`, `agent.updated`, `workflow.started`, `workflow.updated`, `phase.completed`, `tool.executed`, `workflow.completed`, `workflow.failed`
+
+#### Example Workflow
+
+1. User sends message: "Design a 5-stage pipelined RISC-V CPU"
+2. Open-Chat creates workflow and submits to orchestrator
+3. Orchestrator coordinates:
+   - SpecificationAgent → generates CPU specification
+   - MicroarchitectureAgent → designs pipeline stages
+   - ImplementationAgent → generates RTL code
+   - VerificationAgent → runs test suite
+4. Real-time updates show progress through each phase
+5. Tool executions are logged with duration and results
+6. Final result aggregated and displayed
+
 ---
 
 ## 🔧 Protocol Comparison
 
-| Feature | Hermes | OpenClaw | Uplift Bridge | SubTeam |
-|---------|--------|----------|---------------|---------|
-| **Transport** | HTTP/SSE | WebSocket | HTTP/Polling | HTTP/SSE |
-| **Real-time** | ✅ Streaming | ✅ Streaming | ⚠️ Simulated | ✅ Streaming |
-| **Auto-reconnect** | ❌ | ✅ | ⚠️ Manual | ❌ |
-| **Auth** | Bearer Token | Token | OAuth | Token (optional) |
-| **Use Case** | General chat | Low-latency chat | IDE integration | CPU design |
+| Feature | Hermes | OpenClaw | Uplift Bridge | SubTeam | Draymond |
+|---------|--------|----------|---------------|---------|----------|
+| **Transport** | HTTP/SSE | WebSocket | HTTP/Polling | HTTP/SSE | HTTP/SSE + Events |
+| **Real-time** | ✅ Streaming | ✅ Streaming | ⚠️ Simulated | ✅ Streaming | ✅ Streaming |
+| **Auto-reconnect** | ❌ | ✅ | ⚠️ Manual | ❌ | ✅ (events only) |
+| **Auth** | Bearer Token | Token | OAuth | Token (optional) | Bearer Token |
+| **Use Case** | General chat | Low-latency chat | IDE integration | CPU design | Multi-agent orchestration |
+| **Multi-Agent** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Workflow Tracking** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Agent Discovery** | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ---
 
@@ -172,13 +291,31 @@ Then connect Open-Chat to `127.0.0.1:8643` using the SubTeam protocol.
 **Problem**: "No response from agent"
 - **Solution**: Check wrapper logs for Python errors in Sub-Team pipeline
 
+### Draymond Orchestrator Connection Issues
+
+**Problem**: "Orchestrator not connected"
+- **Solution**: Verify orchestrator is running on the configured port
+- Check: `curl http://127.0.0.1:8644/v1/health`
+
+**Problem**: "No agents discovered"
+- **Solution**: Ensure agents are registered in the orchestrator
+- Check: `curl http://127.0.0.1:8644/v1/agents`
+
+**Problem**: "Event stream disconnected"
+- **Solution**: The client auto-reconnects. Check orchestrator logs for errors.
+- Maximum reconnect attempts: 5 with exponential backoff
+
+**Problem**: "Workflow stuck in 'in_progress'"
+- **Solution**: Check orchestrator logs for agent failures
+- Cancel workflow and retry if needed
+
 ---
 
 ## 📚 Additional Resources
 
 - **Uplift Agent**: See [uplift-code README](https://github.com/ncsound919/uplift-code/blob/main/README.md)
 - **Sub-Team**: See [Sub-Team README](https://github.com/ncsound919/Sub-Team/blob/main/README.md)
-- **Draymond Orchestrator**: Referenced in Sub-Team docs as the centralized agent dashboard
+- **Draymond Orchestrator**: See [Draymond-Orchestrator README](https://github.com/ncsound919/Draymond-Orchestrator/blob/main/README.md)
 
 ---
 
