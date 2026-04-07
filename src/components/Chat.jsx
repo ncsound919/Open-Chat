@@ -56,11 +56,16 @@ export function Chat({
   onOpenSettings,
   onDeleteMessage,
   onClearChat,
+  unreadNotifications = 0,
+  draymondChains = [],
+  onClearUnread,
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [showChainStrip, setShowChainStrip] = useState(false);
   const inputRef = useAutoResize(input);
   const bottomRef = useScrollFollow([messages, streaming]);
   const color = safeColor(bot.color);
+  const isDraymond = bot.protocol === "draymond";
 
   // Close menu on Escape key
   useEffect(() => {
@@ -137,6 +142,76 @@ export function Chat({
             {STATUS_LABEL[status] || "…"}
           </div>
         </div>
+
+        {/* Notification badge (Draymond only) */}
+        {isDraymond && unreadNotifications > 0 && (
+          <button
+            onClick={() => {
+              if (onClearUnread) onClearUnread();
+            }}
+            aria-label={`${unreadNotifications} unread notifications`}
+            title="Click to clear"
+            style={{
+              position: "relative",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            <span
+              style={{
+                position: "absolute",
+                top: 2,
+                right: 2,
+                background: "#ef4444",
+                color: "#fff",
+                fontSize: 9,
+                fontWeight: 700,
+                borderRadius: "50%",
+                width: 16,
+                height: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                lineHeight: 1,
+              }}
+            >
+              {unreadNotifications > 99 ? "99" : unreadNotifications}
+            </span>
+          </button>
+        )}
+
+        {/* Chain activity toggle (Draymond only) */}
+        {isDraymond && draymondChains.length > 0 && (
+          <button
+            onClick={() => setShowChainStrip((prev) => !prev)}
+            aria-label="Toggle chain activity"
+            title={showChainStrip ? "Hide chain activity" : "Show chain activity"}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: showChainStrip ? "#34d399" : "#555568",
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+          </button>
+        )}
 
         <div style={{ position: "relative" }}>
           <button
@@ -241,6 +316,80 @@ export function Chat({
           )}
         </div>
       </div>
+
+      {/* Chain activity strip (Draymond only) */}
+      {isDraymond && showChainStrip && draymondChains.length > 0 && (
+        <div
+          style={{
+            padding: "8px 16px",
+            background: "#111118",
+            borderBottom: "1px solid #1a1a26",
+            maxHeight: 120,
+            overflowY: "auto",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#666680",
+              marginBottom: 6,
+              textTransform: "uppercase",
+              letterSpacing: "0.5px",
+            }}
+          >
+            Chain Activity
+          </div>
+          {draymondChains.slice(-5).reverse().map((chain, i) => {
+            const statusColor =
+              chain.type === "chain_completed" ? "#34d399" :
+              chain.type === "chain_failed" ? "#ef4444" :
+              chain.type === "chain_started" ? "#60a5fa" :
+              "#f59e0b";
+            const label =
+              chain.type === "chain_completed" ? "Done" :
+              chain.type === "chain_failed" ? "Failed" :
+              chain.type === "chain_started" ? "Running" :
+              "Step";
+            return (
+              <div
+                key={chain.chain_instance_id || i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "4px 0",
+                  fontSize: 12,
+                  color: "#c0c0d0",
+                }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: statusColor,
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {chain.chain_name || chain.chain_slug || "chain"}
+                </span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: statusColor,
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
+                  {label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Messages */}
       <div
@@ -409,6 +558,7 @@ Chat.propTypes = {
     avatar: PropTypes.string,
     color: PropTypes.string.isRequired,
     tagline: PropTypes.string,
+    protocol: PropTypes.string,
   }).isRequired,
   messages: PropTypes.array.isRequired,
   status: PropTypes.string.isRequired,
@@ -421,4 +571,7 @@ Chat.propTypes = {
   onOpenSettings: PropTypes.func.isRequired,
   onDeleteMessage: PropTypes.func.isRequired,
   onClearChat: PropTypes.func.isRequired,
+  unreadNotifications: PropTypes.number,
+  draymondChains: PropTypes.array,
+  onClearUnread: PropTypes.func,
 };

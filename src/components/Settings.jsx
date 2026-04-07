@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { BackIcon } from "./icons/Icons.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
@@ -28,6 +28,10 @@ export function Settings({
   onOpenDevPanel,
   onOpenTeamPanel,
   onOpenScheduler,
+  draymondClient,
+  draymondNotifications = [],
+  draymondChains = [],
+  draymondSchedules = [],
 }) {
   // In Basic mode, pre-fill with mode defaults
   const [form, setForm] = useState(() => {
@@ -41,6 +45,78 @@ export function Settings({
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
 
   const availableProtocols = useMemo(() => getAvailableProtocols(mode), [mode]);
+
+  // ── Draymond remote management state ──────────────────────────────────────
+  const isDraymond = form.protocol === "draymond" && !isNew;
+  const [serverChains, setServerChains] = useState([]);
+  const [serverSchedules, setServerSchedules] = useState([]);
+  const [chainsLoading, setChainsLoading] = useState(false);
+  const [schedulesLoading, setSchedulesLoading] = useState(false);
+  const [executingChain, setExecutingChain] = useState(null);
+  const [togglingSchedule, setTogglingSchedule] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  /** Fetch chains and schedules from the server */
+  const refreshDraymondData = useCallback(async () => {
+    if (!draymondClient || draymondClient.status !== "connected") return;
+    setChainsLoading(true);
+    setSchedulesLoading(true);
+    try {
+      const chains = await draymondClient.listChains();
+      setServerChains(Array.isArray(chains) ? chains : []);
+    } catch (err) {
+      console.error("[Settings] Failed to fetch chains:", err);
+    } finally {
+      setChainsLoading(false);
+    }
+    try {
+      const schedules = await draymondClient.listSchedules();
+      setServerSchedules(Array.isArray(schedules) ? schedules : []);
+    } catch (err) {
+      console.error("[Settings] Failed to fetch schedules:", err);
+    } finally {
+      setSchedulesLoading(false);
+    }
+  }, [draymondClient]);
+
+  // Auto-fetch when entering settings for a connected Draymond bot
+  useEffect(() => {
+    if (isDraymond && draymondClient && draymondClient.status === "connected") {
+      refreshDraymondData();
+    }
+  }, [isDraymond, draymondClient, refreshDraymondData]);
+
+  /** Execute a chain by slug */
+  const handleExecuteChain = async (chainSlug) => {
+    if (!draymondClient || executingChain) return;
+    setExecutingChain(chainSlug);
+    try {
+      await draymondClient.executeChain(chainSlug);
+    } catch (err) {
+      console.error("[Settings] Chain execution failed:", err);
+    } finally {
+      setExecutingChain(null);
+    }
+  };
+
+  /** Toggle a schedule's enabled state */
+  const handleToggleSchedule = async (jobName, currentEnabled) => {
+    if (!draymondClient || togglingSchedule) return;
+    setTogglingSchedule(jobName);
+    try {
+      await draymondClient.toggleSchedule(jobName, !currentEnabled);
+      // Update local state optimistically
+      setServerSchedules((prev) =>
+        prev.map((s) =>
+          s.job_name === jobName ? { ...s, enabled: !currentEnabled } : s
+        )
+      );
+    } catch (err) {
+      console.error("[Settings] Schedule toggle failed:", err);
+    } finally {
+      setTogglingSchedule(null);
+    }
+  };
 
   const inputStyle = {
     width: "100%",
@@ -475,6 +551,290 @@ export function Settings({
             </div>
           </div>
         )}
+
+        {/* Draymond Remote Management (Draymond bots in Dev mode) */}
+        {isDraymond && mode === MODES.DEV && (
+          <div>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#e8e8f0",
+                marginBottom: 10,
+                marginTop: 10,
+              }}
+            >
+              Draymond Remote
+            </div>
+
+            {/* Chain Management */}
+            <div
+              style={{
+                background: "#1a1a26",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d0" }}>
+                  Chains / Pipelines
+                </span>
+                <button
+                  onClick={refreshDraymondData}
+                  disabled={chainsLoading}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#818cf8",
+                    fontSize: 11,
+                    cursor: "pointer",
+                    padding: "2px 6px",
+                  }}
+                >
+                  {chainsLoading ? "Loading…" : "Refresh"}
+                </button>
+              </div>
+
+              {serverChains.length === 0 && !chainsLoading && (
+                <div style={{ fontSize: 12, color: "#555568", padding: "4px 0" }}>
+                  No chains found on server.
+                </div>
+              )}
+
+              {serverChains.map((chain) => (
+                <div
+                  key={chain.slug || chain.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 0",
+                    borderTop: "1px solid #2a2a38",
+                  }}
+                >
+                  <div style={{ flex: 1, overflow: "hidden" }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#e0e0f0",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {chain.name || chain.slug}
+                    </div>
+                    {chain.description && (
+                      <div style={{ fontSize: 11, color: "#555568", marginTop: 2 }}>
+                        {chain.description}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleExecuteChain(chain.slug)}
+                    disabled={executingChain === chain.slug}
+                    style={{
+                      background: executingChain === chain.slug ? "#333" : "#1e3a2f",
+                      border: "1px solid #34d39940",
+                      borderRadius: 6,
+                      padding: "4px 10px",
+                      color: "#34d399",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: executingChain === chain.slug ? "default" : "pointer",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {executingChain === chain.slug ? "Running…" : "Run"}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Schedule Management */}
+            <div
+              style={{
+                background: "#1a1a26",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d0" }}>
+                  Scheduled Jobs
+                </span>
+                <button
+                  onClick={refreshDraymondData}
+                  disabled={schedulesLoading}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#818cf8",
+                    fontSize: 11,
+                    cursor: "pointer",
+                    padding: "2px 6px",
+                  }}
+                >
+                  {schedulesLoading ? "Loading…" : "Refresh"}
+                </button>
+              </div>
+
+              {serverSchedules.length === 0 && !schedulesLoading && (
+                <div style={{ fontSize: 12, color: "#555568", padding: "4px 0" }}>
+                  No schedules found on server.
+                </div>
+              )}
+
+              {serverSchedules.map((sched) => (
+                <div
+                  key={sched.job_name || sched.name}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 0",
+                    borderTop: "1px solid #2a2a38",
+                  }}
+                >
+                  <div style={{ flex: 1, overflow: "hidden" }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#e0e0f0",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {sched.job_name || sched.name}
+                    </div>
+                    {sched.cron && (
+                      <div style={{ fontSize: 11, color: "#555568", marginTop: 2, fontFamily: "monospace" }}>
+                        {sched.cron}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() =>
+                      handleToggleSchedule(
+                        sched.job_name || sched.name,
+                        sched.enabled !== false
+                      )
+                    }
+                    disabled={togglingSchedule === (sched.job_name || sched.name)}
+                    style={{
+                      background:
+                        sched.enabled !== false ? "#1e3a2f" : "#2d1f1f",
+                      border: `1px solid ${sched.enabled !== false ? "#34d39940" : "#ef444440"}`,
+                      borderRadius: 6,
+                      padding: "4px 10px",
+                      color: sched.enabled !== false ? "#34d399" : "#ef4444",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: togglingSchedule === (sched.job_name || sched.name) ? "default" : "pointer",
+                      flexShrink: 0,
+                      minWidth: 50,
+                      textAlign: "center",
+                    }}
+                  >
+                    {sched.enabled !== false ? "On" : "Off"}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Notification History */}
+            <div
+              style={{
+                background: "#1a1a26",
+                borderRadius: 10,
+                padding: "12px 14px",
+              }}
+            >
+              <button
+                onClick={() => setShowNotifications((prev) => !prev)}
+                style={{
+                  width: "100%",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d0" }}>
+                  Recent Notifications ({draymondNotifications.length})
+                </span>
+                <span style={{ fontSize: 11, color: "#555568" }}>
+                  {showNotifications ? "Hide" : "Show"}
+                </span>
+              </button>
+
+              {showNotifications && (
+                <div style={{ marginTop: 8 }}>
+                  {draymondNotifications.length === 0 && (
+                    <div style={{ fontSize: 12, color: "#555568", padding: "4px 0" }}>
+                      No notifications received yet.
+                    </div>
+                  )}
+                  {draymondNotifications.slice(-10).reverse().map((notif, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: "6px 0",
+                        borderTop: i > 0 ? "1px solid #2a2a38" : "none",
+                        fontSize: 12,
+                        color: "#c0c0d0",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            background:
+                              notif.type === "notification_failed" ? "#ef4444" : "#34d399",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {notif.subject || notif.type || "Notification"}
+                        </span>
+                        <span style={{ fontSize: 10, color: "#555568", flexShrink: 0 }}>
+                          {notif.receivedAt ? new Date(notif.receivedAt).toLocaleTimeString() : ""}
+                        </span>
+                      </div>
+                      {notif.recipient && (
+                        <div style={{ fontSize: 10, color: "#555568", marginTop: 2, marginLeft: 12 }}>
+                          To: {notif.recipient}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Save Button */}
@@ -525,4 +885,8 @@ Settings.propTypes = {
   onOpenDevPanel: PropTypes.func,
   onOpenTeamPanel: PropTypes.func,
   onOpenScheduler: PropTypes.func,
+  draymondClient: PropTypes.object,
+  draymondNotifications: PropTypes.array,
+  draymondChains: PropTypes.array,
+  draymondSchedules: PropTypes.array,
 };

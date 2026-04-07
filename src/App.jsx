@@ -29,8 +29,10 @@ import {
   saveTeams,
   loadSchedules,
   saveSchedules,
+  migrateTokensToSecure,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
+import { isNative, isAndroid } from "./utils/platform.js";
 
 /**
  * Main App component
@@ -65,6 +67,12 @@ export default function App() {
   const [showDevPanel, setShowDevPanel] = useState(false);
   const [showTeamPanel, setShowTeamPanel] = useState(false);
   const [showScheduler, setShowScheduler] = useState(false);
+
+  // Draymond real-time state (populated from SSE callbacks)
+  const [draymondNotifications, setDraymondNotifications] = useState([]);
+  const [draymondChains, setDraymondChains] = useState([]);
+  const [draymondSchedules, setDraymondSchedules] = useState([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // Refs
   const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
@@ -107,6 +115,20 @@ export default function App() {
   useEffect(() => {
     saveSchedules(schedules);
   }, [schedules]);
+
+  // ── Migrate plaintext tokens to encrypted storage on startup ────────────────
+  useEffect(() => {
+    migrateTokensToSecure(bots).then((updatedBots) => {
+      // Only update if any tokens were actually cleared
+      const changed = updatedBots.some(
+        (ub, i) => ub.token !== bots[i]?.token
+      );
+      if (changed) {
+        setBots(updatedBots);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount
 
   // ── Status management ───────────────────────────────────────────────────────
   const setStatus = useCallback((id, status) => {
@@ -187,6 +209,34 @@ export default function App() {
       client.onToolExecution = (execution) => {
         setToolLog((prev) => [...prev, execution].slice(-1000));
       };
+      client.onNotification = (notification) => {
+        setDraymondNotifications((prev) =>
+          [...prev, { ...notification, receivedAt: Date.now() }].slice(-200)
+        );
+        setUnreadNotifications((prev) => prev + 1);
+      };
+      client.onChainUpdate = (chainEvent) => {
+        setDraymondChains((prev) => {
+          const idx = prev.findIndex((c) => c.chain_instance_id === chainEvent.chain_instance_id);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...chainEvent };
+            return updated;
+          }
+          return [...prev, chainEvent].slice(-100);
+        });
+      };
+      client.onScheduleUpdate = (scheduleEvent) => {
+        setDraymondSchedules((prev) => {
+          const idx = prev.findIndex((s) => s.job_name === scheduleEvent.job_name);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = { ...updated[idx], ...scheduleEvent };
+            return updated;
+          }
+          return [...prev, scheduleEvent].slice(-100);
+        });
+      };
 
       orchestratorRefs.current[bot.id] = client;
 
@@ -263,6 +313,63 @@ export default function App() {
       Object.values(orchestratorRefs.current).forEach((client) =>
         client.disconnect()
       );
+    };
+  }, []);
+
+  // ── Android hardware back button ───────────────────────────────────────────
+  useEffect(() => {
+    if (!isNative) return;
+
+    let removeListener;
+    (async () => {
+      try {
+        const { App: CapApp } = await import("@capacitor/app");
+        const handle = await CapApp.addListener("backButton", () => {
+          // Navigate: Settings → Chat/Inbox, Chat → Inbox
+          if (showCfg) {
+            setCfgBot(null);
+            setShowCfg(false);
+          } else if (activeId) {
+            setActiveId(null);
+          }
+          // At inbox level — do nothing (Capacitor default would minimize)
+        });
+        removeListener = handle.remove;
+      } catch {
+        // Plugin not available — ignore
+      }
+    })();
+
+    return () => {
+      if (removeListener) removeListener();
+    };
+  }, [showCfg, activeId]);
+
+  // ── Network change detection (native) ──────────────────────────────────────
+  useEffect(() => {
+    if (!isNative) return;
+
+    let removeListener;
+    (async () => {
+      try {
+        const { Network } = await import("@capacitor/network");
+        const handle = await Network.addListener("networkStatusChange", (status) => {
+          if (status.connected) {
+            console.log("[OpenChat] Network restored — flushing offline queues");
+            // Flush offline queues for all Draymond clients
+            Object.values(orchestratorRefs.current).forEach((client) => {
+              if (client.flushOfflineQueue) client.flushOfflineQueue();
+            });
+          }
+        });
+        removeListener = handle.remove;
+      } catch {
+        // Plugin not available — ignore
+      }
+    })();
+
+    return () => {
+      if (removeListener) removeListener();
     };
   }, []);
 
@@ -628,6 +735,17 @@ export default function App() {
     setMode((prev) => (prev === "basic" ? "dev" : "basic"));
   }
 
+  /** Clear notification badge count (called when user views notifications) */
+  function clearUnreadNotifications() {
+    setUnreadNotifications(0);
+  }
+
+  /** Get the active Draymond client for the current bot (if any) */
+  function getActiveDraymondClient() {
+    if (!bot || bot.protocol !== "draymond") return null;
+    return orchestratorRefs.current[bot.id] || null;
+  }
+
   // ── Phase 4 & 5 handlers ────────────────────────────────────────────────────
 
   // Tool execution
@@ -684,12 +802,12 @@ export default function App() {
   return (
     <div
       style={{
-        maxWidth: 430,
+        maxWidth: isNative ? "100%" : 430,
         height: "100vh",
         margin: "0 auto",
         position: "relative",
         overflow: "hidden",
-        boxShadow: "0 0 80px #00000080",
+        boxShadow: isNative ? "none" : "0 0 80px #00000080",
       }}
     >
       {/* Inbox */}
@@ -739,6 +857,9 @@ export default function App() {
             onOpenSettings={() => openSettings(bot)}
             onDeleteMessage={(msgId) => deleteMessage(bot.id, msgId)}
             onClearChat={() => clearChat(bot.id)}
+            unreadNotifications={bot.protocol === "draymond" ? unreadNotifications : 0}
+            draymondChains={bot.protocol === "draymond" ? draymondChains : []}
+            onClearUnread={clearUnreadNotifications}
           />
         )}
       </div>
@@ -768,6 +889,20 @@ export default function App() {
             onOpenDevPanel={() => setShowDevPanel(true)}
             onOpenTeamPanel={() => setShowTeamPanel(true)}
             onOpenScheduler={() => setShowScheduler(true)}
+            draymondClient={
+              cfgBot.protocol === "draymond"
+                ? orchestratorRefs.current[cfgBot.id] || null
+                : null
+            }
+            draymondNotifications={
+              cfgBot.protocol === "draymond" ? draymondNotifications : []
+            }
+            draymondChains={
+              cfgBot.protocol === "draymond" ? draymondChains : []
+            }
+            draymondSchedules={
+              cfgBot.protocol === "draymond" ? draymondSchedules : []
+            }
           />
         )}
       </div>

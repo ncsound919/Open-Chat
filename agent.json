@@ -1,0 +1,55 @@
+{
+  "id": "open-chat",
+  "slug": "open-chat",
+  "name": "Open Chat",
+  "codename": "OpenClaw",
+  "version": "1.0.0",
+  "tier": "core",
+  "role": "Communication Hub",
+  "tagline": "Unified chat interface for all agents",
+  "bio": "Open Chat is the universal chat interface for the Uplift Lab agent platform. Connect to any agent through a single conversation window with support for five communication protocols.",
+  "personality": "empathetic",
+  "voice": "friendly, clear, conversational",
+  "theme": {
+    "accentColor": "#10b981",
+    "cardStyle": "glass",
+    "portraitFrame": "circle",
+    "badgeColor": "#10b981"
+  },
+  "specialties": ["multi-agent-chat", "protocol-bridge", "conversation-management"],
+  "capabilities": [
+    { "id": "multi-agent-chat", "label": "Multi-Agent Chat", "description": "Chat with multiple agents in one interface" },
+    { "id": "protocol-bridge", "label": "Protocol Bridge", "description": "Supports OpenClaw, Hermes, Draymond, SubTeam, and REST protocols" },
+    { "id": "automation-scheduling", "label": "Automation", "description": "Schedule automated agent tasks" },
+    { "id": "audit-logging", "label": "Audit Log", "description": "Track all agent interactions" },
+    { "id": "team-management", "label": "Team Panel", "description": "Manage bot connections and team" }
+  ],
+  "stats": [
+    { "label": "Communication", "value": 95, "color": "#10b981" },
+    { "label": "Integration", "value": 90, "color": "#10b981" },
+    { "label": "Usability", "value": 95, "color": "#10b981" },
+    { "label": "Flexibility", "value": 85, "color": "#10b981" }
+  ],
+  "tags": ["chat", "interface", "multi-agent", "protocols"],
+  "runtime": {
+    "type": "http",
+    "endpoint": "http://localhost:3000",
+    "healthPath": "/health",
+    "timeoutMs": 10000
+  },
+  "permissions": {
+    "canReadFiles": false,
+    "canWriteFiles": false,
+    "canRunCommands": false,
+    "canAccessInternet": true,
+    "canAccessDatabase": false,
+    "canSendEmail": false
+  },
+  "workflows": [],
+  "memoryEnabled": true,
+  "persistentMemory": true,
+  "status": "offline",
+  "installedAt": "2025-01-01T00:00:00.000Z",
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "sourceType": "folder"
+}

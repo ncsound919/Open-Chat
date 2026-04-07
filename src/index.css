@@ -21,6 +21,58 @@ body {
   height: 100vh;
 }
 
+/* ── Native mobile adaptations ───────────────────────────────────────────── */
+
+/* When running in Capacitor, use safe area insets for status bar and
+   home indicator (gesture bar). The .native class is added by main.jsx. */
+body.native {
+  /* Allow full-bleed behind status bar and navigation bar */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* On native, the app container should fill the full device width
+   (the 430px maxWidth is removed in App.jsx via isNative check) */
+body.native #root {
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Android-specific: extra top padding when StatusBar overlays web view */
+body.android {
+  padding-top: env(safe-area-inset-top, 24px);
+}
+
+/* Prevent pull-to-refresh and overscroll bounce on native */
+body.native {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Disable text selection and callout on long-press for native feel */
+body.native * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Re-enable text selection for inputs, textareas, and message content */
+body.native textarea,
+body.native input,
+body.native [data-selectable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Disable tap highlight on native */
+body.native {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── End native mobile adaptations ───────────────────────────────────────── */
+
 ::-webkit-scrollbar {
   width: 0;
 }

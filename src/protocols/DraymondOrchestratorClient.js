@@ -15,7 +15,18 @@
  * - GET /v1/workflows/{id} - Get workflow status
  * - GET /v1/events - Real-time SSE event stream
  * - GET /v1/health - Health check
+ * - GET /v1/messages - Load chat history
+ * - POST /v1/messages - Sync chat messages
+ * - GET /v1/chains - List chains/pipelines
+ * - POST /v1/chains - Execute a chain
+ * - GET /v1/schedules - List scheduled jobs
+ * - PATCH /v1/schedules - Enable/disable a schedule
+ * - GET /v1/status - Get server status
+ * - POST /v1/status - Report client status
  */
+
+import { Preferences } from '@capacitor/preferences';
+import { isNative } from '../utils/platform.js';
 
 /** Connection timeout in milliseconds */
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -27,6 +38,12 @@ const WORKFLOW_POLL_INTERVAL_MS = 1_000;
 
 /** Event stream reconnect delay (ms) */
 const EVENT_STREAM_RECONNECT_DELAY_MS = 3_000;
+
+/** Maximum queued commands when offline */
+const MAX_OFFLINE_QUEUE = 100;
+
+/** localStorage key for offline command queue */
+const OFFLINE_QUEUE_KEY = "openchat_draymond_queue_v1";
 
 /**
  * Draymond Orchestrator Client
@@ -77,6 +94,18 @@ export class DraymondOrchestratorClient {
     this._reconnectTimerId = null;
     this._shouldReconnect = false;
     this._pollTimerIds = new Set();
+
+    // Offline command queue
+    this._offlineQueue = this._loadOfflineQueue();
+    this._flushing = false;
+
+    // New callbacks
+    this.onNotification = null;
+    this.onChainUpdate = null;
+    this.onScheduleUpdate = null;
+
+    // Client ID for status reporting
+    this._clientId = `openchat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
   /**
@@ -102,6 +131,14 @@ export class DraymondOrchestratorClient {
 
       this._setStatus("connected");
       this.reconnectAttempts = 0;
+
+      // Report online status to Draymond
+      this.reportStatus("connect").catch(() => {});
+
+      // Flush any queued offline commands
+      if (this._offlineQueue.length > 0) {
+        this.flushOfflineQueue().catch(() => {});
+      }
 
       return agents;
     } catch (error) {
@@ -140,6 +177,9 @@ export class DraymondOrchestratorClient {
     this.activeWorkflows = {};
 
     this._setStatus("disconnected");
+
+    // Report disconnect to Draymond (best-effort)
+    this.reportStatus("disconnect").catch(() => {});
   }
 
   /**
@@ -400,6 +440,319 @@ export class DraymondOrchestratorClient {
    */
   getActiveWorkflows() {
     return this.activeWorkflows;
+  }
+
+  // ── Messages API ────────────────────────────────────────────────────────
+
+  /**
+   * Sync messages to Draymond for persistent chat history
+   * @param {string} sessionId - Chat session identifier
+   * @param {Array<{role: string, content: string, metadata?: object}>} messages
+   * @returns {Promise<{ok: boolean, inserted: number}>}
+   */
+  async syncMessages(sessionId, messages) {
+    const url = `${this.baseUrl}/v1/messages`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        },
+        body: JSON.stringify({ session_id: sessionId, messages }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      if (!this._flushing) {
+        this._enqueueOffline({ type: "syncMessages", sessionId, messages });
+        console.warn("Failed to sync messages — queued for retry");
+      }
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /**
+   * Load message history from Draymond
+   * @param {string} sessionId
+   * @param {object} [options]
+   * @param {number} [options.limit=100]
+   * @param {string} [options.before] - ISO timestamp for pagination
+   * @returns {Promise<{ok: boolean, messages: Array}>}
+   */
+  async loadMessages(sessionId, options = {}) {
+    const params = new URLSearchParams({ session_id: sessionId });
+    if (options.limit) params.set("limit", String(options.limit));
+    if (options.before) params.set("before", options.before);
+
+    const url = `${this.baseUrl}/v1/messages?${params}`;
+    try {
+      const res = await fetch(url, {
+        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to load messages:", error.message);
+      return { ok: false, messages: [] };
+    }
+  }
+
+  // ── Chains API ──────────────────────────────────────────────────────────
+
+  /**
+   * List available chains/pipelines
+   * @param {object} [filters]
+   * @param {boolean} [filters.is_template]
+   * @param {string} [filters.status]
+   * @param {number} [filters.limit]
+   * @returns {Promise<{ok: boolean, chains: Array}>}
+   */
+  async listChains(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.is_template !== undefined) params.set("is_template", String(filters.is_template));
+    if (filters.status) params.set("status", filters.status);
+    if (filters.limit) params.set("limit", String(filters.limit));
+
+    const url = `${this.baseUrl}/v1/chains?${params}`;
+    try {
+      const res = await fetch(url, {
+        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to list chains:", error.message);
+      return { ok: false, chains: [] };
+    }
+  }
+
+  /**
+   * Execute a chain by slug
+   * @param {string} chainSlug
+   * @param {object} [input={}]
+   * @param {string} [agentId]
+   * @returns {Promise<object>}
+   */
+  async executeChain(chainSlug, input = {}, agentId) {
+    const url = `${this.baseUrl}/v1/chains`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        },
+        body: JSON.stringify({ chain_slug: chainSlug, input, agent_id: agentId }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      if (!this._flushing) {
+        this._enqueueOffline({ type: "executeChain", chainSlug, input, agentId });
+        console.warn("Failed to execute chain — queued for retry");
+      }
+      return { ok: false, error: error.message };
+    }
+  }
+
+  // ── Schedules API ───────────────────────────────────────────────────────
+
+  /**
+   * List scheduled jobs
+   * @param {object} [filters]
+   * @returns {Promise<{ok: boolean, schedules: Array}>}
+   */
+  async listSchedules(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.is_enabled !== undefined) params.set("is_enabled", String(filters.is_enabled));
+    if (filters.job_type) params.set("job_type", filters.job_type);
+    if (filters.limit) params.set("limit", String(filters.limit));
+
+    const url = `${this.baseUrl}/v1/schedules?${params}`;
+    try {
+      const res = await fetch(url, {
+        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to list schedules:", error.message);
+      return { ok: false, schedules: [] };
+    }
+  }
+
+  /**
+   * Enable or disable a scheduled job
+   * @param {string} jobId
+   * @param {'enable'|'disable'} action
+   * @returns {Promise<object>}
+   */
+  async toggleSchedule(jobId, action) {
+    const url = `${this.baseUrl}/v1/schedules`;
+    try {
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        },
+        body: JSON.stringify({ id: jobId, action }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      if (!this._flushing) {
+        this._enqueueOffline({ type: "toggleSchedule", jobId, action });
+        console.warn("Failed to toggle schedule — queued for retry");
+      }
+      return { ok: false, error: error.message };
+    }
+  }
+
+  // ── Status API ──────────────────────────────────────────────────────────
+
+  /**
+   * Report client status to Draymond (heartbeat / connect / disconnect)
+   * @param {'connect'|'disconnect'|'heartbeat'} action
+   * @returns {Promise<object>}
+   */
+  async reportStatus(action = "heartbeat") {
+    const url = `${this.baseUrl}/v1/status`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        },
+        body: JSON.stringify({
+          client_id: this._clientId,
+          action,
+          version: "1.0.0",
+          platform: "open-chat",
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to report status:", error.message);
+      return { ok: false };
+    }
+  }
+
+  /**
+   * Get Draymond server status
+   * @returns {Promise<object>}
+   */
+  async getServerStatus() {
+    const url = `${this.baseUrl}/v1/status`;
+    try {
+      const res = await fetch(url, {
+        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to get server status:", error.message);
+      return { ok: false, status: "unreachable" };
+    }
+  }
+
+  // ── Orchestrate with entity/chain routing ───────────────────────────────
+
+  /**
+   * Invoke a specific entity through Draymond
+   * @param {string} entitySlug
+   * @param {string} action
+   * @param {object} input
+   * @param {object} options - Same as orchestrate() options
+   * @param {AbortSignal} signal
+   * @returns {Promise<object>}
+   */
+  async invokeEntity(entitySlug, action, input = {}, options = {}, signal) {
+    return this.orchestrate(
+      {
+        ...options,
+        workflowId: options.workflowId || `entity-${entitySlug}-${Date.now()}`,
+        task: `Invoke entity: ${entitySlug}`,
+        metadata: { entity_slug: entitySlug, action, input },
+      },
+      signal,
+    );
+  }
+
+  /**
+   * Trigger a chain through the orchestrate endpoint
+   * @param {string} chainSlug
+   * @param {object} input
+   * @param {object} options - Same as orchestrate() options
+   * @param {AbortSignal} signal
+   * @returns {Promise<object>}
+   */
+  async triggerChain(chainSlug, input = {}, options = {}, signal) {
+    return this.orchestrate(
+      {
+        ...options,
+        workflowId: options.workflowId || `chain-${chainSlug}-${Date.now()}`,
+        task: `Execute chain: ${chainSlug}`,
+        metadata: { chain_slug: chainSlug, input },
+      },
+      signal,
+    );
+  }
+
+  // ── Offline Queue ───────────────────────────────────────────────────────
+
+  /**
+   * Get the current offline queue size
+   * @returns {number}
+   */
+  getOfflineQueueSize() {
+    return this._offlineQueue.length;
+  }
+
+  /**
+   * Flush the offline queue — retry all queued commands
+   * @returns {Promise<{succeeded: number, failed: number}>}
+   */
+  async flushOfflineQueue() {
+    if (this._offlineQueue.length === 0) return { succeeded: 0, failed: 0 };
+
+    this._flushing = true;
+    const queue = [...this._offlineQueue];
+    this._offlineQueue = [];
+    this._saveOfflineQueue();
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const cmd of queue) {
+      try {
+        switch (cmd.type) {
+          case "syncMessages":
+            await this.syncMessages(cmd.sessionId, cmd.messages);
+            break;
+          case "executeChain":
+            await this.executeChain(cmd.chainSlug, cmd.input, cmd.agentId);
+            break;
+          case "toggleSchedule":
+            await this.toggleSchedule(cmd.jobId, cmd.action);
+            break;
+          default:
+            console.warn(`Unknown queued command type: ${cmd.type}`);
+        }
+        succeeded++;
+      } catch {
+        // Re-queue on failure
+        this._offlineQueue.push(cmd);
+        failed++;
+      }
+    }
+
+    this._flushing = false;
+    this._saveOfflineQueue();
+    return { succeeded, failed };
   }
 
   // ── Private methods ──────────────────────────────────────────────────────
@@ -693,6 +1046,31 @@ export class DraymondOrchestratorClient {
         }
         break;
 
+      case "chain.started":
+      case "chain.step_completed":
+      case "chain.step_failed":
+      case "chain.completed":
+      case "chain.failed":
+        this.onChainUpdate?.(event);
+        break;
+
+      case "scheduler.job_started":
+      case "scheduler.job_completed":
+      case "scheduler.job_failed":
+        this.onScheduleUpdate?.(event);
+        break;
+
+      case "notification.sent":
+      case "notification.failed":
+        this.onNotification?.(event);
+        break;
+
+      case "monitor.site_down":
+      case "monitor.site_recovered":
+      case "monitor.health_check_complete":
+        this.onNotification?.(event);
+        break;
+
       default:
         // Pass through to generic callback
         this.onEvent?.(event);
@@ -770,5 +1148,53 @@ export class DraymondOrchestratorClient {
   _setStatus(status) {
     this.status = status;
     this.onStatusChange?.(status);
+  }
+
+  // ── Offline queue persistence ──────────────────────────────────────────
+
+  /** @private */
+  _enqueueOffline(command) {
+    if (this._offlineQueue.length >= MAX_OFFLINE_QUEUE) {
+      this._offlineQueue.shift(); // drop oldest
+    }
+    this._offlineQueue.push({ ...command, queued_at: new Date().toISOString() });
+    this._saveOfflineQueue();
+  }
+
+  /** @private */
+  _saveOfflineQueue() {
+    try {
+      const value = JSON.stringify(this._offlineQueue);
+      if (isNative) {
+        Preferences.set({ key: OFFLINE_QUEUE_KEY, value }).catch(() => {});
+      } else {
+        localStorage.setItem(OFFLINE_QUEUE_KEY, value);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  /** @private */
+  _loadOfflineQueue() {
+    try {
+      if (isNative) {
+        // On native, load asynchronously then merge (queue starts empty on cold boot)
+        Preferences.get({ key: OFFLINE_QUEUE_KEY }).then(({ value }) => {
+          if (!value) return;
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed) && parsed.length > 0 && this._offlineQueue.length === 0) {
+            this._offlineQueue = parsed;
+          }
+        }).catch(() => {});
+        return [];
+      }
+      const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
   }
 }
