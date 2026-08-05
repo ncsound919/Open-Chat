@@ -382,8 +382,11 @@ describe("App.jsx integration", () => {
     // cancel keeps the bot
     window.confirm = vi.fn(() => false);
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    expect(screen.getByText("Hermes")).toBeInTheDocument();
-    expect(screen.queryByText("Hermes Settings")).toBeInTheDocument();
+    expect(screen.getByText("Hermes Settings")).toBeInTheDocument();
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(CONF_KEY));
+      expect(stored.some((b) => b.id === "hermes")).toBe(true);
+    });
 
     // confirm deletes bot + its history
     window.confirm = vi.fn(() => true);

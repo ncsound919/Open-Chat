@@ -953,17 +953,15 @@ export default function App() {
       }}
     >
       {/* Inbox */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "#0d0d14",
-          transform:
-            (activeId || showCfg ? "translateX(-100%)" : "translateX(0)"),
-          transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-          zIndex: 10,
-        }}
-      >
+      {!activeId && !showCfg && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "#0d0d14",
+            zIndex: 10,
+          }}
+        >
         <Inbox
           bots={bots}
           history={history}
@@ -979,7 +977,8 @@ export default function App() {
           searchMode={searchMode}
           pinnedIds={bots.filter((b) => b.pinned).map((b) => b.id)}
         />
-      </div>
+        </div>
+      )}
 
       {searchMode === "messages" && search.trim() && (
         <SearchResults
@@ -995,18 +994,15 @@ export default function App() {
       )}
 
       {/* Chat */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: "#0d0d14",
-          transform:
-            activeId && !showCfg ? "translateX(0)" : "translateX(100%)",
-          transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-          zIndex: 20,
-        }}
-      >
-        {bot && !showCfg && (
+      {bot && !showCfg && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "#0d0d14",
+            zIndex: 20,
+          }}
+        >
           <Chat
             bot={bot}
             messages={messages}
@@ -1047,8 +1043,7 @@ export default function App() {
               }
             }}
           />
-        )}
-        {micError && (
+          {micError && (
           <div
             style={{
               position: "absolute",
@@ -1074,18 +1069,19 @@ export default function App() {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Settings */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          transform: showCfg ? "translateX(0)" : "translateX(100%)",
-          transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-        }}
-      >
-        {showCfg && cfgBot && (
+      {showCfg && cfgBot && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "#0d0d14",
+            zIndex: 30,
+          }}
+        >
           <Settings
             bot={cfgBot}
             isNew={isNewBot}
@@ -1110,8 +1106,8 @@ export default function App() {
               cfgBot.protocol === "draymond" ? draymondNotifications : []
             }
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Phase 4 & 5 Modals */}
       {showAuditLog && (
