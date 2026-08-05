@@ -118,3 +118,44 @@ button {
 button:active {
   transform: scale(0.96);
 }
+
+/* ============================================================
+   Overlay365 design tokens
+   ============================================================ */
+:root {
+  --oc-midnight: #05060a;
+  --oc-graphite: #0e1117;
+  --oc-slate: #141924;
+  --oc-soft-white: #f6f7f9;
+  --oc-cyan: #22d3ee;
+  --oc-gold: #f5c451;
+  --oc-gold-soft: #f7d983;
+  --oc-amber: #f59e0b;
+  --oc-teal: #14b8a6;
+}
+
+body {
+  background: var(--oc-midnight);
+}
+
+/* Glass surface helper */
+.oc-surface {
+  background: rgba(20, 25, 36, 0.72);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  border-radius: 18px;
+}
+
+.oc-glow {
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.25);
+}
+
+/* Brand accent text */
+.oc-accent {
+  color: var(--oc-cyan);
+}
+
+.oc-gold-text {
+  color: var(--oc-gold);
+}
