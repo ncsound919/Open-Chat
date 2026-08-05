@@ -49,6 +49,7 @@ export default function App() {
   const [streaming, setStreaming] = useState(false);
   const [statuses, setStatuses] = useState({});
   const [search, setSearch] = useState("");
+  const [searchMode, setSearchMode] = useState("bots");
 
   // Orchestrator state
   const [workflows, setWorkflows] = useState(loadWorkflows);
@@ -775,6 +776,7 @@ export default function App() {
   function openChat(id) {
     setActiveId(id);
     setHistory((prev) => markAllSeen(prev, id));
+    setSearchMode("bots");
   }
 
   // ── Bot management ──────────────────────────────────────────────────────────
@@ -965,6 +967,9 @@ export default function App() {
           onAddBot={addBot}
           mode={mode}
           onToggleMode={toggleMode}
+          onSearchMode={setSearchMode}
+          searchMode={searchMode}
+          pinnedIds={bots.filter((b) => b.pinned).map((b) => b.id)}
         />
       </div>
 

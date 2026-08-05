@@ -27,9 +27,17 @@ export function Inbox({
   onAddBot,
   mode,
   onToggleMode,
+  onSearchMode = null,
+  searchMode = "bots",
+  pinnedIds = [],
 }) {
   const filtered = bots.filter((b) =>
     b.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const sortedBots = [...filtered].sort(
+    (a, b) =>
+      Number(pinnedIds.includes(b.id)) - Number(pinnedIds.includes(a.id))
   );
 
   return (
@@ -105,28 +113,59 @@ export function Inbox({
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: 8,
+            flexDirection: "column",
             background: "#1c1c26",
             borderRadius: 12,
             padding: "9px 14px",
           }}
         >
-          <SearchIcon />
-          <input
-            style={{
-              flex: 1,
-              background: "none",
-              border: "none",
-              outline: "none",
-              fontSize: 15,
-              color: "#e0e0ea",
-              fontFamily: "inherit",
-            }}
-            placeholder="Search agents…"
-            value={search}
-            onChange={(e) => onSearch(e.target.value)}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <SearchIcon />
+            <input
+              style={{
+                flex: 1,
+                background: "none",
+                border: "none",
+                outline: "none",
+                fontSize: 15,
+                color: "#e0e0ea",
+                fontFamily: "inherit",
+              }}
+              placeholder="Search agents…"
+              value={search}
+              onChange={(e) => onSearch(e.target.value)}
+            />
+          </div>
+          {search.trim() && (
+            <div style={{ display: "flex", gap: 8, paddingTop: 8 }}>
+              <button
+                onClick={() => onSearchMode && onSearchMode("bots")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: searchMode === "bots" ? "#22d3ee" : "#8b8b9e",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  padding: 2,
+                }}
+              >
+                Bots
+              </button>
+              <button
+                onClick={() => onSearchMode && onSearchMode("messages")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: searchMode === "messages" ? "#22d3ee" : "#8b8b9e",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  padding: 2,
+                }}
+              >
+                Messages
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -145,7 +184,7 @@ export function Inbox({
           </div>
         )}
 
-        {filtered.map((bot) => {
+        {sortedBots.map((bot) => {
           const lastMsg = getLastMessage(history, bot.id);
           const unreadCount = getUnreadCount(history, bot.id);
           const unreadBadge = formatUnread(unreadCount);
@@ -214,6 +253,9 @@ export function Inbox({
                     >
                       {bot.name}
                     </span>
+                    {bot.pinned && (
+                      <span style={{ color: "#f5c451", fontSize: 13 }}>★</span>
+                    )}
                     {isFieldVisible("protocolBadge", mode) && (
                       <span
                         style={{
@@ -268,8 +310,9 @@ export function Inbox({
                     {unreadBadge && (
                       <div
                         style={{
-                          background: bot.color,
-                          color: "#0d0d14",
+                          background: "#22d3ee",
+                          color: "#05060a",
+                          boxShadow: "0 0 12px rgba(34,211,238,0.35)",
                           borderRadius: "50%",
                           width: 20,
                           height: 20,
