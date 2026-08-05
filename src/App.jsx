@@ -949,7 +949,7 @@ export default function App() {
         margin: "0 auto",
         position: "relative",
         overflow: "hidden",
-        boxShadow: isNative ? "none" : "0 0 80px #00000080",
+        boxShadow: isNative ? "none" : "0 0 80px rgba(34,211,238,0.12)",
       }}
     >
       {/* Inbox */}

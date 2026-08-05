@@ -119,11 +119,11 @@ export function Settings({
 
   const inputStyle = {
     width: "100%",
-    background: "#1c1c28",
-    border: "1px solid #2a2a38",
+    background: "#141924",
+    border: "1px solid rgba(34,211,238,0.20)",
     borderRadius: 8,
     padding: "9px 12px",
-    color: "#e8e8f0",
+    color: "#f0f0f5",
     fontSize: 14,
     fontFamily: "inherit",
     outline: "none",
@@ -132,7 +132,7 @@ export function Settings({
 
   const labelStyle = {
     fontSize: 12,
-    color: "#666680",
+    color: "#f6f7f9",
     display: "block",
     marginBottom: 2,
   };
@@ -156,7 +156,7 @@ export function Settings({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        background: "#0d0d14",
+        background: "rgba(20,25,36,0.72)",
       }}
     >
       {/* Header */}
@@ -167,7 +167,7 @@ export function Settings({
           gap: 12,
           padding: "52px 16px 16px",
           borderBottom: "1px solid #1a1a26",
-          background: "#111118",
+          background: "rgba(20,25,36,0.72)",
         }}
       >
         <button
@@ -175,7 +175,7 @@ export function Settings({
           style={{
             background: "none",
             border: "none",
-            color: form.color || "#818cf8",
+            color: form.color || "#22d3ee",
             cursor: "pointer",
             display: "flex",
           }}
@@ -183,10 +183,10 @@ export function Settings({
           <BackIcon />
         </button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 16, color: "#f0f0f5" }}>
+          <div style={{ fontWeight: 600, fontSize: 16, color: "#f6f7f9" }}>
             {isNew ? "New Bot" : `${bot.name} Settings`}
           </div>
-          <div style={{ fontSize: 12, color: "#444455" }}>
+          <div style={{ fontSize: 12, color: "#8b8b9e" }}>
             {form.protocol === "openclaw"
               ? "OpenClaw WebSocket"
               : form.protocol === "hermes"
@@ -382,7 +382,7 @@ export function Settings({
               style={{
                 marginTop: 4,
                 fontSize: 11,
-                color: "#555568",
+                color: "#8b8b9e",
                 fontFamily: "monospace",
               }}
             >
@@ -450,15 +450,15 @@ export function Settings({
         {isFieldVisible("connectionInfo", mode) && (
           <div
             style={{
-              background: "#1a1a26",
-              borderRadius: 10,
-              padding: "12px 14px",
-            }}
+            background: "rgba(20,25,36,0.72)",
+            borderRadius: 10,
+            padding: "12px 14px",
+          }}
           >
           <div
             style={{
               fontSize: 11,
-              color: "#555568",
+              color: "#8b8b9e",
               lineHeight: 1.7,
               fontFamily: "monospace",
             }}
@@ -515,7 +515,7 @@ export function Settings({
               style={{
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#e8e8f0",
+                color: "#f6f7f9",
                 marginBottom: 10,
                 marginTop: 10,
               }}
@@ -529,11 +529,11 @@ export function Settings({
                   onClick={onOpenAuditLog}
                   style={{
                     width: "100%",
-                    background: "#1c1c28",
-                    border: "1px solid #2a2a38",
+                    background: "#141924",
+                    border: "1px solid rgba(34,211,238,0.20)",
                     borderRadius: 8,
                     padding: "10px 12px",
-                    color: "#e8e8f0",
+                    color: "#f0f0f5",
                     fontSize: 13,
                     cursor: "pointer",
                     textAlign: "left",
@@ -548,11 +548,11 @@ export function Settings({
                   onClick={onOpenToolConsole}
                   style={{
                     width: "100%",
-                    background: "#1c1c28",
-                    border: "1px solid #2a2a38",
+                    background: "#141924",
+                    border: "1px solid rgba(34,211,238,0.20)",
                     borderRadius: 8,
                     padding: "10px 12px",
-                    color: "#e8e8f0",
+                    color: "#f0f0f5",
                     fontSize: 13,
                     cursor: "pointer",
                     textAlign: "left",
@@ -567,11 +567,11 @@ export function Settings({
                   onClick={onOpenDevPanel}
                   style={{
                     width: "100%",
-                    background: "#1c1c28",
-                    border: "1px solid #2a2a38",
+                    background: "#141924",
+                    border: "1px solid rgba(34,211,238,0.20)",
                     borderRadius: 8,
                     padding: "10px 12px",
-                    color: "#e8e8f0",
+                    color: "#f0f0f5",
                     fontSize: 13,
                     cursor: "pointer",
                     textAlign: "left",
@@ -586,11 +586,11 @@ export function Settings({
                   onClick={onOpenScheduler}
                   style={{
                     width: "100%",
-                    background: "#1c1c28",
-                    border: "1px solid #2a2a38",
+                    background: "#141924",
+                    border: "1px solid rgba(34,211,238,0.20)",
                     borderRadius: 8,
                     padding: "10px 12px",
-                    color: "#e8e8f0",
+                    color: "#f0f0f5",
                     fontSize: 13,
                     cursor: "pointer",
                     textAlign: "left",
@@ -605,11 +605,11 @@ export function Settings({
                   onClick={onOpenTeamPanel}
                   style={{
                     width: "100%",
-                    background: "#1c1c28",
-                    border: "1px solid #2a2a38",
+                    background: "#141924",
+                    border: "1px solid rgba(34,211,238,0.20)",
                     borderRadius: 8,
                     padding: "10px 12px",
-                    color: "#e8e8f0",
+                    color: "#f0f0f5",
                     fontSize: 13,
                     cursor: "pointer",
                     textAlign: "left",
@@ -629,7 +629,7 @@ export function Settings({
               style={{
                 fontSize: 13,
                 fontWeight: 600,
-                color: "#e8e8f0",
+                color: "#f6f7f9",
                 marginBottom: 10,
                 marginTop: 10,
               }}
@@ -640,7 +640,7 @@ export function Settings({
             {/* Chain Management */}
             <div
               style={{
-                background: "#1a1a26",
+                background: "rgba(20,25,36,0.72)",
                 borderRadius: 10,
                 padding: "12px 14px",
                 marginBottom: 10,
@@ -654,7 +654,7 @@ export function Settings({
                   marginBottom: 8,
                 }}
               >
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d0" }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#f6f7f9" }}>
                   Chains / Pipelines
                 </span>
                 <button
@@ -663,7 +663,7 @@ export function Settings({
                   style={{
                     background: "none",
                     border: "none",
-                    color: "#818cf8",
+                    color: "#22d3ee",
                     fontSize: 11,
                     cursor: "pointer",
                     padding: "2px 6px",
@@ -674,7 +674,7 @@ export function Settings({
               </div>
 
               {serverChains.length === 0 && !chainsLoading && (
-                <div style={{ fontSize: 12, color: "#555568", padding: "4px 0" }}>
+                <div style={{ fontSize: 12, color: "#8b8b9e", padding: "4px 0" }}>
                   No chains found on server.
                 </div>
               )}
@@ -694,7 +694,7 @@ export function Settings({
                     <div
                       style={{
                         fontSize: 13,
-                        color: "#e0e0f0",
+                        color: "#f0f0f5",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -703,7 +703,7 @@ export function Settings({
                       {chain.name || chain.slug}
                     </div>
                     {chain.description && (
-                      <div style={{ fontSize: 11, color: "#555568", marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: "#8b8b9e", marginTop: 2 }}>
                         {chain.description}
                       </div>
                     )}
@@ -732,7 +732,7 @@ export function Settings({
             {/* Schedule Management */}
             <div
               style={{
-                background: "#1a1a26",
+                background: "rgba(20,25,36,0.72)",
                 borderRadius: 10,
                 padding: "12px 14px",
                 marginBottom: 10,
@@ -746,7 +746,7 @@ export function Settings({
                   marginBottom: 8,
                 }}
               >
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d0" }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#f6f7f9" }}>
                   Scheduled Jobs
                 </span>
                 <button
@@ -755,7 +755,7 @@ export function Settings({
                   style={{
                     background: "none",
                     border: "none",
-                    color: "#818cf8",
+                    color: "#22d3ee",
                     fontSize: 11,
                     cursor: "pointer",
                     padding: "2px 6px",
@@ -766,7 +766,7 @@ export function Settings({
               </div>
 
               {serverSchedules.length === 0 && !schedulesLoading && (
-                <div style={{ fontSize: 12, color: "#555568", padding: "4px 0" }}>
+                <div style={{ fontSize: 12, color: "#8b8b9e", padding: "4px 0" }}>
                   No schedules found on server.
                 </div>
               )}
@@ -786,7 +786,7 @@ export function Settings({
                     <div
                       style={{
                         fontSize: 13,
-                        color: "#e0e0f0",
+                        color: "#f0f0f5",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -795,7 +795,7 @@ export function Settings({
                       {sched.job_name || sched.name}
                     </div>
                     {sched.cron && (
-                      <div style={{ fontSize: 11, color: "#555568", marginTop: 2, fontFamily: "monospace" }}>
+                      <div style={{ fontSize: 11, color: "#8b8b9e", marginTop: 2, fontFamily: "monospace" }}>
                         {sched.cron}
                       </div>
                     )}
@@ -832,7 +832,7 @@ export function Settings({
             {/* Notification History */}
             <div
               style={{
-                background: "#1a1a26",
+                background: "rgba(20,25,36,0.72)",
                 borderRadius: 10,
                 padding: "12px 14px",
               }}
@@ -850,10 +850,10 @@ export function Settings({
                   justifyContent: "space-between",
                 }}
               >
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#c0c0d0" }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#f6f7f9" }}>
                   Recent Notifications ({draymondNotifications.length})
                 </span>
-                <span style={{ fontSize: 11, color: "#555568" }}>
+                <span style={{ fontSize: 11, color: "#8b8b9e" }}>
                   {showNotifications ? "Hide" : "Show"}
                 </span>
               </button>
@@ -861,7 +861,7 @@ export function Settings({
               {showNotifications && (
                 <div style={{ marginTop: 8 }}>
                   {draymondNotifications.length === 0 && (
-                    <div style={{ fontSize: 12, color: "#555568", padding: "4px 0" }}>
+                    <div style={{ fontSize: 12, color: "#8b8b9e", padding: "4px 0" }}>
                       No notifications received yet.
                     </div>
                   )}
@@ -872,7 +872,7 @@ export function Settings({
                         padding: "6px 0",
                         borderTop: i > 0 ? "1px solid #2a2a38" : "none",
                         fontSize: 12,
-                        color: "#c0c0d0",
+                        color: "#f6f7f9",
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -889,12 +889,12 @@ export function Settings({
                         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {notif.subject || notif.type || "Notification"}
                         </span>
-                        <span style={{ fontSize: 10, color: "#555568", flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, color: "#8b8b9e", flexShrink: 0 }}>
                           {notif.receivedAt ? new Date(notif.receivedAt).toLocaleTimeString() : ""}
                         </span>
                       </div>
                       {notif.recipient && (
-                        <div style={{ fontSize: 10, color: "#555568", marginTop: 2, marginLeft: 12 }}>
+                        <div style={{ fontSize: 10, color: "#8b8b9e", marginTop: 2, marginLeft: 12 }}>
                           To: {notif.recipient}
                         </div>
                       )}
@@ -915,7 +915,7 @@ export function Settings({
           style={{
             width: "100%",
             background:
-              isNew && !form.name.trim() ? "#333" : form.color || "#818cf8",
+              isNew && !form.name.trim() ? "#333" : form.color || "#22d3ee",
             color: "#0d0d14",
             border: "none",
             borderRadius: 12,

@@ -175,9 +175,17 @@ export const MessageBubble = memo(function MessageBubble({
         style={{
           maxWidth: "78%",
           width: "100%",
-          background: msg.error ? "#2a1a1a" : isUser ? color : "#1c1c28",
-          color: msg.error ? "#ef4444" : isUser ? "#0d0d14" : "#e8e8f0",
-          border: msg.error ? "1px solid #ef444440" : "none",
+          background: msg.error
+            ? "#2a1a1a"
+            : isUser
+            ? "#141924"
+            : "#0e1117",
+          color: msg.error ? "#ef4444" : isUser ? "#f6f7f9" : "#e8e8f0",
+          border: msg.error
+            ? "1px solid #ef444440"
+            : isUser
+            ? "1px solid rgba(34,211,238,0.25)"
+            : "1px solid rgba(20,25,36,0.8)",
           borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
           padding: "10px 14px",
           lineHeight: 1.5,
@@ -196,7 +204,7 @@ export const MessageBubble = memo(function MessageBubble({
           />
         )}
 
-        {msg.streaming && <TypingDots color={isUser ? "#0d0d14" : color} />}
+        {msg.streaming && <TypingDots color={isUser ? "#8b8b9e" : color} />}
 
         {isUser && !msg.streaming && (
           <span
@@ -209,14 +217,14 @@ export const MessageBubble = memo(function MessageBubble({
             }}
           >
             {msg.read ? (
-              <DoubleCheck color="#0d0d14" />
+              <DoubleCheck color="#22d3ee" />
             ) : (
               <svg
                 width="12"
                 height="12"
                 viewBox="0 0 24 24"
                 fill="none"
-                stroke="#0d0d14"
+                stroke="#8b8b9e"
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
