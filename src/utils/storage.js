@@ -446,3 +446,27 @@ export function saveSchedules(schedules) {
     console.error("Failed to save schedules:", e);
   }
 }
+
+// ============================================================
+// Cross-chat message search
+// ============================================================
+
+/**
+ * Search all chats for messages whose text contains `query` (case-insensitive).
+ * Returns up to 50 results, each: { botId, message, time }.
+ */
+export function searchMessages(history, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return [];
+  const results = [];
+  for (const [botId, messages] of Object.entries(history || {})) {
+    for (const m of messages || []) {
+      const text = String(m.text || "");
+      if (text.toLowerCase().includes(q)) {
+        results.push({ botId, message: m, time: m.time });
+        if (results.length >= 50) return results;
+      }
+    }
+  }
+  return results;
+}

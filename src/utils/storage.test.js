@@ -145,3 +145,34 @@ describe("normaliseAgentRegistry", () => {
     expect(out.a0).toBeUndefined();
   });
 });
+
+describe("searchMessages", () => {
+  it("finds matching messages across chats with case-insensitive substring", () => {
+    const history = {
+      botA: [{ id: "1", role: "user", text: "Hello World" }],
+      botB: [{ id: "2", role: "bot", text: "hello there" }],
+    };
+    const results = storageModule.searchMessages(history, "hello");
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => typeof r.botId === "string")).toBe(true);
+    expect(results.every((r) => r.message && typeof r.message.text === "string")).toBe(true);
+  });
+
+  it("returns [] for empty or whitespace query", () => {
+    const history = { botA: [{ id: "1", role: "user", text: "hello" }] };
+    expect(storageModule.searchMessages(history, "")).toEqual([]);
+    expect(storageModule.searchMessages(history, "   ")).toEqual([]);
+  });
+
+  it("caps results at 50", () => {
+    const history = {
+      botA: Array.from({ length: 100 }, (_, i) => ({
+        id: String(i),
+        role: "user",
+        text: `match ${i}`,
+      })),
+    };
+    const results = storageModule.searchMessages(history, "match");
+    expect(results).toHaveLength(50);
+  });
+});
