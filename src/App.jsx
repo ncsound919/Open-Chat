@@ -34,6 +34,7 @@ import {
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
 import { isNative } from "./utils/platform.js";
 import { notifyLocal, requestNotificationPermission } from "./utils/notifications.js";
+import { useVoice } from "./hooks/useVoice.js";
 
 /**
  * Main App component
@@ -84,6 +85,21 @@ export default function App() {
 
   const bot = bots.find((b) => b.id === activeId);
   const messages = history[activeId] || [];
+
+  // Voice: push-to-talk + auto-speak for the active bot.
+  const lastBotMessage = (messages || [])
+    .filter((m) => m.role === "bot")
+    .slice(-1)[0];
+  const {
+    micActive,
+    speakEnabled,
+    micError,
+    setSpeakEnabled,
+    startListening,
+    stopAndTranscribe,
+  } = useVoice(
+    bot ? { ...bot, lastMessageText: lastBotMessage?.text } : null
+  );
 
   // ── Persist state to localStorage ──────────────────────────────────────────
   useEffect(() => {
@@ -716,6 +732,22 @@ export default function App() {
     }
   }
 
+  const handleMicPointerDown = async () => {
+    await startListening();
+  };
+
+  const handleMicPointerUp = async () => {
+    const text = await stopAndTranscribe();
+    if (text) {
+      setInput(text);
+    }
+  };
+
+  const handleMicCancel = () => {
+    // Stop capture without transcribing.
+    stopAndTranscribe();
+  };
+
   function interruptMessage() {
     // Only OpenClaw streaming uses a separate transport and can't be aborted
     // via AbortController; all other protocols (hermes, uplift-bridge, subteam)
@@ -954,7 +986,39 @@ export default function App() {
             unreadNotifications={bot.protocol === "draymond" ? unreadNotifications : 0}
             draymondChains={bot.protocol === "draymond" ? draymondChains : []}
             onClearUnread={clearUnreadNotifications}
+            voiceMicActive={micActive}
+            voiceEnabled={speakEnabled}
+            onMicPointerDown={handleMicPointerDown}
+            onMicPointerUp={handleMicPointerUp}
+            onMicCancel={handleMicCancel}
+            onToggleSpeak={() => setSpeakEnabled((v) => !v)}
           />
+        )}
+        {micError && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 90,
+              left: 0,
+              right: 0,
+              display: "flex",
+              justifyContent: "center",
+              zIndex: 30,
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                background: "#ef4444",
+                color: "#fff",
+                padding: "8px 14px",
+                borderRadius: 8,
+                fontSize: 13,
+              }}
+            >
+              {micError}
+            </div>
+          </div>
         )}
       </div>
 
