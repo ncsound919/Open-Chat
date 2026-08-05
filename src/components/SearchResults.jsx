@@ -70,7 +70,7 @@ export function SearchResults({ query, results, bots, onSelect, onBack }) {
               >
                 <div style={{ fontSize: 11, color: "#22d3ee", marginBottom: 3 }}>
                   {name}
-                  {r.time ? ` · ${new Date(r.time).toLocaleString()}` : ""}
+                  {r.time ? ` · ${r.time}` : ""}
                 </div>
                 <div style={{ fontSize: 14, color: "#e8e8f0" }}>
                   {r.message.text}
