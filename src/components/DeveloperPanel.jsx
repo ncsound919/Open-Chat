@@ -62,8 +62,7 @@ export function DeveloperPanel({ bot, onUpdateBot, onClose }) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "#0d0d14e0",
-        backdropFilter: "blur(4px)",
+        background: "#0d0d14",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

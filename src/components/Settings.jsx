@@ -156,7 +156,7 @@ export function Settings({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        background: "rgba(20,25,36,0.72)",
+        background: "#0e1117",
       }}
     >
       {/* Header */}
@@ -167,7 +167,7 @@ export function Settings({
           gap: 12,
           padding: "52px 16px 16px",
           borderBottom: "1px solid #1a1a26",
-          background: "rgba(20,25,36,0.72)",
+          background: "#0e1117",
         }}
       >
         <button
@@ -450,7 +450,7 @@ export function Settings({
         {isFieldVisible("connectionInfo", mode) && (
           <div
             style={{
-            background: "rgba(20,25,36,0.72)",
+            background: "#0e1117",
             borderRadius: 10,
             padding: "12px 14px",
           }}
@@ -640,7 +640,7 @@ export function Settings({
             {/* Chain Management */}
             <div
               style={{
-                background: "rgba(20,25,36,0.72)",
+                background: "#0e1117",
                 borderRadius: 10,
                 padding: "12px 14px",
                 marginBottom: 10,
@@ -732,7 +732,7 @@ export function Settings({
             {/* Schedule Management */}
             <div
               style={{
-                background: "rgba(20,25,36,0.72)",
+                background: "#0e1117",
                 borderRadius: 10,
                 padding: "12px 14px",
                 marginBottom: 10,
@@ -832,7 +832,7 @@ export function Settings({
             {/* Notification History */}
             <div
               style={{
-                background: "rgba(20,25,36,0.72)",
+                background: "#0e1117",
                 borderRadius: 10,
                 padding: "12px 14px",
               }}

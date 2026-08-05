@@ -101,6 +101,7 @@ export function Chat({
 
   return (
     <div
+      data-testid="chat-panel"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -450,7 +451,12 @@ export function Chat({
               if (bot.protocol === "subteam") {
                 return `Connects to SubTeam agent at\nhttp://${bot.host}:${bot.port}`;
               }
-              return `Connects to Hermes API at\nhttp://${bot.host}:${bot.port}`;
+              // Hermes — host may be a full https://URL (tunnel) or host:port.
+              const hermesHost = String(bot.host || "").trim();
+              const hermesUrl = /^https?:\/\//i.test(hermesHost)
+                ? `${hermesHost.replace(/\/$/, "")}`
+                : `http://${hermesHost}:${bot.port || 8642}`;
+              return `Connects to Hermes API at\n${hermesUrl}`;
             })()}
             </div>
           </div>
@@ -486,7 +492,7 @@ export function Chat({
       {/* Input */}
       <div
         style={{
-          background: "rgba(20,25,36,0.72)",
+          background: "#0e1117",
           borderTop: "1px solid rgba(34,211,238,0.14)",
           padding: "8px 12px 20px",
           display: "flex",

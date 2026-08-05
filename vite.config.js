@@ -68,4 +68,22 @@ export default defineConfig({
       "Permissions-Policy": "camera=(), microphone=(self), geolocation=()",
     },
   },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./tests/setup.js"],
+    testTimeout: 20000,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json", "html"],
+      include: ["src/**/*.{js,jsx}"],
+      exclude: ["src/main.jsx", "src/**/*.test.{js,jsx}"],
+      thresholds: {
+        lines: 85,
+        statements: 85,
+        functions: 85,
+        branches: 60,
+      },
+    },
+  },
 });

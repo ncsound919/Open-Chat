@@ -76,8 +76,7 @@ export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSched
       style={{
         position: "fixed",
         inset: 0,
-        background: "#0d0d14e0",
-        backdropFilter: "blur(4px)",
+        background: "#0d0d14",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -305,6 +304,7 @@ export function AutomationScheduler({ schedules, onCreateSchedule, onUpdateSched
                   Parameters (JSON)
                 </label>
                 <textarea
+                  data-testid="schedule-parameters"
                   value={newSchedule.parameters}
                   onChange={(e) =>
                     setNewSchedule({ ...newSchedule, parameters: e.target.value })
