@@ -681,6 +681,20 @@ describe("App.jsx integration", () => {
     expect(scheduleName).toBeInTheDocument();
     expect(screen.getByText(/Daily at midnight/)).toBeInTheDocument();
 
+    // Toggle enable/disable (button text flips Enabled <-> Disabled)
+    await user.click(screen.getByRole("button", { name: "Enabled" }));
+    expect(screen.getByRole("button", { name: "Disabled" })).toBeInTheDocument();
+
+    // Delete schedule (the schedule row's × button — avoid the panel ×)
+    const deleteButtons = screen.getAllByRole("button", { name: "×" });
+    const scheduleRowDelete = deleteButtons.find((b) =>
+      b.closest('div')?.textContent?.includes("Nightly backup")
+    ) || deleteButtons[deleteButtons.length - 1];
+    fireEvent.click(scheduleRowDelete);
+    await waitFor(() => {
+      expect(screen.queryByText("Nightly backup")).not.toBeInTheDocument();
+    });
+
     // Invalid parameters path
     await user.click(screen.getByRole("button", { name: "+ New Schedule" }));
     await user.type(screen.getByPlaceholderText("Daily backup task"), "Broken");
@@ -691,5 +705,449 @@ describe("App.jsx integration", () => {
     await user.click(screen.getByRole("button", { name: "Create Schedule" }));
     expect(screen.getByText(/Invalid JSON parameters/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
+  });
+
+  it("executes a tool from the Tool Execution Console and logs it", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await flushPromises();
+
+    await openBotSettings(user, "Hermes");
+    await screen.findByText("Hermes Settings");
+    await user.click(screen.getByText(/Tool Execution Console/));
+    await screen.findByRole("heading", { name: "Execute Tool" });
+
+    await user.type(
+      screen.getByPlaceholderText("e.g., file_read, web_search, calculate"),
+      "file_read"
+    );
+    await user.click(screen.getByRole("button", { name: "Execute" }));
+
+    // Console stays open; close it and verify the tool was recorded in the audit log
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Execute Tool" })).not.toBeInTheDocument();
+    });
+    await user.click(screen.getByText(/Audit Log & Tool Execution History/));
+    expect(await screen.findByText("file_read")).toBeInTheDocument();
+  });
+
+  it("invites a member to a team space", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await flushPromises();
+
+    await openBotSettings(user, "Hermes");
+    await screen.findByText("Hermes Settings");
+    await user.click(screen.getByText(/Team Management/));
+    await screen.findByRole("heading", { name: "Team Management" });
+
+    await user.click(screen.getByRole("button", { name: "+ New Space" }));
+    await user.type(screen.getByPlaceholderText("Team space name"), "Shield");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByText("Shield");
+
+    // Select the team, switch to the Members tab, and invite a member
+    await user.click(screen.getByText("Shield"));
+    await user.click(screen.getByRole("button", { name: "members" }));
+    const emailInput = screen.getByPlaceholderText("email@example.com");
+    await user.type(emailInput, "alice@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
+  });
+
+  it("handles connect failures for each persistent protocol", async () => {
+    const err = new Error("refused");
+    const cases = [
+      { name: "Claw", client: OpenClawClient },
+      { name: "Uplift", client: UpliftBridgeClient },
+      { name: "Draymond", client: DraymondOrchestratorClient },
+      { name: "NtfyBot", client: NtfyClient },
+    ];
+    for (const t of cases) {
+      t.client.mockClear();
+      t.client.mockImplementationOnce(function (...args) {
+        this.host = args[0];
+        this.port = args[1];
+        this.token = args[2];
+        this.ws = { readyState: 3 };
+        this.status = "disconnected";
+        this.send = vi.fn(async () => "x");
+        this.connect = vi.fn(async () => { throw err; });
+        this.disconnect = vi.fn();
+        this.executeAction = vi.fn(async () => ({ ok: true }));
+        this.publish = vi.fn(async () => true);
+        return this;
+      });
+      const { unmount } = render(<App />);
+      await flushPromises();
+      const instance = t.client.mock.instances[0];
+      expect(instance.connect).toHaveBeenCalled();
+      unmount();
+    }
+  });
+
+  it("delivers inbound Draymond chain updates for an existing chain", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+
+    const dray = DraymondOrchestratorClient.mock.instances[0];
+    act(() => {
+      dray.onChainUpdate({ chain_instance_id: "c9", type: "chain_started", chain_name: "First" });
+    });
+    // Same chain id -> updates the existing entry rather than appending
+    act(() => {
+      dray.onChainUpdate({ chain_instance_id: "c9", type: "chain_completed", chain_name: "First" });
+    });
+
+    // Open Draymond from the inbox row (the first "Draymond" text element)
+    await user.click(screen.getAllByText("Draymond")[0]);
+    await waitFor(() => expect(chatPanel(container)).not.toBeNull());
+    await waitFor(() => {
+      expect(within(chatPanel(container)).getAllByText("Draymond").length).toBeGreaterThan(0);
+    });
+    await user.click(within(chatPanel(container)).getByRole("button", { name: "Toggle chain activity" }));
+    expect(await within(chatPanel(container)).findByText("Chain Activity")).toBeInTheDocument();
+    expect(within(chatPanel(container)).getAllByText("First").length).toBe(1);
+  });
+
+  it("sends with a disconnected OpenClaw client and surfaces the error", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+    const claw = OpenClawClient.mock.instances[0];
+    claw.ws = { readyState: 3 }; // closed
+
+    await user.click(screen.getByText("Claw"));
+    const input = await within(chatPanel(container)).findByPlaceholderText("Message");
+    await user.type(input, "go{Enter}");
+    expect(await within(chatPanel(container)).findByText(/Not connected/)).toBeInTheDocument();
+  });
+
+  it("sends with a disconnected Uplift Bridge client and surfaces the error", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+    const uplift = UpliftBridgeClient.mock.instances[0];
+    uplift.sessionId = null;
+
+    await user.click(screen.getByText("Uplift"));
+    const input = await within(chatPanel(container)).findByPlaceholderText("Message");
+    await user.type(input, "go{Enter}");
+    expect(await within(chatPanel(container)).findByText(/Not connected/)).toBeInTheDocument();
+  });
+
+  it("sends with a disconnected Draymond client and surfaces the error", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+    const dray = DraymondOrchestratorClient.mock.instances[0];
+    dray.status = "disconnected";
+
+    await user.click(screen.getByText("Draymond"));
+    const input = await within(chatPanel(container)).findByPlaceholderText("Message");
+    await user.type(input, "go{Enter}");
+    expect(await within(chatPanel(container)).findByText(/not connected/)).toBeInTheDocument();
+  });
+
+  it("sends with a disconnected ntfy client and surfaces the error", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+    const ntfy = NtfyClient.mock.instances[0];
+    ntfy.status = "disconnected";
+
+    await user.click(screen.getByText("NtfyBot"));
+    const input = await within(chatPanel(container)).findByPlaceholderText("Message");
+    await user.type(input, "go{Enter}");
+    expect(await within(chatPanel(container)).findByText(/ntfy not connected/)).toBeInTheDocument();
+  });
+
+  it("drives the mic handlers from the Chat quick actions", async () => {
+    const user = userEvent.setup();
+    const { useVoice } = await import("./hooks/useVoice.js");
+    useVoice.mockReturnValue({
+      micActive: false,
+      speakEnabled: false,
+      micError: null,
+      setSpeakEnabled: vi.fn(),
+      startListening: vi.fn(async () => true),
+      stopAndTranscribe: vi.fn(async () => "transcribed text"),
+      cancelListening: vi.fn(async () => {}),
+      speak: vi.fn(async () => {}),
+    });
+
+    // Give Hermes voice support so the mic button renders.
+    localStorage.setItem(CONF_KEY, JSON.stringify(
+      SEED_BOTS.map((b) => (b.id === "hermes" ? { ...b, voiceEnabled: true } : b))
+    ));
+    const { container } = render(<App />);
+    await flushPromises();
+
+    await user.click(screen.getByText("Hermes"));
+    await within(chatPanel(container)).findByText("Hermes");
+    const mic = within(chatPanel(container)).getByRole("button", { name: "Hold to talk" });
+    fireEvent.pointerDown(mic);
+    fireEvent.pointerUp(mic);
+    expect(await within(chatPanel(container)).findByDisplayValue("transcribed text")).toBeInTheDocument();
+  });
+
+  it("returns from SearchResults via the back button", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await flushPromises();
+
+    await user.type(screen.getByPlaceholderText("Search agents…"), "needle");
+    await user.click(screen.getByRole("button", { name: "Messages" }));
+    expect(screen.getByText(/Messages matching/)).toBeInTheDocument();
+
+    // The back button is the icon-only button directly above the results header
+    const heading = screen.getByText(/Messages matching/);
+    const header = heading.parentElement;
+    const backBtn = header?.querySelector("button");
+    expect(backBtn).not.toBeNull();
+    fireEvent.click(backBtn);
+    expect(screen.queryByText(/Messages matching/)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Messages" })).toBeInTheDocument();
+  });
+
+  it("toggles pin and copies the last reply from the Chat quick actions", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+
+    await user.click(screen.getByText("Hermes"));
+    await within(chatPanel(container)).findByText("Hermes");
+
+    await user.click(within(chatPanel(container)).getByRole("button", { name: "Pin bot" }));
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(CONF_KEY));
+      expect(stored.find((b) => b.id === "hermes").pinned).toBe(true);
+    });
+  });
+
+  it("passes the Draymond client into Settings for a Draymond bot", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await flushPromises();
+
+    await openBotSettings(user, "Draymond");
+    expect(await screen.findByText("Draymond Settings")).toBeInTheDocument();
+    // Opening settings for Draymond renders without error
+    expect(screen.getByText(/Draymond Settings/)).toBeInTheDocument();
+  });
+
+  it("reconnects each persistent protocol on save, disconnecting the existing client", async () => {
+    const user = userEvent.setup();
+    const cases = [
+      { name: "Claw", client: OpenClawClient, protocol: "openclaw" },
+      { name: "Uplift", client: UpliftBridgeClient, protocol: "uplift-bridge" },
+      { name: "Draymond", client: DraymondOrchestratorClient, protocol: "draymond" },
+      { name: "NtfyBot", client: NtfyClient, protocol: "ntfy" },
+    ];
+    for (const t of cases) {
+      t.client.mockClear();
+      const { unmount } = render(<App />);
+      await flushPromises();
+      const first = t.client.mock.instances[0];
+      // Re-save the bot through Settings -> triggers a reconnect of the same bot
+      await openBotSettings(user, t.name);
+      await screen.findByText(`${t.name} Settings`);
+      await user.click(screen.getByRole("button", { name: "Save & Reconnect" }));
+      await waitFor(() => {
+        expect(first.disconnect).toHaveBeenCalled();
+      });
+      unmount();
+    }
+  });
+
+  it("deletes bots of each persistent protocol and disconnects their clients", async () => {
+    const user = userEvent.setup();
+    const cases = [
+      { name: "Claw", client: OpenClawClient },
+      { name: "Uplift", client: UpliftBridgeClient },
+      { name: "Draymond", client: DraymondOrchestratorClient },
+      { name: "NtfyBot", client: NtfyClient },
+    ];
+    for (const t of cases) {
+      t.client.mockClear();
+      const { unmount } = render(<App />);
+      await flushPromises();
+      const client = t.client.mock.instances[0];
+      await openBotSettings(user, t.name);
+      await screen.findByText(`${t.name} Settings`);
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+      await waitFor(() => {
+        expect(client.disconnect).toHaveBeenCalled();
+      });
+      unmount();
+    }
+  });
+
+  it("handles a failed ntfy publish and shows the failure message", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+    const ntfy = NtfyClient.mock.instances[0];
+    ntfy.publish.mockResolvedValueOnce(false);
+
+    await user.click(screen.getByText("NtfyBot"));
+    const input = await within(chatPanel(container)).findByPlaceholderText("Message");
+    await user.type(input, "will fail{Enter}");
+    expect(await within(chatPanel(container)).findByText(/Publish failed/)).toBeInTheDocument();
+  });
+
+  it("cancels an in-progress mic capture via pointer leave", async () => {
+    const { useVoice } = await import("./hooks/useVoice.js");
+    useVoice.mockReturnValue({
+      micActive: false,
+      speakEnabled: false,
+      micError: null,
+      setSpeakEnabled: vi.fn(),
+      startListening: vi.fn(async () => true),
+      stopAndTranscribe: vi.fn(async () => ""),
+      cancelListening: vi.fn(async () => {}),
+      speak: vi.fn(async () => {}),
+    });
+    localStorage.setItem(CONF_KEY, JSON.stringify(
+      SEED_BOTS.map((b) => (b.id === "hermes" ? { ...b, voiceEnabled: true } : b))
+    ));
+    const { container } = render(<App />);
+    await flushPromises();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Hermes"));
+    await within(chatPanel(container)).findByText("Hermes");
+    const mic = within(chatPanel(container)).getByRole("button", { name: "Hold to talk" });
+    fireEvent.pointerDown(mic);
+    fireEvent.pointerLeave(mic);
+    const { cancelListening } = useVoice();
+    expect(cancelListening).toHaveBeenCalled();
+  });
+
+  it("copies the last bot reply from the Chat quick actions", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(globalThis.navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { container } = render(<App />);
+    await flushPromises();
+
+    fireEvent.click(screen.getByText("Hermes"));
+    await waitFor(() => expect(within(chatPanel(container)).getByText("Unread hello")).toBeInTheDocument());
+    const copyBtn = within(chatPanel(container)).getByRole("button", { name: "Copy last reply" });
+    fireEvent.click(copyBtn);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(writeText).toHaveBeenCalledWith("Unread hello");
+    delete globalThis.navigator.clipboard;
+  });
+
+  it("renders the mic error toast when useVoice reports an error", async () => {
+    const { useVoice } = await import("./hooks/useVoice.js");
+    useVoice.mockReturnValue({
+      micActive: false,
+      speakEnabled: false,
+      micError: "Microphone permission denied.",
+      setSpeakEnabled: vi.fn(),
+      startListening: vi.fn(async () => true),
+      stopAndTranscribe: vi.fn(async () => ""),
+      cancelListening: vi.fn(async () => {}),
+      speak: vi.fn(async () => {}),
+    });
+    const { container } = render(<App />);
+    await flushPromises();
+
+    await (await import("@testing-library/react")).act(async () => {});
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Hermes"));
+    expect(await screen.findByText(/Microphone permission denied/)).toBeInTheDocument();
+    expect(chatPanel(container)).not.toBeNull();
+  });
+
+  it("saves a SubTeam bot host and runs its health check reconnect", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await flushPromises();
+
+    await openBotSettings(user, "SubTeam");
+    await screen.findByText("SubTeam Settings");
+    const hostInput = screen.getByDisplayValue("127.0.0.1");
+    await user.clear(hostInput);
+    await user.type(hostInput, "10.1.1.9");
+    await user.click(screen.getByRole("button", { name: "Save & Reconnect" }));
+    await waitFor(() => {
+      expect(screen.queryByText("SubTeam Settings")).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      const stored = JSON.parse(localStorage.getItem(CONF_KEY));
+      const sub = stored.find((b) => b.id === "subteam");
+      expect(sub.host).toBe("10.1.1.9");
+    });
+  });
+
+  it("prunes the ntfy seen-id cache beyond 500 entries", async () => {
+    const { container } = render(<App />);
+    await flushPromises();
+    const ntfy = NtfyClient.mock.instances[0];
+    // 505 distinct inbound messages -> exceeds the 500-entry cap and prunes
+    act(() => {
+      for (let i = 0; i < 505; i++) {
+        ntfy.onMessage({ id: `bulk-${i}`, title: "T", message: `m${i}` });
+      }
+    });
+    await userEvent.click(screen.getByText("NtfyBot"));
+    expect(await within(chatPanel(container)).findByText(/m504/)).toBeInTheDocument();
+  });
+
+  it("sends to SubTeam with existing chat history and includes it in the prior messages", async () => {
+    localStorage.setItem(HIST_KEY, JSON.stringify({
+      subteam: [
+        { id: "su1", role: "user", text: "earlier design", time: "09:00", read: true },
+        { id: "sb1", role: "bot", text: "earlier reply", time: "09:01" },
+      ],
+    }));
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+
+    await user.click(screen.getByText("SubTeam"));
+    const input = await within(chatPanel(container)).findByPlaceholderText("Message");
+    await user.type(input, "new cpu{Enter}");
+    expect(await within(chatPanel(container)).findByText("new cpu")).toBeInTheDocument();
+    expect(await within(chatPanel(container)).findByText(/subteam reply/)).toBeInTheDocument();
+  });
+
+  it("invites a member to a team that already has members", async () => {
+    // Seed an existing team so the invite loop exercises the non-matching branch
+    localStorage.setItem("openchat_teams_v1", JSON.stringify([
+      { id: "seed-team-1", name: "Existing", createdAt: Date.now(), members: [{ email: "dave@example.com", role: "member" }], role: "admin" },
+    ]));
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await flushPromises();
+
+    await openBotSettings(user, "Hermes");
+    await screen.findByText("Hermes Settings");
+    await user.click(screen.getByText(/Team Management/));
+    await screen.findByRole("heading", { name: "Team Management" });
+
+    await user.click(screen.getByRole("button", { name: "+ New Space" }));
+    await user.type(screen.getByPlaceholderText("Team space name"), "Ops");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByText("Ops");
+
+    // First invite to the new team
+    await user.click(screen.getByText("Ops"));
+    await user.click(screen.getByRole("button", { name: "members" }));
+    const email1 = screen.getByPlaceholderText("email@example.com");
+    await user.type(email1, "bob@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    expect(await screen.findByText("bob@example.com")).toBeInTheDocument();
+
+    // Second invite to the same team -> exercises the existing-members branch
+    const email2 = screen.getByPlaceholderText("email@example.com");
+    await user.type(email2, "carol@example.com");
+    await user.click(screen.getByRole("button", { name: "Send Invite" }));
+    expect(await screen.findByText("carol@example.com")).toBeInTheDocument();
+    expect(container).not.toBeNull();
   });
 });

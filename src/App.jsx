@@ -1026,6 +1026,7 @@ export default function App() {
             onClearUnread={clearUnreadNotifications}
             voiceMicActive={micActive}
             voiceEnabled={speakEnabled}
+            voiceSupported={!!bot?.voiceEnabled}
             onMicPointerDown={handleMicPointerDown}
             onMicPointerUp={handleMicPointerUp}
             onMicCancel={handleMicCancel}

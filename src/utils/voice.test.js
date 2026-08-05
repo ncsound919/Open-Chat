@@ -8,6 +8,8 @@ import {
   synthesizeAndPlay,
   captureAudio,
   resolveCapture,
+  hasMediaDevices,
+  classifyMicError,
 } from "./voice.js";
 
 describe("buildVoiceEndpoint", () => {
@@ -143,6 +145,12 @@ describe("buildVoiceEndpoint edge cases", () => {
     );
   });
 
+  it("defaults the host to 127.0.0.1 when omitted", () => {
+    expect(buildVoiceEndpoint("draymond", undefined, 3100, "transcribe")).toBe(
+      "http://127.0.0.1:3100/api/v1/voice/transcribe"
+    );
+  });
+
   it("prefers https for remote draymond hosts regardless of port", () => {
     expect(buildVoiceEndpoint("draymond", "remote.example.com", 8644, "transcribe")).toBe(
       "https://remote.example.com/api/v1/voice/transcribe"
@@ -181,6 +189,26 @@ describe("PCM conversion edge cases", () => {
     expect(bytes[0]).toBe(0xff);
     expect(bytes[1]).toBe(0x3f);
   });
+
+  it("pcmToBytes handles a mono AudioBuffer-like input", () => {
+    const audioData = {
+      numberOfChannels: 1,
+      length: 4,
+      getChannelData: vi.fn(() => new Float32Array([1, 0, -1, 0.5])),
+    };
+    const bytes = pcmToBytes(audioData, 16000);
+    expect(bytes.length).toBe(4 * 2);
+    // No averaging is applied for a single channel: 1 → 32767 (0x7FFF)
+    expect(bytes[0]).toBe(0xff);
+    expect(bytes[1]).toBe(0x7f);
+    expect(audioData.getChannelData).toHaveBeenCalledWith(0);
+    expect(audioData.getChannelData).not.toHaveBeenCalledWith(1);
+  });
+
+  it("pcmToBytes defaults the input sample rate to 48kHz", () => {
+    // 2 samples with no sampleRate → treated as 48k, downsampled to 16k → 1 sample.
+    expect(pcmToBytes(new Float32Array([0.5, -0.5])).length).toBe(2);
+  });
 });
 
 describe("transcribeAudio headers and errors", () => {
@@ -216,6 +244,21 @@ describe("transcribeAudio headers and errors", () => {
     await expect(
       transcribeAudio(new Float32Array([1]), 48000, "aetherdesk")
     ).rejects.toThrow("Transcribe failed: HTTP 500");
+  });
+
+  it("transcribeAudio defaults to 48kHz when no sample rate is given", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "hi" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await transcribeAudio(
+      new Float32Array([1, 0, -1]),
+      undefined,
+      "aetherdesk",
+      null,
+      null,
+      null,
+      "key"
+    );
+    expect(result).toBe("hi");
   });
 });
 
@@ -355,5 +398,101 @@ describe("captureAudio", () => {
     const cap = await captureAudio({});
     cap.stop();
     expect((await cap.done).audioData.length).toBe(0);
+  });
+
+  it("defaults the sample rate to 48kHz when the context omits it", async () => {
+    const { FakeAudioContext, getRecorder } = setupFakeAudioContext();
+    class NoSampleRateCtx extends FakeAudioContext {
+      constructor() {
+        super();
+        delete this.sampleRate;
+      }
+    }
+    window.AudioContext = NoSampleRateCtx;
+
+    const cap = await captureAudio({});
+    const rec = getRecorder();
+    rec.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.5]) } });
+    cap.stop();
+    expect((await cap.done).sampleRate).toBe(48000);
+  });
+});
+
+describe("hasMediaDevices", () => {
+  const origNavigator = global.navigator;
+
+  afterEach(() => {
+    global.navigator = origNavigator;
+  });
+
+  it("returns true when mediaDevices.getUserMedia exists", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(hasMediaDevices()).toBe(true);
+  });
+
+  it("returns false when mediaDevices is missing", () => {
+    global.navigator = {};
+    expect(hasMediaDevices()).toBe(false);
+  });
+
+  it("returns false when getUserMedia is not a function", () => {
+    global.navigator = { mediaDevices: { getUserMedia: "nope" } };
+    expect(hasMediaDevices()).toBe(false);
+  });
+
+  it("returns false when navigator is undefined", () => {
+    global.navigator = undefined;
+    expect(hasMediaDevices()).toBe(false);
+  });
+});
+
+describe("classifyMicError", () => {
+  afterEach(() => {
+    delete global.navigator;
+  });
+
+  it("reports an insecure-context message when mediaDevices is unavailable", () => {
+    global.navigator = {};
+    const err = new Error("boom");
+    expect(classifyMicError(err)).toContain("must be served over HTTPS");
+  });
+
+  it("maps NotAllowedError to a permission-denied message", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(classifyMicError({ name: "NotAllowedError" })).toContain("permission denied");
+    expect(classifyMicError({ name: "PermissionDeniedError" })).toContain("permission denied");
+  });
+
+  it("maps NotFoundError to a no-microphone message", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(classifyMicError({ name: "NotFoundError" })).toContain("No microphone found");
+    expect(classifyMicError({ name: "DevicesNotFoundError" })).toContain("No microphone found");
+  });
+
+  it("maps NotReadableError to an in-use message", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(classifyMicError({ name: "NotReadableError" })).toContain("in use by another app");
+    expect(classifyMicError({ name: "TrackStartError" })).toContain("in use by another app");
+  });
+
+  it("maps SecurityError to a policy message", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(classifyMicError({ name: "SecurityError" })).toContain("page security policy");
+  });
+
+  it("maps OverconstrainedError to a constraints message", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(classifyMicError({ name: "OverconstrainedError" })).toContain("requested audio constraints");
+  });
+
+  it("falls back to the error message for unknown errors", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(classifyMicError(new Error("weird thing"))).toBe("Microphone error: weird thing");
+  });
+
+  it("falls back to a generic message when there is no error detail", () => {
+    global.navigator = { mediaDevices: { getUserMedia: () => {} } };
+    expect(classifyMicError(null)).toBe("Microphone permission denied or unavailable.");
+    expect(classifyMicError(undefined)).toBe("Microphone permission denied or unavailable.");
   });
 });

@@ -7,6 +7,7 @@ vi.mock("../utils/voice.js", () => ({
   transcribeAudio: vi.fn(),
   synthesizeAndPlay: vi.fn(),
   resolveCapture: vi.fn(),
+  classifyMicError: vi.fn((err) => `classified:${err?.message || err?.name || "unknown"}`),
 }));
 
 import {
@@ -14,6 +15,7 @@ import {
   transcribeAudio,
   synthesizeAndPlay,
   resolveCapture,
+  classifyMicError,
 } from "../utils/voice.js";
 
 const makeBot = (overrides = {}) => ({
@@ -105,9 +107,8 @@ describe("useVoice", () => {
 
     expect(started).toBeNull();
     expect(result.current.micActive).toBe(false);
-    expect(result.current.micError).toBe(
-      "Microphone permission denied or unavailable."
-    );
+    expect(classifyMicError).toHaveBeenCalledWith(expect.any(Error));
+    expect(result.current.micError).toBe("classified:denied");
   });
 
   it("stopAndTranscribe returns the transcript and stops the mic", async () => {
@@ -167,6 +168,45 @@ describe("useVoice", () => {
 
     expect(text).toBe("");
     expect(transcribeAudio).not.toHaveBeenCalled();
+  });
+
+  it("uses the aetherdesk backend when configured", async () => {
+    const bot = makeBot({ voiceBackend: "aetherdesk" });
+    const track = { stop: vi.fn() };
+    getUserMedia.mockResolvedValue(fakeStream(track));
+    const { result } = renderHook(() => useVoice(bot));
+
+    await act(async () => {
+      await result.current.startListening();
+    });
+    await act(async () => {
+      await result.current.stopAndTranscribe();
+    });
+
+    expect(transcribeAudio).toHaveBeenCalledWith(
+      expect.any(Float32Array),
+      16000,
+      "aetherdesk",
+      "127.0.0.1",
+      3000,
+      "sekrit",
+      "akey",
+      "https://voice.example.com"
+    );
+  });
+
+  it("falls back to the default transcription error message", async () => {
+    transcribeAudio.mockRejectedValue(new Error());
+    const { result } = renderHook(() => useVoice(makeBot()));
+
+    await act(async () => {
+      await result.current.startListening();
+    });
+    await act(async () => {
+      await result.current.stopAndTranscribe();
+    });
+
+    expect(result.current.micError).toBe("Transcription failed.");
   });
 
   it("cancelListening stops the capture without producing text", async () => {
@@ -232,6 +272,20 @@ describe("useVoice", () => {
     expect(result.current.micError).toBe("Voice playback failed: synthesis down");
   });
 
+  it("handles a synthesis error without a message", async () => {
+    synthesizeAndPlay.mockRejectedValue(new Error());
+    const { result } = renderHook(() => useVoice(makeBot()));
+
+    await act(async () => {
+      result.current.setSpeakEnabled(true);
+    });
+    await act(async () => {
+      await result.current.speak("hello");
+    });
+
+    expect(result.current.micError).toBe("Voice playback failed: ");
+  });
+
   it("interrupts a previous blob playback before speaking again", async () => {
     const previousAudio = { pause: vi.fn(), src: "blob:open-chat/123" };
     synthesizeAndPlay
@@ -280,6 +334,26 @@ describe("useVoice", () => {
     });
 
     expect(synthesizeAndPlay).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-speak the same message twice", async () => {
+    const bot = makeBot({ lastMessageText: "hi from the agent" });
+    const { result } = renderHook(() => useVoice(bot));
+
+    await act(async () => {
+      result.current.setSpeakEnabled(true);
+    });
+    expect(synthesizeAndPlay).toHaveBeenCalledTimes(1);
+
+    // Toggle speech off/on so the auto-speak effect re-runs with the same
+    // text; the already-spoken guard must skip a second synthesis.
+    await act(async () => {
+      result.current.setSpeakEnabled(false);
+    });
+    await act(async () => {
+      result.current.setSpeakEnabled(true);
+    });
+    expect(synthesizeAndPlay).toHaveBeenCalledTimes(1);
   });
 
   it("does not auto-speak when speech is disabled", async () => {

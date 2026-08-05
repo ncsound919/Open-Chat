@@ -179,6 +179,82 @@ describe("subTeamStream", () => {
     expect(result).toBe("tail");
     expect(chunks).toEqual(["tail"]);
   });
+
+  it("returns early when a blank line in the trailing buffer completes a [DONE] event", async () => {
+    // The final read ends with a single newline; the blank line is only
+    // visible in the trailing buffer and completes the queued [DONE] event.
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({}, streamFromChunks(["data: [DONE]\n"]))
+    );
+    const chunks = [];
+    const result = await subTeamStream("127.0.0.1", 8642, "", [], (c) =>
+      chunks.push(c)
+    );
+    expect(result).toBe("");
+    expect(chunks).toEqual([]);
+  });
+
+  it("returns early from the trailing buffer when a queued data event completes on a blank line", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk(
+        {},
+        streamFromChunks([
+          'data: {"choices":[{"delta":{"content":"buffered"}}]}\n',
+        ])
+      )
+    );
+    const chunks = [];
+    const result = await subTeamStream("127.0.0.1", 8642, "", [], (c) =>
+      chunks.push(c)
+    );
+    expect(result).toBe("buffered");
+    expect(chunks).toEqual(["buffered"]);
+  });
+
+  it("completes a [DONE] event from the trailing buffer with no newline", async () => {
+    // [DONE] arrives as the last bytes with no trailing newline; the final
+    // processEventData() flush must observe it and return.
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({}, streamFromChunks(["data: [DONE]"]))
+    );
+    const chunks = [];
+    const result = await subTeamStream("127.0.0.1", 8642, "", [], (c) =>
+      chunks.push(c)
+    );
+    expect(result).toBe("");
+    expect(chunks).toEqual([]);
+  });
+
+  it("skips an event whose data is empty after the blank line", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({}, streamFromChunks(["data:\n\n", "data: [DONE]\n\n"]))
+    );
+    const chunks = [];
+    const result = await subTeamStream("127.0.0.1", 8642, "", [], (c) =>
+      chunks.push(c)
+    );
+    expect(result).toBe("");
+    expect(chunks).toEqual([]);
+  });
+
+  it("ignores deltas with no content or with no choices", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk(
+        {},
+        streamFromChunks([
+          'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+          'data: {"choices":[]}\n\n',
+          "data: [DONE]\n\n",
+        ])
+      )
+    );
+    const chunks = [];
+    const result = await subTeamStream("127.0.0.1", 8642, "", [], (c) =>
+      chunks.push(c)
+    );
+    expect(result).toBe("");
+    expect(chunks).toEqual([]);
+  });
 });
 
 describe("subTeamHealthCheck", () => {

@@ -107,4 +107,62 @@ describe("AuditLog", () => {
     fireEvent.click(container.firstChild);
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("renders the default status color and icon for unknown statuses", () => {
+    render(
+      <AuditLog
+        toolLog={[{ executionId: "e4", toolName: "mystery", timestamp: 4000, status: "queued" }]}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText("mystery")).toBeInTheDocument();
+    expect(screen.getByText("•")).toBeInTheDocument();
+  });
+
+  it("renders the success status variant", () => {
+    render(
+      <AuditLog
+        toolLog={[{ executionId: "e5", toolName: "ok", timestamp: 5000, status: "success" }]}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText("✓")).toBeInTheDocument();
+  });
+
+  it("shows Unknown Action when neither toolName nor action is present", () => {
+    render(
+      <AuditLog
+        toolLog={[{ executionId: "e6", timestamp: 6000, status: "failed" }]}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText("Unknown Action")).toBeInTheDocument();
+  });
+
+  it("stringifies non-string results", () => {
+    render(
+      <AuditLog
+        toolLog={[
+          {
+            executionId: "e7",
+            toolName: "obj",
+            timestamp: 7000,
+            status: "completed",
+            result: { ok: true, count: 3 },
+          },
+        ]}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/ok.*true.*count.*3/)).toBeInTheDocument();
+  });
+
+  it("matches text filters across tool name, agent id and status", () => {
+    render(<AuditLog toolLog={entries} onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText(/Search by tool, agent, or status/), {
+      target: { value: "a1" },
+    });
+    expect(screen.getByText("1 of 3 entries")).toBeInTheDocument();
+    expect(screen.getByText("web_search")).toBeInTheDocument();
+  });
 });

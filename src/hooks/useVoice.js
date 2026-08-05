@@ -4,6 +4,7 @@ import {
   transcribeAudio,
   synthesizeAndPlay,
   resolveCapture,
+  classifyMicError,
 } from "../utils/voice.js";
 
 /**
@@ -48,7 +49,7 @@ export function useVoice(bot) {
       setMicActive(true);
       return true;
     } catch (err) {
-      setMicError("Microphone permission denied or unavailable.");
+      setMicError(classifyMicError(err));
       setMicActive(false);
       return null;
     }

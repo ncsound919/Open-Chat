@@ -92,6 +92,26 @@ describe("DeveloperPanel tabs", () => {
     expect(screen.getByPlaceholderText(/webhook/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send Test Request" })).toBeInTheDocument();
   });
+
+  it("toggles the auto-scroll checkbox on the logs tab", async () => {
+    const user = userEvent.setup();
+    render(<DeveloperPanel bot={bot} onUpdateBot={vi.fn()} onClose={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "logs" }));
+    const autoScroll = screen.getByLabelText("Auto-scroll");
+    expect(autoScroll).toBeChecked();
+    await user.click(autoScroll);
+    expect(autoScroll).not.toBeChecked();
+    await user.click(autoScroll);
+    expect(autoScroll).toBeChecked();
+  });
+
+  it("clears logs via the Clear Logs button", async () => {
+    const user = userEvent.setup();
+    render(<DeveloperPanel bot={bot} onUpdateBot={vi.fn()} onClose={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "logs" }));
+    await user.click(screen.getByRole("button", { name: "Clear Logs" }));
+    expect(screen.getByText(/No logs yet/)).toBeInTheDocument();
+  });
 });
 
 describe("DeveloperPanel close", () => {

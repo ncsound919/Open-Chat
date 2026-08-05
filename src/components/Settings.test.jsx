@@ -318,6 +318,118 @@ describe("Settings Draymond remote management", () => {
     expect(screen.getByText(/To: me@x.com/)).toBeInTheDocument();
     expect(screen.getByText("Failed one")).toBeInTheDocument();
   });
+
+  it("shows the empty notification state", async () => {
+    const user = userEvent.setup();
+    render(
+      <Settings
+        {...devProps({
+          bot: { ...hermesBot, protocol: "draymond" },
+          draymondClient: draymondClientMock(),
+          draymondNotifications: [],
+        })}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /Recent Notifications/ }));
+    expect(screen.getByText("No notifications received yet.")).toBeInTheDocument();
+  });
+
+  it("logs errors when fetching chains or schedules fails", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const draymondClient = {
+      status: "connected",
+      listChains: vi.fn(async () => {
+        throw new Error("chains down");
+      }),
+      listSchedules: vi.fn(async () => {
+        throw new Error("schedules down");
+      }),
+    };
+    render(
+      <Settings
+        {...devProps({
+          bot: { ...hermesBot, protocol: "draymond" },
+          draymondClient,
+        })}
+      />
+    );
+    await waitFor(() => expect(draymondClient.listChains).toHaveBeenCalled());
+    await waitFor(() => expect(draymondClient.listSchedules).toHaveBeenCalled());
+    expect(error).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
+});
+
+describe("Settings protocol variants", () => {
+  it("shows the SubTeam header label and connection info", () => {
+    render(
+      <Settings
+        {...devProps({
+          bot: { ...hermesBot, protocol: "subteam" },
+        })}
+      />
+    );
+    expect(screen.getByText("SubTeam / Draymond")).toBeInTheDocument();
+    expect(screen.getByText(/5-tool pipeline/)).toBeInTheDocument();
+    expect(screen.getByText(/v1\/chat\/completions/)).toBeInTheDocument();
+  });
+
+  it("shows the Unknown Protocol label for unrecognized protocols", () => {
+    render(
+      <Settings
+        {...devProps({
+          bot: { ...hermesBot, protocol: "mystery" },
+        })}
+      />
+    );
+    expect(screen.getByText("Unknown Protocol")).toBeInTheDocument();
+  });
+
+  it("builds a full-URL Draymond base URL when the host is already a URL", () => {
+    render(
+      <Settings
+        {...devProps({
+          bot: {
+            ...hermesBot,
+            protocol: "draymond",
+            host: "https://tunnel.example.com/",
+          },
+        })}
+      />
+    );
+    expect(
+      screen.getByText(/https:\/\/tunnel\.example\.com\/api\/v1\/orchestrate/)
+    ).toBeInTheDocument();
+  });
+
+  it("builds an https base URL for non-localhost Draymond hosts", () => {
+    render(
+      <Settings
+        {...devProps({
+          bot: {
+            ...hermesBot,
+            protocol: "draymond",
+            host: "tunnel.example.com",
+          },
+        })}
+      />
+    );
+    expect(
+      screen.getByText(/https:\/\/tunnel\.example\.com\/api\/v1\/orchestrate/)
+    ).toBeInTheDocument();
+  });
+
+  it("shows the ntfy connection info with defaults", () => {
+    render(
+      <Settings
+        {...devProps({
+          bot: { ...hermesBot, protocol: "ntfy", host: "", topic: "" },
+        })}
+      />
+    );
+    expect(screen.getByText(/ntfy\.sh\/draymond-approvals/)).toBeInTheDocument();
+    expect(screen.getByText(/Approve \/ Reject action buttons/)).toBeInTheDocument();
+  });
 });
 
 describe("Settings new bot", () => {

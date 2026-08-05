@@ -65,6 +65,16 @@ describe("OnDeviceAI checkAvailability", () => {
     await expect(mod.checkAvailability()).resolves.toBe("no");
   });
 
+  it("returns 'no' when capabilities() omits the available field", async () => {
+    window.ai = {
+      languageModel: {
+        capabilities: vi.fn(async () => ({})),
+      },
+    };
+    const mod = await loadOnDeviceAI();
+    await expect(mod.checkAvailability()).resolves.toBe("no");
+  });
+
   it("returns 'no' when the capabilities() call throws", async () => {
     window.ai = {
       languageModel: {
@@ -199,6 +209,27 @@ describe("OnDeviceAI generateStream", () => {
     await expect(mod.generateStream("hi", vi.fn())).rejects.toThrow(
       "On-device AI is not available on this device/browser."
     );
+  });
+
+  it("forwards systemPrompt/temperature/topK/signal when streaming", async () => {
+    const session = stubSession({ streamChunks: ["ab"] });
+    stubAi({ session });
+    const signal = {};
+    const onChunk = vi.fn();
+    const mod = await loadOnDeviceAI();
+    await mod.generateStream("hi", onChunk, {
+      systemPrompt: "be terse",
+      temperature: 0.5,
+      topK: 3,
+      signal,
+    });
+    expect(window.ai.languageModel.create).toHaveBeenCalledWith({
+      systemPrompt: "be terse",
+      temperature: 0.5,
+      topK: 3,
+    });
+    expect(session.promptStreaming).toHaveBeenCalledWith("hi", { signal });
+    expect(onChunk).toHaveBeenCalledWith("ab");
   });
 
   it("throws a friendly error when create() fails", async () => {

@@ -109,6 +109,11 @@ describe("resolveEndpoint", () => {
     expect(resolveEndpoint("127.0.0.1")).toBe("http://127.0.0.1");
     expect(resolveEndpoint("agents.example.com")).toBe("https://agents.example.com");
   });
+
+  it("handles a missing/empty host by falling through to a secure empty endpoint", () => {
+    expect(resolveEndpoint("")).toBe("https://");
+    expect(resolveEndpoint(null, 8080)).toBe("https://:8080");
+  });
 });
 
 describe("maskToken", () => {

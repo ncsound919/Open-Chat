@@ -899,3 +899,238 @@ describe("_updateWorkflow and _pollWorkflowStatus", () => {
     vi.useRealTimers();
   });
 });
+
+describe("orchestrate streaming edge cases", () => {
+  it("cancels the workflow when the caller aborts mid-stream", async () => {
+    const controller = new AbortController();
+    let reads = 0;
+    const body = {
+      getReader: () => ({
+        read: async () => {
+          if (reads++ === 0) {
+            return { value: encoder.encode('data: {"choices":[{"delta":{"content":"A"}}]}\n\n'), done: false };
+          }
+          return new Promise(() => {}); // never resolves — stream stays open
+        },
+        releaseLock: vi.fn(),
+        cancel: vi.fn().mockResolvedValue(),
+      }),
+    };
+    fetchMock.mockResolvedValueOnce(jsonOk({}, body));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const cancelSpy = vi.spyOn(c, "cancelWorkflow").mockRejectedValue(new Error("abort"));
+
+    c.orchestrate({ workflowId: "wf-abort", task: "t" }, controller.signal);
+    // Let fetch resolve and the abort listener register before aborting.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    controller.abort();
+
+    expect(cancelSpy).toHaveBeenCalledWith("wf-abort");
+    c.disconnect();
+  });
+
+  it("warns and continues on malformed JSON in the stream", async () => {
+    const body = streamFromChunks([
+      "data: {not json}\n\n",
+      'data: {"choices":[{"delta":{"content":"OK"}}]}\n\n',
+      "data: [DONE]\n\n",
+    ]);
+    fetchMock.mockResolvedValueOnce(jsonOk({}, body));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const result = await c.orchestrate({ workflowId: "wf-parse", task: "t" }, undefined);
+    expect(result.text).toBe("OK");
+    warn.mockRestore();
+    c.disconnect();
+  });
+
+  it("processes a trailing data event without a final newline", async () => {
+    const body = streamFromChunks([
+      'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+      'data: {"workflow":{"id":"wfT","status":"in_progress"}}',
+    ]);
+    fetchMock.mockResolvedValueOnce(jsonOk({}, body));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const updates = [];
+    c.onWorkflowUpdate = (w) => updates.push(w);
+    const result = await c.orchestrate({ workflowId: "wfT", task: "t" }, undefined);
+    expect(result.text).toBe("Hi");
+    expect(updates.length).toBeGreaterThan(0);
+    expect(c.activeWorkflows.wfT.status).toBe("in_progress");
+    c.disconnect();
+  });
+
+  it("completes a workflow from a trailing [DONE] data line", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({}, streamFromChunks(["data: [DONE]"])));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const result = await c.orchestrate({ workflowId: "wf-done", task: "t" }, undefined);
+    expect(result.workflowId).toBe("wf-done");
+    expect(c.activeWorkflows["wf-done"].status).toBe("completed");
+    c.disconnect();
+  });
+
+  it("completes a workflow from a trailing [DONE] with a blank line", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({}, streamFromChunks(["data: [DONE]\n"])));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const result = await c.orchestrate({ workflowId: "wf-done2", task: "t" }, undefined);
+    expect(result.text).toBe("");
+    expect(c.activeWorkflows["wf-done2"].status).toBe("completed");
+    c.disconnect();
+  });
+
+  it("handles a trailing blank line without buffered events", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({}, streamFromChunks(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n']))
+    );
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const result = await c.orchestrate({ workflowId: "wf-blank", task: "t" }, undefined);
+    expect(result.text).toBe("x");
+    expect(c.activeWorkflows["wf-blank"].status).toBe("in_progress");
+    c.disconnect();
+  });
+
+  it("aborts the merged controller when the signal aborts in the polyfill branch", async () => {
+    const keepAny = AbortSignal.any;
+    try {
+      AbortSignal.any = undefined;
+      const controller = new AbortController();
+      let reads = 0;
+      const body = {
+        getReader: () => ({
+          read: async () => {
+            if (reads++ === 0) {
+              return { value: encoder.encode('data: {"choices":[{"delta":{"content":"A"}}]}\n\n'), done: false };
+            }
+            return new Promise(() => {}); // never resolves — stream stays open
+          },
+          releaseLock: vi.fn(),
+          cancel: vi.fn().mockResolvedValue(),
+        }),
+      };
+      fetchMock.mockResolvedValueOnce(jsonOk({}, body));
+      const c = new DraymondOrchestratorClient("localhost", 8644, "");
+      const cancelSpy = vi.spyOn(c, "cancelWorkflow").mockResolvedValue();
+
+      c.orchestrate({ workflowId: "wf-abort2", task: "t" }, controller.signal);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      controller.abort();
+
+      expect(cancelSpy).toHaveBeenCalledWith("wf-abort2");
+      c.disconnect();
+    } finally {
+      AbortSignal.any = keepAny;
+    }
+  });
+});
+
+describe("workflows API edge cases", () => {
+  it("getWorkflowStatus returns null on a non-ok response", async () => {
+    fetchMock.mockResolvedValueOnce(httpError(500));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    expect(await c.getWorkflowStatus("wf1")).toBeNull();
+  });
+
+  it("_discoverAgents returns {} on a non-ok response", async () => {
+    fetchMock.mockResolvedValueOnce(httpError(500));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    expect(await c._discoverAgents()).toEqual({});
+  });
+});
+
+describe("event stream edge cases", () => {
+  it("_connectEventStream closes an existing event source", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({}, streamFromChunks([])));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const fake = { close: vi.fn() };
+    c.eventSource = fake;
+    c._connectEventStream();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fake.close).toHaveBeenCalled();
+    c.disconnect();
+  });
+
+  it("_connectEventStream ignores errors after the stream was closed", async () => {
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const body = {
+      getReader: () => ({
+        read: async () => { throw new Error("network"); },
+        releaseLock: vi.fn(),
+        cancel: vi.fn().mockResolvedValue(),
+      }),
+    };
+    fetchMock.mockResolvedValueOnce(jsonOk({}, body));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    c._connectEventStream();
+    c.eventSource.close(); // abort the controller before the error is handled
+    await new Promise((r) => setTimeout(r, 10));
+    expect(c._reconnectTimerId).toBeNull();
+    expect(c.eventSource).not.toBeNull();
+    warn.mockRestore();
+    c.disconnect();
+  });
+
+  it("_connectEventStream handles a response without a body", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, statusText: "OK" });
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    c._shouldReconnect = false;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    c._connectEventStream();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(c.eventSource).toBeNull();
+    warn.mockRestore();
+    c.disconnect();
+  });
+});
+
+describe("offline queue persistence edge cases", () => {
+  it("uses Capacitor Preferences when running on a native platform", async () => {
+    vi.resetModules();
+    vi.doMock("@capacitor/core", () => ({
+      Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" },
+    }));
+    const prefsMock = { set: vi.fn().mockResolvedValue(), get: vi.fn() };
+    vi.doMock("@capacitor/preferences", () => ({ Preferences: prefsMock }));
+
+    const { DraymondOrchestratorClient: NativeClient } = await import("./DraymondOrchestratorClient.js");
+
+    // Nil stored value → async load returns early.
+    prefsMock.get.mockResolvedValueOnce({ value: null });
+    const empty = new NativeClient("localhost", 8644, "");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(empty.getOfflineQueueSize()).toBe(0);
+
+    // A stored queue merges asynchronously after construction.
+    prefsMock.get.mockResolvedValueOnce({
+      value: JSON.stringify([{ type: "syncMessages", sessionId: "s1", messages: [] }]),
+    });
+    const c = new NativeClient("localhost", 8644, "");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(c.getOfflineQueueSize()).toBe(1);
+
+    // Read failures are swallowed.
+    prefsMock.get.mockRejectedValueOnce(new Error("read failed"));
+    const fail = new NativeClient("localhost", 8644, "");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fail.getOfflineQueueSize()).toBe(0);
+
+    // Native saves go through Preferences.set.
+    c._enqueueOffline({ type: "syncMessages", sessionId: "s2", messages: [] });
+    expect(prefsMock.set).toHaveBeenCalled();
+    expect(prefsMock.set.mock.calls[0][0].key).toBe("openchat_draymond_queue_v1");
+  });
+
+  it("tolerates localStorage write failures when saving the queue", async () => {
+    global.localStorage = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(() => { throw new Error("quota"); }),
+    };
+    fetchMock.mockRejectedValueOnce(new Error("network"));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    await c.syncMessages("s1", []);
+    expect(c.getOfflineQueueSize()).toBe(1);
+  });
+});

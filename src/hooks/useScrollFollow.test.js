@@ -79,4 +79,16 @@ describe("useScrollFollow", () => {
     expect(() => rerender({ deps: [1], threshold: 120 })).not.toThrow();
     expect(result.current).toHaveProperty("current", null);
   });
+
+  it("does not throw when the sentinel has no parent container", () => {
+    const { result, rerender } = renderHook(
+      ({ deps, threshold }) => useScrollFollow(deps, threshold),
+      { initialProps: { deps: [0], threshold: 80 } }
+    );
+
+    // Attach a sentinel whose parentElement is null; the effect's
+    // `if (!container) return;` guard must short-circuit safely.
+    result.current.current = { parentElement: null, scrollIntoView: vi.fn() };
+    expect(() => rerender({ deps: [1], threshold: 120 })).not.toThrow();
+  });
 });

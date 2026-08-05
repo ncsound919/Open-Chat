@@ -283,6 +283,88 @@ describe("send", () => {
     expect(chunks).toEqual(["Hello", "rawtext"]);
   });
 
+  it("ends streaming when the SSE reader reports done without a [DONE] marker", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        null,
+        {
+          headers: { "content-type": "text/event-stream" },
+          body: streamFromChunks([
+            'data: {"choices":[{"delta":{"content":"partial"}}]}\n',
+          ]),
+        }
+      )
+    );
+    const c = makeSessionClient();
+    const chunks = [];
+    const result = await c.send("hi", (x) => chunks.push(x));
+
+    expect(result).toBe("partial");
+    expect(chunks).toEqual(["partial"]);
+  });
+
+  it("uses the parsed.text field and ignores empty SSE payloads", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        null,
+        {
+          headers: { "content-type": "text/event-stream" },
+          body: streamFromChunks([
+            'data: {"text":"via text"}\n',
+            "data: {}\n",
+            "data: [DONE]\n",
+          ]),
+        }
+      )
+    );
+    const c = makeSessionClient();
+    const chunks = [];
+    const result = await c.send("hi", (x) => chunks.push(x));
+
+    expect(result).toBe("via text");
+    expect(chunks).toEqual(["via text"]);
+  });
+
+  it("treats a response without a content-type header as non-streaming", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ content: "plain reply" }));
+    const c = makeSessionClient();
+    const chunks = [];
+    const result = await c.send("hi", (x) => chunks.push(x));
+
+    expect(result).toBe("plain reply");
+    expect(chunks).toEqual(["plain reply"]);
+  });
+
+  it("uses the message field when the non-streaming body has no content", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ message: "the msg" }, { headers: { "content-type": "application/json" } })
+    );
+    const c = makeSessionClient();
+    const chunks = [];
+    const result = await c.send("hi", (x) => chunks.push(x));
+
+    expect(result).toBe("the msg");
+    expect(chunks).toEqual(["the msg"]);
+  });
+
+  it("returns empty when the non-streaming body cannot be parsed", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => "application/json" },
+      json: async () => {
+        throw new Error("bad json");
+      },
+    });
+    const c = makeSessionClient();
+    const chunks = [];
+    const result = await c.send("hi", (x) => chunks.push(x));
+
+    expect(result).toBe("");
+    expect(chunks).toEqual([]);
+  });
+
   it("stops streaming early when the external signal is already aborted", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(null, { headers: { "content-type": "text/event-stream" }, body: streamFromChunks([]) })
@@ -305,6 +387,22 @@ describe("send", () => {
     await c.send("hi", vi.fn(), controller.signal);
     expect(addSpy).toHaveBeenCalled();
     expect(removeSpy).toHaveBeenCalled();
+  });
+
+  it("aborts the in-flight request when the external signal fires", async () => {
+    fetchMock.mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () =>
+            reject(new Error("aborted"))
+          );
+        })
+    );
+    const c = makeSessionClient();
+    const controller = new AbortController();
+    const promise = c.send("hi", vi.fn(), controller.signal);
+    controller.abort();
+    await expect(promise).rejects.toThrow("aborted");
   });
 
   it("throws when there is no active session", async () => {

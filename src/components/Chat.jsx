@@ -67,6 +67,7 @@ export function Chat({
   onClearUnread,
   voiceMicActive = false,
   voiceEnabled = false,
+  voiceSupported = false,
   onMicPointerDown = null,
   onMicPointerUp = null,
   onMicCancel = null,
@@ -508,7 +509,7 @@ export function Chat({
             alignItems: "center",
           }}
         >
-          {onMicPointerDown && (
+          {onMicPointerDown && voiceSupported && (
             <button
               type="button"
               onPointerDown={onMicPointerDown}
@@ -695,6 +696,7 @@ Chat.propTypes = {
   onClearUnread: PropTypes.func,
   voiceMicActive: PropTypes.bool,
   voiceEnabled: PropTypes.bool,
+  voiceSupported: PropTypes.bool,
   onMicPointerDown: PropTypes.func,
   onMicPointerUp: PropTypes.func,
   onMicCancel: PropTypes.func,

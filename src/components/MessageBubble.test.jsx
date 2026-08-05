@@ -194,4 +194,86 @@ describe("MessageBubble ntfy actions", () => {
     );
     expect(screen.queryByText("Approve")).not.toBeInTheDocument();
   });
+
+  it("resets the action button back to idle after finishing", async () => {
+    const onNtfyAction = vi.fn(async () => ({ ok: true, output: "approved" }));
+    const user = userEvent.setup();
+    const msg = botMsg({
+      text: "x",
+      actions: [{ label: "Approve", url: "https://x" }],
+    });
+    render(
+      <MessageBubble msg={msg} bot={bot} onDelete={vi.fn()} onNtfyAction={onNtfyAction} />
+    );
+    await user.click(screen.getByText("Approve"));
+    expect(await screen.findByText("✓ Done")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 2100));
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+  });
+});
+
+describe("MessageBubble edge cases", () => {
+  it("renders an error message with the error styling", () => {
+    render(
+      <MessageBubble
+        msg={botMsg({ error: true, text: "boom happened" })}
+        bot={bot}
+        onDelete={vi.fn()}
+      />
+    );
+    const text = screen.getByText("boom happened");
+    expect(text).toBeInTheDocument();
+    let bubble = text.parentElement;
+    while (bubble && bubble.style.background === "") bubble = bubble.parentElement;
+    expect(bubble.style.background).toBe("rgb(42, 26, 26)");
+    expect(bubble.style.color).toBe("rgb(239, 68, 68)");
+  });
+
+  it("renders an error user message", () => {
+    render(
+      <MessageBubble
+        msg={userMsg({ error: true, text: "failed to send" })}
+        bot={bot}
+        onDelete={vi.fn()}
+      />
+    );
+    expect(screen.getByText("failed to send")).toBeInTheDocument();
+  });
+
+  it("falls back to the default accent color for an invalid bot color", () => {
+    render(
+      <MessageBubble
+        msg={botMsg({ text: "color fallback" })}
+        bot={{ color: "url(javascript:alert(1))", protocol: "hermes" }}
+        onDelete={vi.fn()}
+      />
+    );
+    expect(screen.getByText("color fallback")).toBeInTheDocument();
+  });
+
+  it("renders the placeholder ellipsis when a bot message has no text", () => {
+    render(
+      <MessageBubble
+        msg={botMsg({ text: "" })}
+        bot={bot}
+        onDelete={vi.fn()}
+      />
+    );
+    expect(screen.getByText("…")).toBeInTheDocument();
+  });
+
+  it("highlights and unhighlights context menu items on hover", () => {
+    render(<MessageBubble msg={userMsg()} bot={bot} onDelete={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByText("hello there").closest("div"));
+    const copyButton = screen.getByText("Copy text");
+    fireEvent.mouseEnter(copyButton);
+    expect(copyButton.style.background).not.toBe("none");
+    fireEvent.mouseLeave(copyButton);
+    expect(copyButton.style.background).toBe("none");
+    const deleteButton = screen.getByText("Delete");
+    fireEvent.mouseEnter(deleteButton);
+    expect(deleteButton.style.background).not.toBe("none");
+    fireEvent.mouseLeave(deleteButton);
+    expect(deleteButton.style.background).toBe("none");
+  });
 });

@@ -147,6 +147,15 @@ describe("connect", () => {
     expect(statuses).toEqual(["error"]);
   });
 
+  it("rejects with a generic message when the connection error has no message", async () => {
+    const client = new OpenClawClient("127.0.0.1", 18789, "tok");
+    const promise = client.connect();
+    const ws = wsInstances[0];
+    ws.emitOpen();
+    ws.emitMessage(JSON.stringify({ type: "res", error: {} }));
+    await expect(promise).rejects.toThrow("Connection failed");
+  });
+
   it("rejects on a websocket error event", async () => {
     const client = new OpenClawClient("127.0.0.1", 18789, "");
     const promise = client.connect();
@@ -232,6 +241,33 @@ describe("send", () => {
     expect(chunks).toEqual(["d1"]);
   });
 
+  it("calls onChunk with an empty delta when the agent event has no content", async () => {
+    const { client, ws } = await connectAndOpen();
+    const chunks = [];
+    const promise = client.send("hi", (c) => chunks.push(c));
+    const id = lastSent(ws).id;
+
+    ws.emitMessage(
+      JSON.stringify({ type: "event", event: "agent", payload: { runId: "r3" } })
+    );
+    ws.emitMessage(
+      JSON.stringify({ type: "res", id, method: "agent", payload: { summary: "s" } })
+    );
+    await expect(promise).resolves.toBe("s");
+    expect(chunks).toEqual([""]);
+  });
+
+  it("resolves with an empty string when the agent response has no summary", async () => {
+    const { client, ws } = await connectAndOpen();
+    const promise = client.send("hi", vi.fn());
+    const id = lastSent(ws).id;
+
+    ws.emitMessage(
+      JSON.stringify({ type: "res", id, method: "agent", payload: {} })
+    );
+    await expect(promise).resolves.toBe("");
+  });
+
   it("rejects when the socket is not open", async () => {
     const client = new OpenClawClient("127.0.0.1", 18789, "");
     await expect(client.send("hi", vi.fn())).rejects.toThrow(
@@ -309,6 +345,21 @@ describe("disconnect and reconnect", () => {
 
     ws.close();
     expect(statuses).toEqual(["disconnected", "error"]);
+    client.disconnect();
+  });
+
+  it("swallows a failed auto-reconnect inside the reconnect catch handler", async () => {
+    vi.useFakeTimers();
+    const { client, ws } = await connectAndOpen();
+
+    ws.close();
+    vi.advanceTimersByTime(5000);
+    // The scheduled reconnect's connect() promise rejects on error; the
+    // .catch(() => {}) handler in the reconnect timer must swallow it.
+    const ws2 = wsInstances[wsInstances.length - 1];
+    ws2.emitError();
+    await Promise.resolve();
+    expect(wsInstances.length).toBe(2);
     client.disconnect();
   });
 });

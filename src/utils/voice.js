@@ -166,3 +166,42 @@ export async function resolveCapture(cap) {
   cap.stop();
   return await cap.done;
 }
+
+/** True when getUserMedia requires a secure context (HTTPS or localhost). */
+export function hasMediaDevices() {
+  return !!(
+    typeof navigator !== "undefined" &&
+    navigator.mediaDevices &&
+    typeof navigator.mediaDevices.getUserMedia === "function"
+  );
+}
+
+/**
+ * Turn a getUserMedia error (or a missing-mediaDevices condition) into a
+ * human-readable message that distinguishes the common failure modes.
+ */
+export function classifyMicError(err) {
+  if (!hasMediaDevices()) {
+    return "Microphone unavailable: this app must be served over HTTPS (or localhost) to access the microphone.";
+  }
+  const name = err && err.name;
+  switch (name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+      return "Microphone permission denied. Allow microphone access in your browser or system settings.";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "No microphone found. Connect a microphone and try again.";
+    case "NotReadableError":
+    case "TrackStartError":
+      return "Microphone is in use by another app. Close it and try again.";
+    case "SecurityError":
+      return "Microphone blocked by the page security policy. Load the app over HTTPS.";
+    case "OverconstrainedError":
+      return "Microphone does not match the requested audio constraints.";
+    default:
+      return err && err.message
+        ? `Microphone error: ${err.message}`
+        : "Microphone permission denied or unavailable.";
+  }
+}

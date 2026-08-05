@@ -14,6 +14,11 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   };
 }
 
+// scrollIntoView stub (jsdom does not implement it; used by log auto-scroll).
+if (typeof globalThis.Element.prototype.scrollIntoView === "undefined") {
+  globalThis.Element.prototype.scrollIntoView = () => {};
+}
+
 // matchMedia stub (used by some responsive logic).
 if (typeof globalThis.matchMedia === 'undefined') {
   globalThis.matchMedia = (query) => ({

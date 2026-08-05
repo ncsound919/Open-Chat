@@ -38,6 +38,12 @@ describe("modeConfig", () => {
       expect(isFieldVisible("notAConfiguredField", "basic")).toBe(true);
       expect(isFieldVisible("notAConfiguredField", "dev")).toBe(true);
     });
+
+    it("defaults to visible when the mode is not present in the visibility map", () => {
+      // statusIndicator is configured for basic/dev only; an unknown mode
+      // falls through the `?? true` fallback.
+      expect(isFieldVisible("statusIndicator", "pro")).toBe(true);
+    });
   });
 
   describe("getModeDefaults", () => {
