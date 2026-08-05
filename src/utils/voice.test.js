@@ -1,10 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   buildVoiceEndpoint,
   float32ToInt16,
   downsample,
   pcmToBytes,
   transcribeAudio,
+  synthesizeAndPlay,
+  captureAudio,
   resolveCapture,
 } from "./voice.js";
 
@@ -119,5 +121,239 @@ describe("resolveCapture", () => {
   it("resolveCapture returns null when no capture", async () => {
     expect(await resolveCapture(null)).toBeNull();
     expect(await resolveCapture(undefined)).toBeNull();
+  });
+});
+
+describe("buildVoiceEndpoint edge cases", () => {
+  it("wraps IPv6 localhost in brackets", () => {
+    expect(buildVoiceEndpoint("draymond", "::1", 3000, "transcribe")).toBe(
+      "http://[::1]:3000/api/v1/voice/transcribe"
+    );
+  });
+
+  it("uses a full URL for draymond as-is", () => {
+    expect(buildVoiceEndpoint("draymond", "https://voice.example.com", 9999, "transcribe")).toBe(
+      "https://voice.example.com/api/v1/voice/transcribe"
+    );
+  });
+
+  it("defaults draymond port to 3000 for localhost", () => {
+    expect(buildVoiceEndpoint("draymond", "localhost", null, "synthesize")).toBe(
+      "http://localhost:3000/api/v1/voice/synthesize"
+    );
+  });
+
+  it("prefers https for remote draymond hosts regardless of port", () => {
+    expect(buildVoiceEndpoint("draymond", "remote.example.com", 8644, "transcribe")).toBe(
+      "https://remote.example.com/api/v1/voice/transcribe"
+    );
+  });
+});
+
+describe("PCM conversion edge cases", () => {
+  it("downsample returns input unchanged when rates match", () => {
+    const input = new Float32Array([0.1, 0.2]);
+    expect(downsample(input, 16000, 16000)).toBe(input);
+  });
+
+  it("downsample supports upsampling", () => {
+    const input = new Float32Array([0.5, -0.5]);
+    const out = downsample(input, 8000, 16000);
+    expect(out.length).toBeGreaterThan(input.length);
+    expect(out[0]).toBeCloseTo(0.5, 5);
+  });
+
+  it("float32ToInt16 clamps out-of-range values", () => {
+    const bytes = float32ToInt16(new Float32Array([1.5, -1.5]));
+    expect(bytes[1]).toBe(0x7f);
+    expect(bytes[3]).toBe(0x80);
+  });
+
+  it("pcmToBytes downmixes an AudioBuffer-like stereo input", () => {
+    const audioData = {
+      numberOfChannels: 2,
+      length: 4,
+      getChannelData: vi.fn((ch) => ch === 0 ? new Float32Array([1, 0, 1, 0]) : new Float32Array([0, 1, 0, 1])),
+    };
+    const bytes = pcmToBytes(audioData, 16000);
+    expect(bytes.length).toBe(4 * 2);
+    // First sample average (1 + 0) / 2 = 0.5 → int16 ≈ 16383 (0x3FFF)
+    expect(bytes[0]).toBe(0xff);
+    expect(bytes[1]).toBe(0x3f);
+  });
+});
+
+describe("transcribeAudio headers and errors", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("adds a Bearer token for the draymond backend", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "hi" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await transcribeAudio(new Float32Array([1]), 48000, "draymond", "127.0.0.1", 3000, "tok123");
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer tok123");
+  });
+
+  it("adds an x-api-key for the aetherdesk backend", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "" }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await transcribeAudio(new Float32Array([1]), 48000, "aetherdesk", null, null, null, "akey");
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers["x-api-key"]).toBe("akey");
+  });
+
+  it("returns empty string when the response has no text", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await transcribeAudio(new Float32Array([1]), 48000, "aetherdesk")).toBe("");
+  });
+
+  it("throws on a non-ok transcribe response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      transcribeAudio(new Float32Array([1]), 48000, "aetherdesk")
+    ).rejects.toThrow("Transcribe failed: HTTP 500");
+  });
+});
+
+describe("synthesizeAndPlay", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    global.Audio = class {
+      constructor(src) { this.src = src; }
+      play = vi.fn().mockResolvedValue();
+      pause = vi.fn();
+    };
+    global.URL.createObjectURL = vi.fn(() => "blob:audio");
+    global.URL.revokeObjectURL = vi.fn();
+  });
+
+  it("synthesizes with aetherdesk apiKey header and attaches base64 audio", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ audio: "QUFBQQ==" }), // base64 "AAAA"
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const audio = await synthesizeAndPlay("hello", "aetherdesk", null, null, null, "akey");
+    expect(audio).toBeInstanceOf(global.Audio);
+    expect(audio.play).toHaveBeenCalled();
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:8000/api/v1/voice/synthesize");
+    expect(init.headers["x-api-key"]).toBe("akey");
+    expect(init.body).toBe('{"text":"hello"}');
+  });
+
+  it("adds a Bearer token for the draymond backend", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ audio: "QUFBQQ==" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await synthesizeAndPlay("hi", "draymond", "127.0.0.1", 3000, "tok456");
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.headers.Authorization).toBe("Bearer tok456");
+  });
+
+  it("throws on a non-ok synthesize response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(synthesizeAndPlay("hi", "aetherdesk")).rejects.toThrow("Synthesize failed: HTTP 503");
+  });
+
+  it("throws when the response contains no audio", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(synthesizeAndPlay("hi", "aetherdesk")).rejects.toThrow("Synthesize returned no audio");
+  });
+
+  it("revokes the object URL when playback fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ audio: "QUFBQQ==" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    global.Audio = class {
+      constructor(src) { this.src = src; }
+      play = vi.fn().mockRejectedValue(new Error("autoplay blocked"));
+      pause = vi.fn();
+    };
+    await expect(synthesizeAndPlay("hi", "aetherdesk")).rejects.toThrow("autoplay blocked");
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith("blob:audio");
+  });
+});
+
+describe("captureAudio", () => {
+  /** Helper to build a script-processor audio capture from an AudioContext mock. */
+  function setupFakeAudioContext() {
+    let recorderRef;
+    class FakeAudioContext {
+      constructor() {
+        this.sampleRate = 48000;
+        this.destination = { __tag: "destination" };
+      }
+      createMediaStreamSource(stream) {
+        return { connect: vi.fn(), disconnect: vi.fn(), stream };
+      }
+      createScriptProcessor() {
+        const rec = {
+          connect: vi.fn(),
+          disconnect: vi.fn(),
+          onaudioprocess: null,
+        };
+        recorderRef = rec;
+        return rec;
+      }
+      createGain() {
+        return { connect: vi.fn(), disconnect: vi.fn(), gain: { value: 0 } };
+      }
+      close() {}
+    }
+    return { FakeAudioContext, getRecorder: () => recorderRef };
+  }
+
+  it("records Float32 PCM and resolves a merged buffer on stop", async () => {
+    const { FakeAudioContext, getRecorder } = setupFakeAudioContext();
+    window.AudioContext = FakeAudioContext;
+
+    const stream = { active: true };
+    const cap = await captureAudio(stream);
+    expect(typeof cap.stop).toBe("function");
+
+    const rec = getRecorder();
+    // Simulate two audio process callbacks
+    rec.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.5, -0.5]) } });
+    rec.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([1, 0]) } });
+
+    cap.stop();
+    const result = await cap.done;
+    expect(result.sampleRate).toBe(48000);
+    expect(Array.from(result.audioData)).toEqual([0.5, -0.5, 1, 0]);
+  });
+
+  it("uses webkitAudioContext when AudioContext is unavailable", async () => {
+    const { FakeAudioContext, getRecorder } = setupFakeAudioContext();
+    delete window.AudioContext;
+    window.webkitAudioContext = FakeAudioContext;
+
+    const cap = await captureAudio({});
+    const rec = getRecorder();
+    rec.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.2]) } });
+    cap.stop();
+    expect((await cap.done).audioData[0]).toBeCloseTo(0.2, 5);
+  });
+
+  it("returns an empty buffer when no samples are captured", async () => {
+    const { FakeAudioContext } = setupFakeAudioContext();
+    window.AudioContext = FakeAudioContext;
+    const cap = await captureAudio({});
+    cap.stop();
+    expect((await cap.done).audioData.length).toBe(0);
   });
 });
