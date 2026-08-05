@@ -90,6 +90,8 @@ export default function App() {
   const lastBotMessage = (messages || [])
     .filter((m) => m.role === "bot")
     .slice(-1)[0];
+  const lastBotText = lastBotMessage?.text || "";
+  const lastBotStreaming = lastBotMessage?.streaming === true;
   const {
     micActive,
     speakEnabled,
@@ -97,8 +99,21 @@ export default function App() {
     setSpeakEnabled,
     startListening,
     stopAndTranscribe,
+    cancelListening,
   } = useVoice(
-    bot ? { ...bot, lastMessageText: lastBotMessage?.text } : null
+    bot
+      ? {
+          host: bot.host,
+          port: bot.port,
+          token: bot.token,
+          voiceBackend: bot.voiceBackend,
+          voiceEnabled: bot.voiceEnabled,
+          aetherdeskApiKey: bot.aetherdeskApiKey,
+          aetherdeskBaseUrl: bot.aetherdeskBaseUrl,
+          lastMessageText: lastBotText,
+          lastMessageStreaming: lastBotStreaming,
+        }
+      : null
   );
 
   // ── Persist state to localStorage ──────────────────────────────────────────
@@ -744,8 +759,7 @@ export default function App() {
   };
 
   const handleMicCancel = () => {
-    // Stop capture without transcribing.
-    stopAndTranscribe();
+    cancelListening();
   };
 
   function interruptMessage() {

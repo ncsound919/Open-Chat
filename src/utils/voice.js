@@ -16,10 +16,11 @@ function isLocalhostHost(value) {
 }
 
 /** Build the transcribe/synthesize endpoint URL for a backend. */
-export function buildVoiceEndpoint(backend, host, port, kind) {
+export function buildVoiceEndpoint(backend, host, port, kind, baseUrl) {
   const action = kind === "transcribe" ? "transcribe" : "synthesize";
   if (backend === "aetherdesk") {
-    return `${AETHERDESK_BASE}/voice/${action}`;
+    const base = String(baseUrl || AETHERDESK_BASE).replace(/\/$/, "");
+    return `${base}/voice/${action}`;
   }
   // draymond backend
   const trimmed = String(host || "127.0.0.1").trim();
@@ -61,6 +62,9 @@ export function float32ToInt16(input) {
 
 /** Downmix to mono, resample to 16 kHz, encode as int16 PCM bytes. */
 export function pcmToBytes(audioData, sampleRate) {
+  if (!audioData || audioData.length === 0) {
+    return new Uint8Array(0);
+  }
   let mono = audioData;
   if (mono.length > 1 && audioData.numberOfChannels) {
     // Web Audio AudioBuffer-like input (has numberOfChannels)
@@ -115,9 +119,9 @@ export async function captureAudio(stream) {
 }
 
 /** Transcribe Float32 PCM audio and return the transcript text. */
-export async function transcribeAudio(audioData, sampleRate, backend, host, port, token, apiKey) {
+export async function transcribeAudio(audioData, sampleRate, backend, host, port, token, apiKey, baseUrl) {
   const bytes = pcmToBytes(audioData, sampleRate || 48000);
-  const url = buildVoiceEndpoint(backend, host, port, "transcribe");
+  const url = buildVoiceEndpoint(backend, host, port, "transcribe", baseUrl);
   const headers = { "Content-Type": "application/octet-stream" };
   if (backend === "draymond" && token) headers.Authorization = `Bearer ${token}`;
   if (backend === "aetherdesk" && apiKey) headers["x-api-key"] = apiKey;
@@ -128,8 +132,8 @@ export async function transcribeAudio(audioData, sampleRate, backend, host, port
 }
 
 /** Synthesize text and return a playable HTMLAudioElement. */
-export async function synthesizeAndPlay(text, backend, host, port, token, apiKey) {
-  const url = buildVoiceEndpoint(backend, host, port, "synthesize");
+export async function synthesizeAndPlay(text, backend, host, port, token, apiKey, baseUrl) {
+  const url = buildVoiceEndpoint(backend, host, port, "synthesize", baseUrl);
   const headers = { "Content-Type": "application/json" };
   if (backend === "draymond" && token) headers.Authorization = `Bearer ${token}`;
   if (backend === "aetherdesk" && apiKey) headers["x-api-key"] = apiKey;
@@ -154,4 +158,11 @@ export async function synthesizeAndPlay(text, backend, host, port, token, apiKey
     throw err;
   }
   return audio;
+}
+
+/** Resolve a capture: stop it, then await its done promise (order matters). */
+export async function resolveCapture(cap) {
+  if (!cap) return null;
+  cap.stop();
+  return await cap.done;
 }

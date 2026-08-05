@@ -5,6 +5,7 @@ import {
   downsample,
   pcmToBytes,
   transcribeAudio,
+  resolveCapture,
 } from "./voice.js";
 
 describe("buildVoiceEndpoint", () => {
@@ -24,6 +25,15 @@ describe("buildVoiceEndpoint", () => {
     expect(buildVoiceEndpoint("aetherdesk", null, null, "synthesize")).toBe(
       "http://127.0.0.1:8000/api/v1/voice/synthesize"
     );
+  });
+
+  it("uses a custom base URL for AetherDesk when provided", () => {
+    expect(
+      buildVoiceEndpoint("aetherdesk", "127.0.0.1", 8000, "transcribe", "https://voice.example.com/api/v1/")
+    ).toBe("https://voice.example.com/api/v1/voice/transcribe");
+    expect(
+      buildVoiceEndpoint("aetherdesk", null, null, "synthesize", "https://voice.example.com")
+    ).toBe("https://voice.example.com/voice/synthesize");
   });
 });
 
@@ -49,6 +59,12 @@ describe("PCM conversion", () => {
     const bytes = pcmToBytes(new Float32Array([0.5, -0.5]), 48000);
     // 2 samples at 48k downsampled to 16k = ceil(2/3) = 1 sample
     expect(bytes.length).toBe(2);
+  });
+
+  it("pcmToBytes short-circuits empty input", () => {
+    expect(pcmToBytes(new Float32Array(0), 48000).length).toBe(0);
+    expect(pcmToBytes(null, 48000).length).toBe(0);
+    expect(pcmToBytes(undefined, 48000).length).toBe(0);
   });
 
   it("downsample guards against zero or invalid rates", () => {
@@ -87,5 +103,21 @@ describe("transcribeAudio", () => {
     // 3 samples at 48k -> 1 sample at 16k -> 2 bytes int16
     expect(init.body.length).toBe(2);
     vi.unstubAllGlobals();
+  });
+});
+
+describe("resolveCapture", () => {
+  it("resolveCapture stops before awaiting done", async () => {
+    const stop = vi.fn();
+    const done = Promise.resolve({ audioData: new Float32Array([0]), sampleRate: 16000 });
+    const cap = { stop, done };
+    const result = await resolveCapture(cap);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(result.audioData.length).toBe(1);
+  });
+
+  it("resolveCapture returns null when no capture", async () => {
+    expect(await resolveCapture(null)).toBeNull();
+    expect(await resolveCapture(undefined)).toBeNull();
   });
 });

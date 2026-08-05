@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { captureAudio, transcribeAudio, synthesizeAndPlay } from "../utils/voice.js";
+import {
+  captureAudio,
+  transcribeAudio,
+  synthesizeAndPlay,
+  resolveCapture,
+} from "../utils/voice.js";
 
 /**
  * Push-to-talk + auto-speak voice for a chat bot.
@@ -14,6 +19,7 @@ export function useVoice(bot) {
   const streamRef = useRef(null);
   const captureRef = useRef(null);
   const speakRef = useRef(null);
+  const lastSpokenRef = useRef("");
 
   const backend = bot?.voiceBackend === "aetherdesk" ? "aetherdesk" : "draymond";
   const enabled = bot?.voiceEnabled === true;
@@ -22,14 +28,13 @@ export function useVoice(bot) {
     const cap = captureRef.current;
     if (!cap) return null;
     captureRef.current = null;
-    const { audioData, sampleRate } = await cap.done;
-    cap.stop();
+    const capture = await resolveCapture(cap);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     setMicActive(false);
-    return { audioData, sampleRate };
+    return capture;
   }, []);
 
   const startListening = useCallback(async () => {
@@ -61,7 +66,8 @@ export function useVoice(bot) {
         bot?.host,
         bot?.port,
         bot?.token,
-        bot?.aetherdeskApiKey
+        bot?.aetherdeskApiKey,
+        bot?.aetherdeskBaseUrl
       );
     } catch (err) {
       setMicError(err.message || "Transcription failed.");
@@ -69,12 +75,21 @@ export function useVoice(bot) {
     }
   }, [stopCapture, backend, bot]);
 
+  /** Stop listening without transcribing (cancel). */
+  const cancelListening = useCallback(async () => {
+    await stopCapture();
+  }, [stopCapture]);
+
   const speak = useCallback(
     async (text) => {
       if (!speakEnabled || !enabled || !text) return;
       try {
         if (speakRef.current) {
           speakRef.current.pause();
+          const oldSrc = speakRef.current.src;
+          if (oldSrc && oldSrc.startsWith("blob:")) {
+            URL.revokeObjectURL(oldSrc);
+          }
         }
         const audio = await synthesizeAndPlay(
           text,
@@ -82,7 +97,8 @@ export function useVoice(bot) {
           bot?.host,
           bot?.port,
           bot?.token,
-          bot?.aetherdeskApiKey
+          bot?.aetherdeskApiKey,
+          bot?.aetherdeskBaseUrl
         );
         speakRef.current = audio;
       } catch (err) {
@@ -92,14 +108,17 @@ export function useVoice(bot) {
     [speakEnabled, enabled, backend, bot]
   );
 
-  // Auto-speak new bot messages when enabled.
+  // Auto-speak a NEW final bot message when enabled.
   useEffect(() => {
     if (!speakEnabled || !enabled) return;
     const last = bot?.lastMessageText;
-    if (last && last.trim()) {
-      speak(last).catch(() => {});
-    }
-  }, [bot?.lastMessageText, speakEnabled, enabled, speak, bot]);
+    if (!last || !last.trim()) return;
+    const lastStreaming = bot?.lastMessageStreaming === true;
+    if (lastStreaming) return; // wait for the stream to finish
+    if (last === lastSpokenRef.current) return; // already spoken
+    lastSpokenRef.current = last;
+    speak(last).catch(() => {});
+  }, [bot?.lastMessageText, bot?.lastMessageStreaming, speakEnabled, enabled, speak, bot]);
 
   // Cleanup on unmount / bot change.
   useEffect(() => {
@@ -120,6 +139,7 @@ export function useVoice(bot) {
     setSpeakEnabled,
     startListening,
     stopAndTranscribe,
+    cancelListening,
     speak,
   };
 }
