@@ -20,6 +20,9 @@ export const FIELD_VISIBILITY = {
   topic: { basic: false, dev: true },
   connectionInfo: { basic: false, dev: true },
   deleteBot: { basic: false, dev: true },
+  voiceEnabled: { basic: false, dev: true },
+  voiceBackend: { basic: false, dev: true },
+  aetherdeskApiKey: { basic: false, dev: true },
 
   // Inbox features
   protocolBadge: { basic: false, dev: true },

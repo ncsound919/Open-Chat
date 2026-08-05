@@ -392,6 +392,49 @@ export function Settings({
         </div>
         )}
 
+        {isFieldVisible("voiceEnabled", mode) && (
+          <div>
+            <span style={labelStyle}>Voice (push-to-talk + auto-speak)</span>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <input
+                type="checkbox"
+                checked={form.voiceEnabled === true}
+                onChange={(e) =>
+                  updateField("voiceEnabled")({ target: { value: e.target.checked } })
+                }
+              />
+              Enable voice for this bot
+            </label>
+          </div>
+        )}
+
+        {isFieldVisible("voiceBackend", mode) && (
+          <div>
+            <span style={labelStyle}>Voice backend</span>
+            <select
+              style={{ ...inputStyle, cursor: "pointer" }}
+              value={form.voiceBackend || "draymond"}
+              onChange={updateField("voiceBackend")}
+            >
+              <option value="draymond">Draymond (standard gateway)</option>
+              <option value="aetherdesk">AetherDesk (direct)</option>
+            </select>
+          </div>
+        )}
+
+        {isFieldVisible("aetherdeskApiKey", mode) && (
+          <div>
+            <span style={labelStyle}>AetherDesk API key (direct voice)</span>
+            <input
+              style={inputStyle}
+              value={form.aetherdeskApiKey || ""}
+              onChange={updateField("aetherdeskApiKey")}
+              placeholder="x-api-key for AetherDesk direct backend"
+              type="password"
+            />
+          </div>
+        )}
+
         {form.protocol === "ntfy" && isFieldVisible("topic", mode) && (
           <div>
             <span style={labelStyle}>Topic</span>
