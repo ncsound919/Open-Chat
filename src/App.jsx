@@ -957,8 +957,14 @@ export default function App() {
         style={{
           position: "absolute",
           inset: 0,
-          transform: activeId || showCfg ? "translateX(-100%)" : "translateX(0)",
+          background: "#0d0d14",
+          transform:
+            (activeId || showCfg ? "translate3d(-100%,0,0)" : "translate3d(0,0,0)"),
           transition: "transform .28s cubic-bezier(.4,0,.2,1)",
+          WebkitBackfaceVisibility: "hidden",
+          backfaceVisibility: "hidden",
+          willChange: "transform",
+          zIndex: 10,
         }}
       >
         <Inbox
@@ -996,9 +1002,14 @@ export default function App() {
         style={{
           position: "absolute",
           inset: 0,
+          background: "#0d0d14",
           transform:
-            activeId && !showCfg ? "translateX(0)" : "translateX(100%)",
+            activeId && !showCfg ? "translate3d(0,0,0)" : "translate3d(100%,0,0)",
           transition: "transform .28s cubic-bezier(.4,0,.2,1)",
+          WebkitBackfaceVisibility: "hidden",
+          backfaceVisibility: "hidden",
+          willChange: "transform",
+          zIndex: 20,
         }}
       >
         {bot && !showCfg && (

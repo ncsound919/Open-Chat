@@ -18,6 +18,35 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Ensure window.Capacitor is a writable, re-assignable object before
+      // @capacitor/core evaluates (its initCapacitorGlobal does
+      // `win.Capacitor = createCapacitor(win)`). If the native bridge or any
+      // other script already pinned it read-only, redefine it as writable so
+      // the app bundle initializes instead of throwing
+      // "Cannot assign to read only property 'Capacitor'" (blank screen).
+      (function () {
+        try {
+          var desc = Object.getOwnPropertyDescriptor(window, 'Capacitor');
+          if (desc && !desc.writable) {
+            Object.defineProperty(window, 'Capacitor', {
+              value: desc.value || {},
+              writable: true,
+              configurable: true,
+            });
+          } else if (!desc) {
+            Object.defineProperty(window, 'Capacitor', {
+              value: {},
+              writable: true,
+              configurable: true,
+            });
+          }
+        } catch (e) {
+          // Non-fatal: if we cannot redefine it, core may still work when the
+          // bridge already provided a writable Capacitor.
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

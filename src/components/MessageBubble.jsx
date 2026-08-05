@@ -341,7 +341,7 @@ export const MessageBubble = memo(function MessageBubble({
 
 MessageBubble.propTypes = {
   msg: PropTypes.shape({
-    role: PropTypes.oneOf(["user", "assistant"]).isRequired,
+    role: PropTypes.oneOf(["user", "assistant", "bot"]).isRequired,
     text: PropTypes.string,
     error: PropTypes.bool,
     streaming: PropTypes.bool,
