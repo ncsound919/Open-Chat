@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Inbox } from "./components/Inbox.jsx";
 import { Chat } from "./components/Chat.jsx";
+import { SearchResults } from "./components/SearchResults.jsx";
 import { Settings } from "./components/Settings.jsx";
 import { AuditLog } from "./components/AuditLog.jsx";
 import { ToolExecutionConsole } from "./components/ToolExecutionConsole.jsx";
@@ -30,6 +31,7 @@ import {
   saveTeams,
   loadSchedules,
   saveSchedules,
+  searchMessages,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
 import { isNative } from "./utils/platform.js";
@@ -50,6 +52,9 @@ export default function App() {
   const [statuses, setStatuses] = useState({});
   const [search, setSearch] = useState("");
   const [searchMode, setSearchMode] = useState("bots");
+
+  const searchResults =
+    searchMode === "messages" ? searchMessages(history, search) : [];
 
   // Orchestrator state
   const [workflows, setWorkflows] = useState(loadWorkflows);
@@ -972,6 +977,19 @@ export default function App() {
           pinnedIds={bots.filter((b) => b.pinned).map((b) => b.id)}
         />
       </div>
+
+      {searchMode === "messages" && search.trim() && (
+        <SearchResults
+          query={search}
+          results={searchResults}
+          bots={bots}
+          onSelect={(botId) => openChat(botId)}
+          onBack={() => {
+            setSearchMode("bots");
+            setSearch("");
+          }}
+        />
+      )}
 
       {/* Chat */}
       <div
