@@ -6,6 +6,8 @@ import {
   SettingsIcon,
   SendIcon,
   KebabMenuIcon,
+  MicIcon,
+  SpeakerIcon,
 } from "./icons/Icons.jsx";
 import { useAutoResize } from "../hooks/useAutoResize.js";
 import { useScrollFollow } from "../hooks/useScrollFollow.js";
@@ -60,6 +62,12 @@ export function Chat({
   unreadNotifications = 0,
   draymondChains = [],
   onClearUnread,
+  voiceMicActive = false,
+  voiceEnabled = false,
+  onMicPointerDown = null,
+  onMicPointerUp = null,
+  onMicCancel = null,
+  onToggleSpeak = null,
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showChainStrip, setShowChainStrip] = useState(false);
@@ -504,6 +512,55 @@ export function Chat({
           }}
         />
 
+        {onMicPointerDown && (
+          <button
+            type="button"
+            onPointerDown={onMicPointerDown}
+            onPointerUp={onMicPointerUp}
+            onPointerLeave={onMicCancel}
+            aria-label={voiceMicActive ? "Release to send" : "Hold to talk"}
+            title={voiceMicActive ? "Release to send" : "Hold to talk"}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: voiceMicActive ? "#ef4444" : "#9ca3af",
+              flexShrink: 0,
+            }}
+          >
+            <MicIcon />
+          </button>
+        )}
+        {onToggleSpeak && (
+          <button
+            type="button"
+            onClick={onToggleSpeak}
+            aria-label={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
+            title={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: voiceEnabled ? "#818cf8" : "#9ca3af",
+              flexShrink: 0,
+            }}
+          >
+            <SpeakerIcon />
+          </button>
+        )}
+
         {streaming ? (
           <button
             onClick={onInterrupt}
@@ -577,4 +634,10 @@ Chat.propTypes = {
   unreadNotifications: PropTypes.number,
   draymondChains: PropTypes.array,
   onClearUnread: PropTypes.func,
+  voiceMicActive: PropTypes.bool,
+  voiceEnabled: PropTypes.bool,
+  onMicPointerDown: PropTypes.func,
+  onMicPointerUp: PropTypes.func,
+  onMicCancel: PropTypes.func,
+  onToggleSpeak: PropTypes.func,
 };
