@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildVoiceEndpoint,
   float32ToInt16,
   downsample,
   pcmToBytes,
+  transcribeAudio,
 } from "./voice.js";
 
 describe("buildVoiceEndpoint", () => {
@@ -48,5 +49,43 @@ describe("PCM conversion", () => {
     const bytes = pcmToBytes(new Float32Array([0.5, -0.5]), 48000);
     // 2 samples at 48k downsampled to 16k = ceil(2/3) = 1 sample
     expect(bytes.length).toBe(2);
+  });
+
+  it("downsample guards against zero or invalid rates", () => {
+    const input = new Float32Array([0.5, -0.5]);
+    expect(downsample(input, 0, 16000)).toBe(input);
+    expect(downsample(input, 16000, 0)).toBe(input);
+    expect(downsample(input, -1, 16000)).toBe(input);
+    expect(downsample(input, null, 16000)).toBe(input);
+  });
+});
+
+describe("transcribeAudio", () => {
+  it("transcribeAudio converts PCM and posts to the endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "hello" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await transcribeAudio(new Float32Array([1, 0, -1]), 48000, "aetherdesk", null, null, null, "key");
+    expect(result).toBe("hello");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:8000/api/v1/voice/transcribe");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeInstanceOf(Uint8Array);
+    vi.unstubAllGlobals();
+  });
+
+  it("transcribeAudio posts converted int16 bytes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await transcribeAudio(new Float32Array([1, 0, -1]), 48000, "aetherdesk", null, null, null, "key");
+    const [, init] = fetchMock.mock.calls[0];
+    // 3 samples at 48k -> 1 sample at 16k -> 2 bytes int16
+    expect(init.body.length).toBe(2);
+    vi.unstubAllGlobals();
   });
 });

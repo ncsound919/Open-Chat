@@ -27,13 +27,15 @@ export function buildVoiceEndpoint(backend, host, port, kind) {
     return `${trimmed.replace(/\/$/, "")}/api/v1/voice/${action}`;
   }
   if (isLocalhostHost(trimmed)) {
-    return `http://${trimmed}:${port || 3000}/api/v1/voice/${action}`;
+    const hostForUrl = trimmed === "::1" ? "[::1]" : trimmed;
+    return `http://${hostForUrl}:${port || 3000}/api/v1/voice/${action}`;
   }
   return `https://${trimmed}/api/v1/voice/${action}`;
 }
 
 /** Resample Float32 PCM from `fromRate` to `toRate` by simple decimation/interpolation. */
 export function downsample(input, fromRate, toRate) {
+  if (!fromRate || !toRate || fromRate <= 0 || toRate <= 0) return input;
   if (fromRate === toRate) return input;
   const ratio = toRate / fromRate;
   const outLength = Math.max(1, Math.ceil(input.length * ratio));
@@ -84,8 +86,12 @@ export async function captureAudio(stream) {
     const data = e.inputBuffer.getChannelData(0);
     samples.push(new Float32Array(data));
   };
+  // Create a silent destination so the processor fires without audible feedback.
+  const silent = ctx.createGain();
+  silent.gain.value = 0;
   source.connect(recorder);
-  recorder.connect(ctx.destination);
+  recorder.connect(silent);
+  silent.connect(ctx.destination);
 
   let resolveFn;
   const done = new Promise((resolve) => {
@@ -108,8 +114,9 @@ export async function captureAudio(stream) {
   return { stop, done };
 }
 
-/** Transcribe PCM bytes and return the transcript text. */
-export async function transcribeAudio(bytes, backend, host, port, token, apiKey) {
+/** Transcribe Float32 PCM audio and return the transcript text. */
+export async function transcribeAudio(audioData, sampleRate, backend, host, port, token, apiKey) {
+  const bytes = pcmToBytes(audioData, sampleRate || 48000);
   const url = buildVoiceEndpoint(backend, host, port, "transcribe");
   const headers = { "Content-Type": "application/octet-stream" };
   if (backend === "draymond" && token) headers.Authorization = `Bearer ${token}`;
@@ -120,7 +127,7 @@ export async function transcribeAudio(bytes, backend, host, port, token, apiKey)
   return (data && data.text) || "";
 }
 
-/** Synthesize text and return a playable object URL (base64 audio). */
+/** Synthesize text and return a playable HTMLAudioElement. */
 export async function synthesizeAndPlay(text, backend, host, port, token, apiKey) {
   const url = buildVoiceEndpoint(backend, host, port, "synthesize");
   const headers = { "Content-Type": "application/json" };
@@ -140,6 +147,11 @@ export async function synthesizeAndPlay(text, backend, host, port, token, apiKey
   const blob = new Blob([arr], { type: "audio/wav" });
   const urlObj = URL.createObjectURL(blob);
   const audio = new Audio(urlObj);
-  await audio.play();
-  return urlObj;
+  try {
+    await audio.play();
+  } catch (err) {
+    URL.revokeObjectURL(urlObj);
+    throw err;
+  }
+  return audio;
 }
