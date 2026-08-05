@@ -21,6 +21,20 @@ describe("uuid", () => {
       seen.add(id);
     }
   });
+
+  it("falls back to getRandomValues when randomUUID is unavailable", () => {
+    const original = global.crypto?.randomUUID;
+    try {
+      Object.defineProperty(global.crypto, "randomUUID", { value: undefined, configurable: true });
+      const id = uuid();
+      expect(typeof id).toBe("string");
+      expect(id.length).toBeGreaterThan(10);
+    } finally {
+      if (original) {
+        Object.defineProperty(global.crypto, "randomUUID", { value: original, configurable: true });
+      }
+    }
+  });
 });
 
 describe("ts", () => {

@@ -191,6 +191,35 @@ describe("NtfyClient executeAction", () => {
     if (originalOpen === undefined) delete global.window;
   });
 
+  it("copies a value to the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue();
+    Object.defineProperty(global.navigator, "clipboard", { value: { writeText }, configurable: true });
+    const c = new NtfyClient("localhost", 80, "", "alerts");
+    const result = await c.executeAction({ action: "copy", clipboard: "hello" });
+    expect(result.ok).toBe(true);
+    expect(writeText).toHaveBeenCalledWith("hello");
+    delete global.navigator.clipboard;
+  });
+
+  it("copy action rejects empty values", async () => {
+    const c = new NtfyClient("localhost", 80, "", "alerts");
+    const result = await c.executeAction({ action: "copy" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Nothing to copy");
+  });
+
+  it("copy action handles clipboard errors", async () => {
+    Object.defineProperty(global.navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) },
+      configurable: true,
+    });
+    const c = new NtfyClient("localhost", 80, "", "alerts");
+    const result = await c.executeAction({ action: "copy", clipboard: "x" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Clipboard unavailable");
+    delete global.navigator.clipboard;
+  });
+
   it("blocks unsafe http action URLs", async () => {
     const c = new NtfyClient("localhost", 80, "", "alerts");
     const result = await c.executeAction({

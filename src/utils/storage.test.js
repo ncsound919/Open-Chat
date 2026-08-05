@@ -176,3 +176,98 @@ describe("searchMessages", () => {
     expect(results).toHaveLength(50);
   });
 });
+
+describe("storage corrupted-data and error paths", () => {
+  beforeEach(() => {
+    store.clear();
+    global.localStorage = makeLocalStorage();
+    vi.resetModules();
+    storageModule = require("./storage.js");
+  });
+
+  function corrupt(key) {
+    global.localStorage.setItem(key, "not-json{{");
+  }
+
+  it("loadToolLog resets on corrupted or non-array data", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    corrupt("openchat_toollog_v1");
+    expect(storageModule.loadToolLog()).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+
+    global.localStorage.setItem("openchat_toollog_v1", JSON.stringify({ not: "array" }));
+    expect(storageModule.loadToolLog()).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it("saveToolLog stores an empty list for non-array input and swallows storage errors", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    storageModule.saveToolLog("nope");
+    expect(store.get("openchat_toollog_v1")).toBe("[]");
+
+    const original = global.localStorage.setItem;
+    global.localStorage.setItem = vi.fn(() => {
+      throw new Error("quota");
+    });
+    storageModule.saveToolLog([{ id: 1 }]);
+    expect(err).toHaveBeenCalled();
+    global.localStorage.setItem = original;
+    err.mockRestore();
+  });
+
+  it("loadMode handles dev, non-dev, and corrupted values", () => {
+    storageModule.saveMode("dev");
+    expect(storageModule.loadMode()).toBe("dev");
+    storageModule.saveMode("something-else");
+    expect(storageModule.loadMode()).toBe("basic");
+    corrupt("openchat_mode_v1");
+    expect(storageModule.loadMode()).toBe("basic");
+  });
+
+  it("saveMode swallows storage errors", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const original = global.localStorage.setItem;
+    global.localStorage.setItem = vi.fn(() => {
+      throw new Error("quota");
+    });
+    storageModule.saveMode("dev");
+    expect(err).toHaveBeenCalled();
+    global.localStorage.setItem = original;
+    err.mockRestore();
+  });
+
+  it("loadTeams and loadSchedules reset on corrupted JSON", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    corrupt("openchat_teams_v1");
+    corrupt("openchat_schedules_v1");
+    expect(storageModule.loadTeams()).toEqual([]);
+    expect(storageModule.loadSchedules()).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it("saveTeams and saveSchedules swallow storage errors", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const original = global.localStorage.setItem;
+    global.localStorage.setItem = vi.fn(() => {
+      throw new Error("quota");
+    });
+    storageModule.saveTeams([{ id: 1 }]);
+    storageModule.saveSchedules([{ id: 1 }]);
+    expect(err).toHaveBeenCalledTimes(2);
+    global.localStorage.setItem = original;
+    err.mockRestore();
+  });
+
+  it("clearAllStorage swallows storage errors", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const original = global.localStorage.removeItem;
+    global.localStorage.removeItem = vi.fn(() => {
+      throw new Error("nope");
+    });
+    storageModule.clearAllStorage();
+    expect(err).toHaveBeenCalled();
+    global.localStorage.removeItem = original;
+    err.mockRestore();
+  });
+});
