@@ -17,6 +17,7 @@ export const FIELD_VISIBILITY = {
   host: { basic: false, dev: true },
   port: { basic: false, dev: true },
   token: { basic: false, dev: true },
+  topic: { basic: false, dev: true },
   connectionInfo: { basic: false, dev: true },
   deleteBot: { basic: false, dev: true },
 
@@ -75,7 +76,7 @@ export function getAvailableProtocols(mode) {
   if (mode === MODES.BASIC) {
     return ['hermes']; // Basic mode only supports Hermes
   }
-  return ['hermes', 'openclaw', 'uplift-bridge', 'subteam', 'draymond'];
+  return ['hermes', 'openclaw', 'uplift-bridge', 'subteam', 'draymond', 'ntfy'];
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   TypingDots,
 } from "./icons/Icons.jsx";
 import { OnDeviceInsights } from "./OnDeviceInsights.jsx";
+import { sanitizeText } from "../utils/security.js";
 
 /** Validate a CSS color string — only allow hex, rgb(a), hsl(a), named colors */
 const SAFE_COLOR_RE =
@@ -19,6 +20,102 @@ function safeColor(color, fallback = "#818cf8") {
 }
 
 /**
+ * Single ntfy action button with idle / running / done / error states.
+ * Resets back to idle 2s after finishing so the button can be re-tapped
+ * (e.g. after re-queueing a review).
+ */
+function ActionButton({ action, accent, onExecute }) {
+  const [state, setState] = useState("idle");
+  const [label, setLabel] = useState("");
+  const resetTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    };
+  }, []);
+
+  const run = async () => {
+    if (state === "running") return;
+    setState("running");
+    setLabel("");
+    const result = await onExecute(action);
+    if (result?.ok) {
+      setState("done");
+      setLabel(result.output || "");
+    } else {
+      setState("error");
+      setLabel(result?.error || "Failed");
+    }
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    resetTimerRef.current = setTimeout(() => {
+      setState("idle");
+      setLabel("");
+    }, 2000);
+  };
+
+  const borderColor =
+    state === "error"
+      ? "#ef444480"
+      : state === "done"
+      ? "#34d39980"
+      : `${accent}60`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <button
+        onClick={run}
+        disabled={state === "running"}
+        style={{
+          background:
+            state === "error"
+              ? "#2d1a1a"
+              : state === "done"
+              ? "#0f2b20"
+              : "#ffffff12",
+          border: `1px solid ${borderColor}`,
+          borderRadius: 8,
+          padding: "6px 14px",
+          color:
+            state === "error"
+              ? "#ef4444"
+              : state === "done"
+              ? "#34d399"
+              : "#e8e8f0",
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: state === "running" ? "default" : "pointer",
+          fontFamily: "inherit",
+          opacity: state === "running" ? 0.7 : 1,
+        }}
+      >
+        {state === "running"
+          ? "Working…"
+          : state === "done"
+          ? "✓ Done"
+          : state === "error"
+          ? "✕ Failed"
+          : String(action.label || "Run")}
+      </button>
+      {label && (
+        <span
+          style={{
+            fontSize: 10,
+            color: state === "error" ? "#ef4444" : "#34d399",
+            maxWidth: 180,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * MessageBubble component with context menu
  * Memoized to prevent unnecessary re-renders
  */
@@ -26,6 +123,7 @@ export const MessageBubble = memo(function MessageBubble({
   msg,
   bot,
   onDelete,
+  onNtfyAction,
   lastUserMessage,
 }) {
   const [menu, setMenu] = useState(false);
@@ -90,10 +188,12 @@ export const MessageBubble = memo(function MessageBubble({
         {/* User messages are plain text; bot messages get markdown */}
         {isUser ? (
           <span style={{ fontSize: 15, whiteSpace: "pre-wrap" }}>
-            {msg.text || (msg.streaming ? "" : "…")}
+            {sanitizeText(msg.text) || (msg.streaming ? "" : "…")}
           </span>
         ) : (
-          <SimpleMarkdown text={msg.text || (msg.streaming ? "" : "…")} />
+          <SimpleMarkdown
+            text={sanitizeText(msg.text) || (msg.streaming ? "" : "…")}
+          />
         )}
 
         {msg.streaming && <TypingDots color={isUser ? "#0d0d14" : color} />}
@@ -136,6 +236,28 @@ export const MessageBubble = memo(function MessageBubble({
           accentColor={color}
           width="78%"
         />
+      )}
+
+      {/* ntfy action buttons (e.g. Draymond approve / reject) */}
+      {!isUser && !msg.streaming && Array.isArray(msg.actions) && msg.actions.length > 0 && onNtfyAction && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            marginTop: 8,
+            maxWidth: "78%",
+          }}
+        >
+          {msg.actions.slice(0, 3).map((action, i) => (
+            <ActionButton
+              key={i}
+              action={action}
+              accent={color}
+              onExecute={onNtfyAction}
+            />
+          ))}
+        </div>
       )}
 
       {/* Right-click context menu */}
@@ -216,11 +338,14 @@ MessageBubble.propTypes = {
     error: PropTypes.bool,
     streaming: PropTypes.bool,
     read: PropTypes.bool,
+    ntfyId: PropTypes.string,
+    actions: PropTypes.array,
   }).isRequired,
   bot: PropTypes.shape({
     color: PropTypes.string.isRequired,
     protocol: PropTypes.string,
   }).isRequired,
   onDelete: PropTypes.func.isRequired,
+  onNtfyAction: PropTypes.func,
   lastUserMessage: PropTypes.string,
 };

@@ -2,9 +2,6 @@
   "appId": "com.openchat.app",
   "appName": "Open Chat",
   "webDir": "dist",
-  "server": {
-    "allowNavigation": ["*"]
-  },
   "plugins": {
     "StatusBar": {
       "style": "DARK",
@@ -15,12 +12,10 @@
       "resizeOnFullScreen": true
     },
     "LocalNotifications": {
-      "smallIcon": "ic_stat_notify",
       "iconColor": "#818cf8"
     }
   },
   "android": {
-    "allowMixedContent": true,
     "webContentsDebuggingEnabled": false
   }
 }

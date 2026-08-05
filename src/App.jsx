@@ -12,6 +12,7 @@ import { hermesStream, hermesHealthCheck } from "./protocols/HermesClient.js";
 import { UpliftBridgeClient } from "./protocols/UpliftBridgeClient.js";
 import { subTeamStream, subTeamHealthCheck } from "./protocols/SubTeamClient.js";
 import { DraymondOrchestratorClient } from "./protocols/DraymondOrchestratorClient.js";
+import { NtfyClient } from "./protocols/NtfyClient.js";
 import {
   loadHist,
   saveHist,
@@ -29,10 +30,10 @@ import {
   saveTeams,
   loadSchedules,
   saveSchedules,
-  migrateTokensToSecure,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
-import { isNative, isAndroid } from "./utils/platform.js";
+import { isNative } from "./utils/platform.js";
+import { notifyLocal, requestNotificationPermission } from "./utils/notifications.js";
 
 /**
  * Main App component
@@ -71,12 +72,13 @@ export default function App() {
   // Draymond real-time state (populated from SSE callbacks)
   const [draymondNotifications, setDraymondNotifications] = useState([]);
   const [draymondChains, setDraymondChains] = useState([]);
-  const [draymondSchedules, setDraymondSchedules] = useState([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // Refs
   const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
   const orchestratorRefs = useRef({}); // botId → DraymondOrchestratorClient
+  const ntfyRefs = useRef({}); // botId → NtfyClient
+  const seenNtfyIds = useRef(new Set()); // ntfy message ids already rendered
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
 
@@ -115,20 +117,6 @@ export default function App() {
   useEffect(() => {
     saveSchedules(schedules);
   }, [schedules]);
-
-  // ── Migrate plaintext tokens to encrypted storage on startup ────────────────
-  useEffect(() => {
-    migrateTokensToSecure(bots).then((updatedBots) => {
-      // Only update if any tokens were actually cleared
-      const changed = updatedBots.some(
-        (ub, i) => ub.token !== bots[i]?.token
-      );
-      if (changed) {
-        setBots(updatedBots);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once on mount
 
   // ── Status management ───────────────────────────────────────────────────────
   const setStatus = useCallback((id, status) => {
@@ -170,6 +158,14 @@ export default function App() {
 
       const client = new UpliftBridgeClient(bot.host, bot.port, bot.token);
       client.onStatusChange = (status) => setStatus(bot.id, status);
+      client.onInboundMessage = (m) => {
+        addMessage(bot.id, {
+          id: uuid(),
+          role: "bot",
+          text: m.content || "",
+          time: ts(),
+        });
+      };
       clawRefs.current[bot.id] = client;
 
       setStatus(bot.id, "connecting");
@@ -226,17 +222,6 @@ export default function App() {
           return [...prev, chainEvent].slice(-100);
         });
       };
-      client.onScheduleUpdate = (scheduleEvent) => {
-        setDraymondSchedules((prev) => {
-          const idx = prev.findIndex((s) => s.job_name === scheduleEvent.job_name);
-          if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = { ...updated[idx], ...scheduleEvent };
-            return updated;
-          }
-          return [...prev, scheduleEvent].slice(-100);
-        });
-      };
 
       orchestratorRefs.current[bot.id] = client;
 
@@ -250,6 +235,65 @@ export default function App() {
     },
     [setStatus]
   );
+
+  // ── ntfy subscription connection ────────────────────────────────────────────
+  const connectNtfy = useCallback(
+    async (bot) => {
+      // Disconnect existing client
+      if (ntfyRefs.current[bot.id]) {
+        ntfyRefs.current[bot.id].disconnect();
+        delete ntfyRefs.current[bot.id];
+      }
+
+      const client = new NtfyClient(bot.host, bot.port, bot.token, bot.topic);
+      client.onStatusChange = (status) => setStatus(bot.id, status);
+      client.onMessage = (parsed) => {
+        // Dedupe by ntfy message id (belt-and-suspenders — the stream
+        // can redeliver on reconnect).
+        if (seenNtfyIds.current.has(parsed.id)) return;
+        seenNtfyIds.current.add(parsed.id);
+        if (seenNtfyIds.current.size > 500) {
+          const toDelete = Array.from(seenNtfyIds.current).slice(0, seenNtfyIds.current.size - 500);
+          toDelete.forEach((id) => seenNtfyIds.current.delete(id));
+        }
+
+        addMessage(bot.id, {
+          id: uuid(),
+          role: "bot",
+          text: [parsed.title, parsed.message].filter(Boolean).join("\n\n"),
+          time: ts(),
+          ntfyId: parsed.id,
+          actions: Array.isArray(parsed.actions) ? parsed.actions : [],
+        });
+
+        // Fire a native notification so approval requests alert the phone
+        // even when the app is backgrounded (ntfy handles web/Electron).
+        const hasActions = Array.isArray(parsed.actions) && parsed.actions.length > 0;
+        if (hasActions) {
+          const title = parsed.title || bot.name || "Approval requested";
+          const body = parsed.message || "Tap to review.";
+          notifyLocal(title, body).catch(() => {});
+        }
+      };
+      ntfyRefs.current[bot.id] = client;
+
+      setStatus(bot.id, "connecting");
+      try {
+        await client.connect();
+      } catch (e) {
+        console.error(`Failed to connect to ${bot.name}:`, e);
+        setStatus(bot.id, "error");
+      }
+    },
+    [setStatus]
+  );
+
+  // ── Execute an ntfy action button (e.g. Draymond approve/reject) ───────────
+  const handleNtfyAction = useCallback(async (botId, action) => {
+    const client = ntfyRefs.current[botId];
+    if (!client) return { ok: false, error: "ntfy not connected" };
+    return client.executeAction(action);
+  }, []);
 
   // ── Auto-connect bots on mount and when bots list changes ──────────────────
   useEffect(() => {
@@ -299,7 +343,21 @@ export default function App() {
           connectDraymond(b);
         }
       });
-  }, [bots, connectClaw, connectUpliftBridge, connectDraymond, setStatus]);
+
+    // Connect ntfy subscription bots
+    bots
+      .filter((b) => b.protocol === "ntfy")
+      .forEach((b) => {
+        if (!ntfyRefs.current[b.id]) {
+          connectNtfy(b);
+        }
+      });
+
+    // Native notification permission (approval alerts on the phone).
+    if (isNative) {
+      requestNotificationPermission().catch(() => {});
+    }
+  }, [bots, connectClaw, connectUpliftBridge, connectDraymond, connectNtfy, setStatus]);
 
   // ── Disconnect all clients on unmount ───────────────────────────────────────
   useEffect(() => {
@@ -313,6 +371,8 @@ export default function App() {
       Object.values(orchestratorRefs.current).forEach((client) =>
         client.disconnect()
       );
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      Object.values(ntfyRefs.current).forEach((client) => client.disconnect());
     };
   }, []);
 
@@ -616,6 +676,32 @@ export default function App() {
             m.id === userMsg.id ? { ...m, read: true } : m
           ),
         }));
+      } else if (bot.protocol === "ntfy") {
+        // ntfy publish — forward the message to the subscribed topic
+        const client = ntfyRefs.current[bot.id];
+        if (!client || client.status !== "connected") {
+          throw new Error("ntfy not connected — check Settings");
+        }
+
+        const ok = await client.publish({
+          title: `${bot.name} · ${new Date().toLocaleTimeString()}`,
+          message: text,
+        });
+
+        updateLastMessage(bot.id, {
+          text: ok
+            ? "✓ Published"
+            : "⚠ Publish failed — check ntfy connection",
+          streaming: false,
+        });
+
+        // Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
       }
     } catch (e) {
       const errText =
@@ -657,6 +743,7 @@ export default function App() {
       host: "127.0.0.1",
       port: 8642,
       token: "",
+      topic: "",
     };
     setCfgBot(newBot);
     setIsNewBot(true);
@@ -680,6 +767,8 @@ export default function App() {
       connectUpliftBridge(updated);
     } else if (updated.protocol === "draymond") {
       connectDraymond(updated);
+    } else if (updated.protocol === "ntfy") {
+      connectNtfy(updated);
     } else if (updated.protocol === "subteam") {
       setStatus(updated.id, "connecting");
       subTeamHealthCheck(updated.host, updated.port, updated.token)
@@ -711,6 +800,12 @@ export default function App() {
       delete orchestratorRefs.current[botId];
     }
 
+    // Disconnect ntfy client
+    if (ntfyRefs.current[botId]) {
+      ntfyRefs.current[botId].disconnect();
+      delete ntfyRefs.current[botId];
+    }
+
     // Remove bot and its history
     setBots((prev) => prev.filter((b) => b.id !== botId));
     setHistory((prev) => {
@@ -738,12 +833,6 @@ export default function App() {
   /** Clear notification badge count (called when user views notifications) */
   function clearUnreadNotifications() {
     setUnreadNotifications(0);
-  }
-
-  /** Get the active Draymond client for the current bot (if any) */
-  function getActiveDraymondClient() {
-    if (!bot || bot.protocol !== "draymond") return null;
-    return orchestratorRefs.current[bot.id] || null;
   }
 
   // ── Phase 4 & 5 handlers ────────────────────────────────────────────────────
@@ -857,6 +946,11 @@ export default function App() {
             onOpenSettings={() => openSettings(bot)}
             onDeleteMessage={(msgId) => deleteMessage(bot.id, msgId)}
             onClearChat={() => clearChat(bot.id)}
+            onNtfyAction={
+              bot.protocol === "ntfy"
+                ? (action) => handleNtfyAction(bot.id, action)
+                : null
+            }
             unreadNotifications={bot.protocol === "draymond" ? unreadNotifications : 0}
             draymondChains={bot.protocol === "draymond" ? draymondChains : []}
             onClearUnread={clearUnreadNotifications}
@@ -896,12 +990,6 @@ export default function App() {
             }
             draymondNotifications={
               cfgBot.protocol === "draymond" ? draymondNotifications : []
-            }
-            draymondChains={
-              cfgBot.protocol === "draymond" ? draymondChains : []
-            }
-            draymondSchedules={
-              cfgBot.protocol === "draymond" ? draymondSchedules : []
             }
           />
         )}

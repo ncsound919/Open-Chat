@@ -1,5 +1,5 @@
 import { uuid } from "../utils/helpers.js";
-import { isValidMessageSize, safeLog } from "../utils/security.js";
+import { isValidMessageSize, safeLog, resolveEndpoint } from "../utils/security.js";
 
 /** Maximum number of automatic reconnect attempts before giving up. */
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -13,7 +13,7 @@ const CONNECT_TIMEOUT_MS = 30_000;
  */
 export class OpenClawClient {
   constructor(host, port, token) {
-    this.url = `ws://${host}:${port}`;
+    this.url = resolveEndpoint(host, port, "ws");
     this.token = token;
     this.ws = null;
     this.pendingReqs = new Map(); // id → {resolve, reject, onChunk, runId}

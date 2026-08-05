@@ -3,11 +3,14 @@
  * OpenAI-compatible API with Server-Sent Events
  */
 
+import { resolveEndpoint } from "../utils/security.js";
+
 /** Connection timeout in milliseconds for the initial HTTP request. */
 const CONNECT_TIMEOUT_MS = 30_000;
 
 export async function hermesStream(host, port, token, messages, onChunk, signal) {
-  const url = `http://${host}:${port}/v1/chat/completions`;
+  const baseUrl = resolveEndpoint(host, port, "http");
+  const url = `${baseUrl}/v1/chat/completions`;
 
   // Combine caller's abort signal with a connection timeout
   const timeoutController = new AbortController();
@@ -131,7 +134,8 @@ export async function hermesStream(host, port, token, messages, onChunk, signal)
  * Check Hermes health endpoint
  */
 export async function hermesHealthCheck(host, port, token, timeoutMs = 3000) {
-  const url = `http://${host}:${port}/v1/health`;
+  const baseUrl = resolveEndpoint(host, port, "http");
+  const url = `${baseUrl}/v1/health`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

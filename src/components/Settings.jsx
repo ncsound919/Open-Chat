@@ -9,6 +9,7 @@ const PROTOCOL_DEFAULT_PORTS = {
   hermes: "8642",
   "uplift-bridge": "8642",
   draymond: "8644",
+  ntfy: "80",
   // subteam omitted intentionally — port is deployment-specific
 };
 
@@ -30,8 +31,6 @@ export function Settings({
   onOpenScheduler,
   draymondClient,
   draymondNotifications = [],
-  draymondChains = [],
-  draymondSchedules = [],
 }) {
   // In Basic mode, pre-fill with mode defaults
   const [form, setForm] = useState(() => {
@@ -198,6 +197,8 @@ export function Settings({
               ? "SubTeam / Draymond"
               : form.protocol === "draymond"
               ? "Draymond Orchestrator"
+              : form.protocol === "ntfy"
+              ? "ntfy (push)"
               : "Unknown Protocol"}
           </div>
         </div>
@@ -272,6 +273,9 @@ export function Settings({
                   {availableProtocols.includes("draymond") && (
                     <option value="draymond">Draymond Orchestrator (Multi-Agent)</option>
                   )}
+                  {availableProtocols.includes("ntfy") && (
+                    <option value="ntfy">ntfy (Push / Approvals)</option>
+                  )}
                 </select>
               </div>
             )}
@@ -290,7 +294,7 @@ export function Settings({
         {isFieldVisible("host", mode) && (
           <div>
             <span style={labelStyle}>
-              {form.protocol === "draymond" ? "Host / Tunnel URL" : "Host"}
+              {form.protocol === "draymond" ? "Host / Tunnel URL" : form.protocol === "ntfy" ? "ntfy Server" : "Host"}
             </span>
             <input
               style={inputStyle}
@@ -299,6 +303,8 @@ export function Settings({
               placeholder={
                 form.protocol === "draymond"
                   ? "xxxx-xxxx.trycloudflare.com"
+                  : form.protocol === "ntfy"
+                  ? "https://ntfy.sh"
                   : "127.0.0.1"
               }
             />
@@ -321,7 +327,7 @@ export function Settings({
               </div>
             )}
             {/* Warn about remote hosts for local-only protocols */}
-            {form.protocol !== "draymond" && form.host && !isLocalhost(form.host) && (
+            {form.protocol !== "draymond" && form.protocol !== "ntfy" && form.host && !isLocalhost(form.host) && (
               <div
                 style={{
                   marginTop: 6,
@@ -360,6 +366,8 @@ export function Settings({
               ? "OPENCLAW_GATEWAY_TOKEN"
               : form.protocol === "uplift-bridge"
               ? "UPLIFT_OAUTH_TOKEN"
+              : form.protocol === "ntfy"
+              ? "NTFY_ACCESS_TOKEN (optional)"
               : "API_SERVER_KEY"}
           </span>
           <input
@@ -382,6 +390,18 @@ export function Settings({
             </div>
           )}
         </div>
+        )}
+
+        {form.protocol === "ntfy" && isFieldVisible("topic", mode) && (
+          <div>
+            <span style={labelStyle}>Topic</span>
+            <input
+              style={inputStyle}
+              value={form.topic}
+              onChange={updateField("topic")}
+              placeholder="draymond-approvals"
+            />
+          </div>
         )}
 
         {isFieldVisible("connectionInfo", mode) && (
@@ -425,6 +445,13 @@ export function Settings({
                 <br />→ Multi-agent coordination · Agent discovery
                 <br />→ Workflow tracking · Tool execution monitoring
                 <br />→ Real-time SSE event stream
+              </>
+            ) : form.protocol === "ntfy" ? (
+              <>
+                {form.host || "https://ntfy.sh"}/{form.topic || "draymond-approvals"}
+                <br />→ Subscribes via NDJSON stream /json
+                <br />→ Renders Approve / Reject action buttons
+                <br />→ Draymond approval relay (human-in-the-loop)
               </>
             ) : (
               <>
@@ -874,6 +901,7 @@ Settings.propTypes = {
     host: PropTypes.string,
     port: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
     token: PropTypes.string,
+    topic: PropTypes.string,
   }).isRequired,
   isNew: PropTypes.bool.isRequired,
   onSave: PropTypes.func.isRequired,
@@ -887,6 +915,4 @@ Settings.propTypes = {
   onOpenScheduler: PropTypes.func,
   draymondClient: PropTypes.object,
   draymondNotifications: PropTypes.array,
-  draymondChains: PropTypes.array,
-  draymondSchedules: PropTypes.array,
 };

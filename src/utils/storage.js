@@ -8,16 +8,8 @@ const WORKFLOWS_KEY = "openchat_workflows_v1";
 const AGENTS_KEY = "openchat_agents_v1";
 const TOOLLOG_KEY = "openchat_toollog_v1";
 const MODE_KEY = "openchat_mode_v1";
-const CHANNELS_KEY = "openchat_channels_v1";
 const TEAMS_KEY = "openchat_teams_v1";
 const SCHEDULES_KEY = "openchat_schedules_v1";
-
-// Encryption key for token storage (derived from a fixed passphrase + salt)
-// In a production app, this would come from OS keychain or user-provided passphrase.
-// For Electron, this provides defense-in-depth against casual localStorage inspection.
-const TOKEN_STORAGE_KEY = "openchat_tokens_v1";
-const CRYPTO_SALT = "openchat-draymond-salt-v1";
-const CRYPTO_ITERATIONS = 100000;
 
 // ── Platform-aware storage abstraction ───────────────────────────────────────
 // On native (Android/iOS), use Capacitor Preferences (SharedPreferences).
@@ -27,7 +19,6 @@ const CRYPTO_ITERATIONS = 100000;
 
 /** In-memory mirror of Capacitor Preferences (populated at init) */
 const _nativeCache = {};
-let _nativeCacheReady = false;
 
 /**
  * Initialise the native storage cache by loading all known keys.
@@ -38,7 +29,7 @@ export async function initNativeStorage() {
   if (!isNative) return;
   const keys = [
     HIST_KEY, CONF_KEY, WORKFLOWS_KEY, AGENTS_KEY, TOOLLOG_KEY,
-    MODE_KEY, CHANNELS_KEY, TEAMS_KEY, SCHEDULES_KEY, TOKEN_STORAGE_KEY,
+    MODE_KEY, TEAMS_KEY, SCHEDULES_KEY,
   ];
   await Promise.all(
     keys.map(async (key) => {
@@ -46,7 +37,6 @@ export async function initNativeStorage() {
       if (value !== null) _nativeCache[key] = value;
     })
   );
-  _nativeCacheReady = true;
 }
 
 /** Synchronous read — returns raw string or null */
@@ -80,12 +70,6 @@ function storageRemove(key) {
     return;
   }
   localStorage.removeItem(key);
-}
-
-/** Get the number of stored keys (for quota check) */
-function storageLength() {
-  if (isNative) return Object.keys(_nativeCache).length;
-  return localStorage.length;
 }
 
 /** Get all stored keys */
@@ -400,226 +384,10 @@ export function clearAllStorage() {
     storageRemove(AGENTS_KEY);
     storageRemove(TOOLLOG_KEY);
     storageRemove(MODE_KEY);
-    storageRemove(CHANNELS_KEY);
     storageRemove(TEAMS_KEY);
     storageRemove(SCHEDULES_KEY);
-    storageRemove(TOKEN_STORAGE_KEY);
   } catch (e) {
     console.error("Failed to clear storage:", e);
-  }
-}
-
-// ── Encrypted Token Storage (AES-GCM) ──────────────────────────────────
-
-/**
- * Derive an AES-GCM key from a passphrase using PBKDF2.
- * Uses a deterministic salt so the same passphrase always produces the same key.
- * @param {string} passphrase
- * @returns {Promise<CryptoKey>}
- */
-async function deriveEncryptionKey(passphrase) {
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(passphrase),
-    "PBKDF2",
-    false,
-    ["deriveKey"],
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: encoder.encode(CRYPTO_SALT),
-      iterations: CRYPTO_ITERATIONS,
-      hash: "SHA-256",
-    },
-    keyMaterial,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
-
-/**
- * Encrypt a string using AES-GCM.
- * Returns a base64 string containing the IV + ciphertext.
- * @param {string} plaintext
- * @param {CryptoKey} key
- * @returns {Promise<string>}
- */
-async function encryptString(plaintext, key) {
-  const encoder = new TextEncoder();
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    key,
-    encoder.encode(plaintext),
-  );
-  // Combine IV + ciphertext into a single Uint8Array
-  const combined = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
-  combined.set(iv);
-  combined.set(new Uint8Array(ciphertext), iv.length);
-  // Base64-encode for storage
-  return btoa(String.fromCharCode(...combined));
-}
-
-/**
- * Decrypt a base64 AES-GCM string back to plaintext.
- * @param {string} encoded - Base64 string from encryptString()
- * @param {CryptoKey} key
- * @returns {Promise<string>}
- */
-async function decryptString(encoded, key) {
-  const combined = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
-  const iv = combined.slice(0, 12);
-  const ciphertext = combined.slice(12);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
-    key,
-    ciphertext,
-  );
-  return new TextDecoder().decode(plaintext);
-}
-
-/** Lazy-cached encryption key */
-let _encryptionKey = null;
-
-/**
- * Get or derive the encryption key.
- * Uses a device-fingerprint-based passphrase for Electron,
- * or a static fallback for browser environments.
- * @returns {Promise<CryptoKey>}
- */
-async function getEncryptionKey() {
-  if (_encryptionKey) return _encryptionKey;
-  // In Electron, navigator.userAgent is stable per install.
-  // Combine with a constant to create a device-specific passphrase.
-  const passphrase = `openchat-${navigator.userAgent.slice(0, 50)}-token-key`;
-  _encryptionKey = await deriveEncryptionKey(passphrase);
-  return _encryptionKey;
-}
-
-/**
- * Save a token securely using AES-GCM encryption.
- * @param {string} botId - Bot identifier (used as the map key)
- * @param {string} token - Plaintext token to encrypt
- */
-export async function saveSecureToken(botId, token) {
-  try {
-    if (!token || typeof token !== "string" || token.trim() === "") {
-      // Remove the token entry if empty
-      const existing = await loadSecureTokens();
-      delete existing[botId];
-      storageSet(TOKEN_STORAGE_KEY, JSON.stringify(existing));
-      return;
-    }
-    const key = await getEncryptionKey();
-    const encrypted = await encryptString(token, key);
-    const existing = await loadSecureTokens();
-    existing[botId] = encrypted;
-    storageSet(TOKEN_STORAGE_KEY, JSON.stringify(existing));
-  } catch (err) {
-    console.error("[OpenChat] Failed to save secure token:", err);
-    // Fallback: store as-is (better than losing the token entirely)
-  }
-}
-
-/**
- * Load a single decrypted token by bot ID.
- * @param {string} botId
- * @returns {Promise<string>} Plaintext token, or empty string if not found
- */
-export async function loadSecureToken(botId) {
-  try {
-    const raw = storageGet(TOKEN_STORAGE_KEY);
-    if (!raw) return "";
-    const tokens = JSON.parse(raw);
-    if (!tokens[botId]) return "";
-    const key = await getEncryptionKey();
-    return await decryptString(tokens[botId], key);
-  } catch (err) {
-    console.error("[OpenChat] Failed to load secure token:", err);
-    return "";
-  }
-}
-
-/**
- * Load all encrypted token entries (as a raw map — NOT decrypted).
- * Used internally for save operations.
- * @returns {Promise<Record<string, string>>}
- */
-async function loadSecureTokens() {
-  try {
-    const raw = storageGet(TOKEN_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) return {};
-    return parsed;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Migrate plaintext tokens from bot configs to encrypted storage.
- * Call this once during app startup. After migration, the plaintext
- * tokens in bot configs are cleared.
- * @param {Array} bots - Bot config array from loadBots()
- * @returns {Promise<Array>} Updated bots with tokens cleared
- */
-export async function migrateTokensToSecure(bots) {
-  if (!Array.isArray(bots)) return bots;
-
-  let migrated = false;
-  const updatedBots = [];
-
-  for (const bot of bots) {
-    if (bot.token && typeof bot.token === "string" && bot.token.trim() !== "") {
-      // Check if we already have an encrypted version
-      const existing = await loadSecureToken(bot.id);
-      if (!existing) {
-        await saveSecureToken(bot.id, bot.token);
-        migrated = true;
-      }
-      // Clear plaintext token from config
-      updatedBots.push({ ...bot, token: "" });
-    } else {
-      updatedBots.push(bot);
-    }
-  }
-
-  if (migrated) {
-    console.log("[OpenChat] Migrated plaintext tokens to encrypted storage");
-  }
-
-  return updatedBots;
-}
-
-// Load channels from localStorage
-export function loadChannels() {
-  try {
-    const raw = storageGet(CHANNELS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      console.warn("[OpenChat] Channels data corrupted — resetting.");
-      return [];
-    }
-    return parsed;
-  } catch {
-    console.warn("[OpenChat] Channels data could not be parsed — resetting.");
-    return [];
-  }
-}
-
-// Save channels to localStorage
-export function saveChannels(channels) {
-  try {
-    const serialised = JSON.stringify(channels);
-    checkStorageQuota(serialised.length, CHANNELS_KEY);
-    storageSet(CHANNELS_KEY, serialised);
-  } catch (e) {
-    console.error("Failed to save channels:", e);
   }
 }
 

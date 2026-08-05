@@ -15,6 +15,8 @@
  * - sub_team_verify: VerificationAgent only
  */
 
+import { resolveEndpoint } from "../utils/security.js";
+
 /** Connection timeout in milliseconds for the initial HTTP request. */
 const CONNECT_TIMEOUT_MS = 30_000;
 
@@ -23,7 +25,8 @@ const CONNECT_TIMEOUT_MS = 30_000;
  * Uses Hermes-compatible OpenAI format
  */
 export async function subTeamStream(host, port, token, messages, onChunk, signal) {
-  const url = `http://${host}:${port}/v1/chat/completions`;
+  const baseUrl = resolveEndpoint(host, port, "http");
+  const url = `${baseUrl}/v1/chat/completions`;
 
   // Combine caller's abort signal with a connection timeout
   const timeoutController = new AbortController();
@@ -152,7 +155,8 @@ export async function subTeamStream(host, port, token, messages, onChunk, signal
  * Check Sub-Team health endpoint
  */
 export async function subTeamHealthCheck(host, port, token, timeoutMs = 3000) {
-  const url = `http://${host}:${port}/v1/health`;
+  const baseUrl = resolveEndpoint(host, port, "http");
+  const url = `${baseUrl}/v1/health`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

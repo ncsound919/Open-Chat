@@ -9,7 +9,7 @@
  * - Simulate streaming by chunking responses
  */
 
-import { safeLog } from "../utils/security.js";
+import { safeLog, resolveEndpoint } from "../utils/security.js";
 
 /** Polling interval for checking new messages */
 const POLL_INTERVAL_MS = 2000;
@@ -23,7 +23,7 @@ const CONNECT_TIMEOUT_MS = 30_000;
  */
 export class UpliftBridgeClient {
   constructor(host, port, token) {
-    this.baseUrl = `http://${host}:${port}`;
+    this.baseUrl = resolveEndpoint(host, port, "http");
     this.token = token; // OAuth access token
     this.environmentId = null;
     this.environmentSecret = null;
@@ -32,6 +32,7 @@ export class UpliftBridgeClient {
     this.polling = false;
     this.pollTimer = null;
     this.onStatusChange = null;
+    this.onInboundMessage = null;
     this._destroyed = false;
     this.pendingMessages = [];
   }
@@ -146,6 +147,10 @@ export class UpliftBridgeClient {
 
       if (userMessages.length > 0) {
         this.pendingMessages.push(...userMessages);
+        // Surface inbound agent messages immediately so the UI can render them
+        for (const msg of userMessages) {
+          this.onInboundMessage?.(msg);
+        }
       }
     }
   }
@@ -286,7 +291,8 @@ export class UpliftBridgeClient {
  * Health check for Uplift Bridge
  */
 export async function upliftBridgeHealthCheck(host, port, token, timeoutMs = 3000) {
-  const url = `http://${host}:${port}/v1/health`;
+  const baseUrl = resolveEndpoint(host, port, "http");
+  const url = `${baseUrl}/v1/health`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

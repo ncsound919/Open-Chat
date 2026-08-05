@@ -54,6 +54,37 @@ export function isSafeUrl(url) {
 }
 
 /**
+ * Build a base endpoint URL for an agent server, preferring secure schemes
+ * for any host that is not local. This prevents bearer tokens from being
+ * sent in cleartext over the network to remote/LAN hosts.
+ *
+ * Supports three forms:
+ *   1. Full URL      — "https://tunnel.example.com" → used as-is
+ *   2. Local host    — "127.0.0.1" + port          → http:///ws://host:port
+ *   3. Remote host   — "agents.example.com" + port → https:///wss://host[:port]
+ *
+ * @param {string} host
+ * @param {string|number} [port]
+ * @param {'http'|'ws'} [kind='http']  Protocol family to emit.
+ * @returns {string}
+ */
+export function resolveEndpoint(host, port, kind = "http") {
+  const trimmed = String(host || "").trim();
+  const secure = kind === "ws" ? "wss" : "https";
+  const insecure = kind === "ws" ? "ws" : "http";
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/\/$/, "");
+  }
+  if (isLocalhost(trimmed)) {
+    const p = port ? `:${port}` : "";
+    return `${insecure}://${trimmed}${p}`;
+  }
+  const p = port ? `:${port}` : "";
+  return `${secure}://${trimmed}${p}`;
+}
+
+/**
  * Mask a token so only the last 4 characters are visible.
  * Returns an empty string if the token is blank.
  *

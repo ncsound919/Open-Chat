@@ -56,6 +56,7 @@ export function Chat({
   onOpenSettings,
   onDeleteMessage,
   onClearChat,
+  onNtfyAction,
   unreadNotifications = 0,
   draymondChains = [],
   onClearUnread,
@@ -459,6 +460,7 @@ export function Chat({
               msg={msg}
               bot={bot}
               onDelete={() => onDeleteMessage(msg.id)}
+              onNtfyAction={onNtfyAction}
               lastUserMessage={lastUserMessage}
             />
           );
@@ -571,6 +573,7 @@ Chat.propTypes = {
   onOpenSettings: PropTypes.func.isRequired,
   onDeleteMessage: PropTypes.func.isRequired,
   onClearChat: PropTypes.func.isRequired,
+  onNtfyAction: PropTypes.func,
   unreadNotifications: PropTypes.number,
   draymondChains: PropTypes.array,
   onClearUnread: PropTypes.func,
