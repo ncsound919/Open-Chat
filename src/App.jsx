@@ -1029,6 +1029,18 @@ export default function App() {
             onMicPointerUp={handleMicPointerUp}
             onMicCancel={handleMicCancel}
             onToggleSpeak={() => setSpeakEnabled((v) => !v)}
+            pinned={!!bot.pinned}
+            onTogglePin={() => {
+              setBots((prev) =>
+                prev.map((b) => (b.id === bot.id ? { ...b, pinned: !b.pinned } : b))
+              );
+            }}
+            onCopyLastReply={() => {
+              const lastBot = [...messages].reverse().find((m) => m.role === "bot");
+              if (lastBot?.text && navigator.clipboard) {
+                navigator.clipboard.writeText(lastBot.text);
+              }
+            }}
           />
         )}
         {micError && (

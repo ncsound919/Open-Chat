@@ -8,6 +8,9 @@ import {
   KebabMenuIcon,
   MicIcon,
   SpeakerIcon,
+  PinIcon,
+  CopyIcon,
+  TrashIcon,
 } from "./icons/Icons.jsx";
 import { useAutoResize } from "../hooks/useAutoResize.js";
 import { useScrollFollow } from "../hooks/useScrollFollow.js";
@@ -68,6 +71,9 @@ export function Chat({
   onMicPointerUp = null,
   onMicCancel = null,
   onToggleSpeak = null,
+  pinned = false,
+  onTogglePin = null,
+  onCopyLastReply = null,
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showChainStrip, setShowChainStrip] = useState(false);
@@ -480,14 +486,109 @@ export function Chat({
       {/* Input */}
       <div
         style={{
-          padding: "10px 12px 32px",
-          background: "#111118",
-          borderTop: "1px solid #1a1a26",
+          background: "rgba(20,25,36,0.72)",
+          borderTop: "1px solid rgba(34,211,238,0.14)",
+          padding: "8px 12px 20px",
           display: "flex",
-          gap: 10,
-          alignItems: "flex-end",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
+        {/* Quick actions */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-around",
+            alignItems: "center",
+          }}
+        >
+          {onMicPointerDown && (
+            <button
+              type="button"
+              onPointerDown={onMicPointerDown}
+              onPointerUp={onMicPointerUp}
+              onPointerLeave={onMicCancel}
+              aria-label={voiceMicActive ? "Release to send" : "Hold to talk"}
+              title={voiceMicActive ? "Release to send" : "Hold to talk"}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                color: voiceMicActive ? "#ef4444" : "#9ca3af",
+              }}
+            >
+              <MicIcon />
+            </button>
+          )}
+          {onToggleSpeak && (
+            <button
+              type="button"
+              onClick={onToggleSpeak}
+              aria-label={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
+              title={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                color: voiceEnabled ? "#22d3ee" : "#9ca3af",
+              }}
+            >
+              <SpeakerIcon />
+            </button>
+          )}
+          {onCopyLastReply && (
+            <button
+              type="button"
+              onClick={onCopyLastReply}
+              aria-label="Copy last reply"
+              title="Copy last reply"
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#9ca3af",
+              }}
+            >
+              <CopyIcon />
+            </button>
+          )}
+          {onTogglePin && (
+            <button
+              type="button"
+              onClick={onTogglePin}
+              aria-label={pinned ? "Unpin bot" : "Pin bot"}
+              title={pinned ? "Unpin bot" : "Pin bot"}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                color: pinned ? "#f5c451" : "#9ca3af",
+              }}
+            >
+              <PinIcon />
+            </button>
+          )}
+          {onClearChat && (
+            <button
+              type="button"
+              onClick={onClearChat}
+              aria-label="Clear chat"
+              title="Clear chat"
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#9ca3af",
+              }}
+            >
+              <TrashIcon />
+            </button>
+          )}
+        </div>
+
+        {/* Input row */}
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "flex-end",
+          }}
+        >
         <textarea
           ref={inputRef}
           value={input}
@@ -498,7 +599,7 @@ export function Chat({
           rows={1}
           style={{
             flex: 1,
-            background: "#1c1c28",
+            background: "#141924",
             border: "none",
             borderRadius: 22,
             padding: "11px 16px",
@@ -511,55 +612,6 @@ export function Chat({
             maxHeight: 120,
           }}
         />
-
-        {onMicPointerDown && (
-          <button
-            type="button"
-            onPointerDown={onMicPointerDown}
-            onPointerUp={onMicPointerUp}
-            onPointerLeave={onMicCancel}
-            aria-label={voiceMicActive ? "Release to send" : "Hold to talk"}
-            title={voiceMicActive ? "Release to send" : "Hold to talk"}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: "50%",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: voiceMicActive ? "#ef4444" : "#9ca3af",
-              flexShrink: 0,
-            }}
-          >
-            <MicIcon />
-          </button>
-        )}
-        {onToggleSpeak && (
-          <button
-            type="button"
-            onClick={onToggleSpeak}
-            aria-label={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
-            title={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: "50%",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: voiceEnabled ? "#818cf8" : "#9ca3af",
-              flexShrink: 0,
-            }}
-          >
-            <SpeakerIcon />
-          </button>
-        )}
 
         {streaming ? (
           <button
@@ -605,6 +657,7 @@ export function Chat({
             <SendIcon />
           </button>
         )}
+        </div>
       </div>
     </div>
   );
@@ -640,4 +693,7 @@ Chat.propTypes = {
   onMicPointerUp: PropTypes.func,
   onMicCancel: PropTypes.func,
   onToggleSpeak: PropTypes.func,
+  pinned: PropTypes.bool,
+  onTogglePin: PropTypes.func,
+  onCopyLastReply: PropTypes.func,
 };
