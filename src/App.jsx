@@ -959,11 +959,8 @@ export default function App() {
           inset: 0,
           background: "#0d0d14",
           transform:
-            (activeId || showCfg ? "translate3d(-100%,0,0)" : "translate3d(0,0,0)"),
+            (activeId || showCfg ? "translateX(-100%)" : "translateX(0)"),
           transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-          WebkitBackfaceVisibility: "hidden",
-          backfaceVisibility: "hidden",
-          willChange: "transform",
           zIndex: 10,
         }}
       >
@@ -1004,11 +1001,8 @@ export default function App() {
           inset: 0,
           background: "#0d0d14",
           transform:
-            activeId && !showCfg ? "translate3d(0,0,0)" : "translate3d(100%,0,0)",
+            activeId && !showCfg ? "translateX(0)" : "translateX(100%)",
           transition: "transform .28s cubic-bezier(.4,0,.2,1)",
-          WebkitBackfaceVisibility: "hidden",
-          backfaceVisibility: "hidden",
-          willChange: "transform",
           zIndex: 20,
         }}
       >
