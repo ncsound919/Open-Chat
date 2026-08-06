@@ -1,11 +1,21 @@
+<div align="center">
+
+<img src="public/logo.png" alt="Open-Chat logo" width="160" height="160" />
+
 # Open-Chat
 
-**A private, Signal-style chat interface for autonomous agents** (OpenClaw & Hermes)
+**A private, Signal-style chat interface for autonomous agents**
+(OpenClaw · Hermes · Draymond Orchestrator · SubTeam · Uplift Bridge · ntfy)
 
 Open-Chat is a clean, local-first messaging app designed to replace Telegram/Slack/Discord as the control surface for autonomous agents. Chat directly with your AI agents through a beautiful, responsive interface — no third-party platforms required.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![Build](https://img.shields.io/github/actions/workflow/status/ncsound919/Open-Chat/ci.yml?label=CI)](https://github.com/ncsound919/Open-Chat/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-695%20passing-brightgreen)](https://github.com/ncsound919/Open-Chat/actions)
+![Coverage](https://img.shields.io/badge/coverage-98.6%25%20lines-brightgreen)
+
+</div>
 
 ## 📦 Releases
 
@@ -106,7 +116,7 @@ cd android
 ```
 
 Notes:
-- The app icon is generated from `public/open chat logo.png` via `scripts/gen_icons.py`.
+- The app icon is generated from `public/logo.png` via `scripts/gen_icons.py`.
 - App icons live in `android/app/src/main/res/mipmap-*/ic_launcher*.png`.
 - Native-only features (StatusBar, Keyboard, haptics, local notifications) are guarded
   by `src/utils/platform.js` and degrade gracefully on web/Electron.
@@ -212,7 +222,8 @@ See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for details.
 
 Open-Chat ships with a comprehensive Vitest + React Testing Library suite
 (695 tests across 33 files) covering components, hooks, protocol clients, and
-utilities.
+utilities. For the full manual test checklist and common issues, see
+**[TESTING.md](./TESTING.md)**.
 
 ```bash
 npm run lint       # ESLint (zero warnings allowed)
@@ -261,6 +272,11 @@ npm run dev      # Start dev server (localhost:5173)
 npm run build    # Build for production
 npm run preview  # Preview production build
 ```
+
+## Contributing
+
+Contributions are welcome! See **[CONTRIBUTING.md](./CONTRIBUTING.md)** for
+guidelines, and our **[Code of Conduct](./CODE_OF_CONDUCT.md)**.
 
 ## License
 

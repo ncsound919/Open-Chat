@@ -33,7 +33,7 @@
   "tags": ["chat", "interface", "multi-agent", "protocols"],
   "runtime": {
     "type": "http",
-    "endpoint": "http://localhost:3000",
+    "endpoint": "http://localhost:5173",
     "healthPath": "/health",
     "timeoutMs": 10000
   },
@@ -53,3 +53,4 @@
   "updatedAt": "2025-01-01T00:00:00.000Z",
   "sourceType": "folder"
 }
+

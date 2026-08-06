@@ -2,7 +2,7 @@
 import os
 from PIL import Image, ImageDraw
 
-LOGO = "public/open chat logo.png"
+LOGO = "public/logo.png"
 RES = "android/app/src/main/res"
 
 # density -> (launcher px, adaptive foreground px)

@@ -2,14 +2,26 @@
   "name": "open-chat",
   "main": "electron/main.js",
   "version": "1.0.0",
-  "description": "Private chat app for autonomous agents (OpenClaw, Hermes)",
+  "description": "Private, local-first chat app for autonomous agents (OpenClaw, Hermes, Draymond Orchestrator, SubTeam, Uplift Bridge, ntfy)",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ncsound919/Open-Chat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ncsound919/Open-Chat/issues"
+  },
+  "homepage": "https://github.com/ncsound919/Open-Chat#readme",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "electron:dev": "vite build && electron .",
     "electron:build": "vite build && electron-builder --win --mac --linux",
     "android:dev": "vite build && npx cap sync android && npx cap open android",

@@ -5,11 +5,22 @@ node_modules
 
 # Testing
 coverage
+coverage_app
 coverage_run.log
 
 # Production
 dist
 build
+
+# Android / Capacitor
+android/.gradle
+android/build
+android/app/build
+android/local.properties
+android/captures
+*.apk
+*.aab
+*.keystore
 
 # Misc
 .DS_Store
