@@ -150,7 +150,10 @@ export class NtfyClient {
     try {
       const res = await fetch(this.baseUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+        },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(5000),
       });

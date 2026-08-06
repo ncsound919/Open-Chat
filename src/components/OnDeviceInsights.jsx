@@ -14,14 +14,21 @@ import { generateStream, isAvailable, buildInsightPrompt } from "../utils/OnDevi
  *   userMessage  — the original user message that triggered it
  *   accentColor  — the bot's accent color (used for theming the panel)
  */
-export function OnDeviceInsights({ botMessage, userMessage, accentColor, width }) {
+export function OnDeviceInsights({
+  botMessage,
+  userMessage = "",
+  accentColor = "#818cf8",
+  width = "100%",
+}) {
   const [open, setOpen] = useState(false);
   const [available, setAvailable] = useState(null); // null = checking, true/false
   const [status, setStatus] = useState("idle"); // idle | loading | streaming | done | error
   const [text, setText] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [retryNonce, setRetryNonce] = useState(0);
   const abortRef = useRef(null);
   const isGeneratingRef = useRef(false);
+  const doneRef = useRef(false);
 
   const accent = accentColor || "#818cf8";
 
@@ -37,8 +44,11 @@ export function OnDeviceInsights({ botMessage, userMessage, accentColor, width }
   }, []);
 
   // When opened, kick off generation if we do not already have a successful result.
+  // NOTE: `status` is intentionally NOT in the dependency list — putting it there
+  // would abort the in-flight stream every time setStatus() runs. Retries are
+  // triggered via retryNonce instead.
   useEffect(() => {
-    if (!open || !available || isGeneratingRef.current || status === "done") {
+    if (!open || !available || isGeneratingRef.current || doneRef.current) {
       return undefined;
     }
 
@@ -60,7 +70,10 @@ export function OnDeviceInsights({ botMessage, userMessage, accentColor, width }
       },
       { signal: controller.signal }
     )
-      .then(() => setStatus("done"))
+      .then(() => {
+        doneRef.current = true;
+        setStatus("done");
+      })
       .catch((err) => {
         if (err.name === "AbortError") return;
         setStatus("error");
@@ -76,7 +89,7 @@ export function OnDeviceInsights({ botMessage, userMessage, accentColor, width }
     return () => {
       controller.abort();
     };
-  }, [open, available, botMessage, status, userMessage]);
+  }, [open, available, botMessage, userMessage, retryNonce]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -225,7 +238,11 @@ export function OnDeviceInsights({ botMessage, userMessage, accentColor, width }
             >
               {errorMsg}
               <button
-                onClick={() => setStatus("idle")}
+                onClick={() => {
+                  doneRef.current = false;
+                  setStatus("idle");
+                  setRetryNonce((n) => n + 1);
+                }}
                 style={{
                   marginLeft: 8,
                   background: "none",
@@ -323,12 +340,6 @@ OnDeviceInsights.propTypes = {
   userMessage: PropTypes.string,
   accentColor: PropTypes.string,
   width: PropTypes.string,
-};
-
-OnDeviceInsights.defaultProps = {
-  userMessage: "",
-  accentColor: "#818cf8",
-  width: "100%",
 };
 
 LoadingDots.propTypes = { color: PropTypes.string.isRequired };

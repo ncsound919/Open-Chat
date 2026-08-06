@@ -184,10 +184,10 @@ describe("Settings Draymond remote management", () => {
     return {
       status,
       listChains: vi.fn(async () =>
-        chainError ? Promise.reject(new Error("chains down")) : [{ slug: "gold", name: "Gold", description: "g" }]
+        chainError ? Promise.reject(new Error("chains down")) : { chains: [{ slug: "gold", name: "Gold", description: "g" }] }
       ),
       listSchedules: vi.fn(async () =>
-        scheduleError ? Promise.reject(new Error("sched down")) : [{ job_name: "job1", cron: "* * * * *", enabled: true }]
+        scheduleError ? Promise.reject(new Error("sched down")) : { schedules: [{ job_name: "job1", cron: "* * * * *", enabled: true }] }
       ),
       executeChain: vi.fn(async () => {
         if (chainError) throw new Error("chain exec down");
@@ -231,7 +231,7 @@ describe("Settings Draymond remote management", () => {
     expect(draymondClient.executeChain).toHaveBeenCalledWith("gold");
 
     await user.click(screen.getByRole("button", { name: "On" }));
-    expect(draymondClient.toggleSchedule).toHaveBeenCalledWith("job1", false);
+    expect(draymondClient.toggleSchedule).toHaveBeenCalledWith("job1", "disable");
     expect(screen.getByRole("button", { name: "Off" })).toBeInTheDocument();
   });
 
@@ -258,8 +258,8 @@ describe("Settings Draymond remote management", () => {
   it("logs errors when chain/schedule operations fail", async () => {
     const draymondClient = {
       status: "connected",
-      listChains: vi.fn(async () => [{ slug: "gold", name: "Gold" }]),
-      listSchedules: vi.fn(async () => [{ job_name: "job1", enabled: true }]),
+      listChains: vi.fn(async () => ({ chains: [{ slug: "gold", name: "Gold" }] })),
+      listSchedules: vi.fn(async () => ({ schedules: [{ job_name: "job1", enabled: true }] })),
       executeChain: vi.fn(async () => {
         throw new Error("chain exec down");
       }),

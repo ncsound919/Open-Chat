@@ -88,6 +88,7 @@ export default function App() {
   const seenNtfyIds = useRef(new Set()); // ntfy message ids already rendered
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
+  const streamMsgIdRef = useRef(null); // id of the streaming placeholder message
 
   const bot = bots.find((b) => b.id === activeId);
   const messages = history[activeId] || [];
@@ -417,6 +418,7 @@ export default function App() {
   useEffect(() => {
     if (!isNative) return;
 
+    let cancelled = false;
     let removeListener;
     (async () => {
       try {
@@ -432,12 +434,14 @@ export default function App() {
           // At inbox level — do nothing (Capacitor default would minimize)
         });
         removeListener = handle.remove;
+        if (cancelled) removeListener();
       } catch {
         // Plugin not available — ignore
       }
     })();
 
     return () => {
+      cancelled = true;
       if (removeListener) removeListener();
     };
   }, [showCfg, activeId]);
@@ -482,7 +486,14 @@ export default function App() {
     setHistory((prev) => {
       const msgs = [...(prev[botId] || [])];
       if (!msgs.length) return prev;
-      msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], ...patch };
+      // Target the streaming placeholder by id when one is in flight; inbound
+      // messages appended during streaming must not shift the target.
+      const targetId = streamMsgIdRef.current;
+      const idx = targetId
+        ? msgs.findIndex((m) => m.id === targetId)
+        : msgs.length - 1;
+      if (idx === -1) return prev;
+      msgs[idx] = { ...msgs[idx], ...patch };
       return { ...prev, [botId]: msgs };
     });
   }
@@ -513,6 +524,7 @@ export default function App() {
 
     // Add placeholder bot message
     const botMsgId = uuid();
+    streamMsgIdRef.current = botMsgId;
     addMessage(bot.id, {
       id: botMsgId,
       role: "bot",
@@ -749,6 +761,7 @@ export default function App() {
         error: true,
       });
     } finally {
+      streamMsgIdRef.current = null;
       setStreaming(false);
     }
   }
@@ -803,17 +816,25 @@ export default function App() {
     setShowCfg(true);
   }
 
-  function saveBot(updated) {
-    if (isNewBot) {
-      // Add new bot
-      setBots((prev) => [...prev, updated]);
-      setIsNewBot(false);
-    } else {
-      // Update existing bot
-      setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+  // Disconnect every persistent client for a bot id (any protocol), so a
+  // protocol change on save doesn't leave stale sockets/open listeners.
+  function disconnectBotClients(botId) {
+    if (clawRefs.current[botId]) {
+      clawRefs.current[botId].disconnect();
+      delete clawRefs.current[botId];
     }
+    if (orchestratorRefs.current[botId]) {
+      orchestratorRefs.current[botId].disconnect();
+      delete orchestratorRefs.current[botId];
+    }
+    if (ntfyRefs.current[botId]) {
+      ntfyRefs.current[botId].disconnect();
+      delete ntfyRefs.current[botId];
+    }
+  }
 
-    // Reconnect if needed
+  // (Re)connect the client for a bot based on its current protocol config.
+  function reconnectBot(updated) {
     if (updated.protocol === "openclaw") {
       connectClaw(updated);
     } else if (updated.protocol === "uplift-bridge") {
@@ -833,6 +854,22 @@ export default function App() {
         .then((ok) => setStatus(updated.id, ok ? "connected" : "error"))
         .catch(() => setStatus(updated.id, "disconnected"));
     }
+  }
+
+  function saveBot(updated) {
+    if (isNewBot) {
+      // Add new bot
+      setBots((prev) => [...prev, updated]);
+      setIsNewBot(false);
+    } else {
+      // Update existing bot
+      setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+      // Protocol/host/token may have changed — tear down any previous client.
+      disconnectBotClients(updated.id);
+    }
+
+    // Reconnect if needed
+    reconnectBot(updated);
 
     setCfgBot(null);
     setShowCfg(false);
@@ -841,23 +878,8 @@ export default function App() {
   function deleteBot(botId) {
     if (!confirm("Delete this bot and all its messages?")) return;
 
-    // Disconnect persistent clients (OpenClaw / Uplift Bridge)
-    if (clawRefs.current[botId]) {
-      clawRefs.current[botId].disconnect();
-      delete clawRefs.current[botId];
-    }
-
-    // Disconnect Draymond Orchestrator client
-    if (orchestratorRefs.current[botId]) {
-      orchestratorRefs.current[botId].disconnect();
-      delete orchestratorRefs.current[botId];
-    }
-
-    // Disconnect ntfy client
-    if (ntfyRefs.current[botId]) {
-      ntfyRefs.current[botId].disconnect();
-      delete ntfyRefs.current[botId];
-    }
+    // Disconnect persistent clients (any protocol)
+    disconnectBotClients(botId);
 
     // Remove bot and its history
     setBots((prev) => prev.filter((b) => b.id !== botId));
@@ -938,6 +960,9 @@ export default function App() {
     setBots((prev) =>
       prev.map((b) => (b.id === updatedBot.id ? updatedBot : b))
     );
+    // Host/token/protocol edits must take effect on the live client too.
+    disconnectBotClients(updatedBot.id);
+    reconnectBot(updatedBot);
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -1040,7 +1065,7 @@ export default function App() {
             onCopyLastReply={() => {
               const lastBot = [...messages].reverse().find((m) => m.role === "bot");
               if (lastBot?.text && navigator.clipboard) {
-                navigator.clipboard.writeText(lastBot.text);
+                navigator.clipboard.writeText(lastBot.text).catch(() => {});
               }
             }}
           />

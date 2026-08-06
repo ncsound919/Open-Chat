@@ -32,7 +32,7 @@ export function Inbox({
   pinnedIds = [],
 }) {
   const filtered = bots.filter((b) =>
-    b.name.toLowerCase().includes(search.toLowerCase())
+    String(b.name ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
   const sortedBots = [...filtered].sort(

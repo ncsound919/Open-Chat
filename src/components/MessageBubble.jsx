@@ -39,13 +39,18 @@ function ActionButton({ action, accent, onExecute }) {
     if (state === "running") return;
     setState("running");
     setLabel("");
-    const result = await onExecute(action);
-    if (result?.ok) {
-      setState("done");
-      setLabel(result.output || "");
-    } else {
+    try {
+      const result = await onExecute(action);
+      if (result?.ok) {
+        setState("done");
+        setLabel(result.output || "");
+      } else {
+        setState("error");
+        setLabel(result?.error || "Failed");
+      }
+    } catch (err) {
       setState("error");
-      setLabel(result?.error || "Failed");
+      setLabel(err?.message || "Failed");
     }
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
     resetTimerRef.current = setTimeout(() => {
@@ -150,7 +155,9 @@ export const MessageBubble = memo(function MessageBubble({
   }, [menu]);
 
   const copy = () => {
-    navigator.clipboard?.writeText(msg.text).catch(() => {});
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(msg.text).catch(() => {});
+    }
     setCopied(true);
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     copyTimerRef.current = setTimeout(() => setCopied(false), 1500);

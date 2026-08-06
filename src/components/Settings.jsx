@@ -62,7 +62,7 @@ export function Settings({
     setSchedulesLoading(true);
     try {
       const chains = await draymondClient.listChains();
-      setServerChains(Array.isArray(chains) ? chains : []);
+      setServerChains(chains?.chains || []);
     } catch (err) {
       console.error("[Settings] Failed to fetch chains:", err);
     } finally {
@@ -70,7 +70,7 @@ export function Settings({
     }
     try {
       const schedules = await draymondClient.listSchedules();
-      setServerSchedules(Array.isArray(schedules) ? schedules : []);
+      setServerSchedules(schedules?.schedules || []);
     } catch (err) {
       console.error("[Settings] Failed to fetch schedules:", err);
     } finally {
@@ -103,7 +103,10 @@ export function Settings({
     if (!draymondClient || togglingSchedule) return;
     setTogglingSchedule(jobName);
     try {
-      await draymondClient.toggleSchedule(jobName, !currentEnabled);
+      await draymondClient.toggleSchedule(
+        jobName,
+        currentEnabled ? "disable" : "enable"
+      );
       // Update local state optimistically
       setServerSchedules((prev) =>
         prev.map((s) =>

@@ -5,6 +5,10 @@
 
 import { isNative } from "./platform.js";
 
+// Monotonically increasing id so two notifications in the same millisecond
+// never collide (Date.now() % 100000 wraps and would replace the previous alert).
+let notificationSeq = 0;
+
 /**
  * Request permission to show local notifications.
  * Only meaningful on native platforms.
@@ -34,7 +38,7 @@ export async function notifyLocal(title, body) {
     await LocalNotifications.schedule({
       notifications: [
         {
-          id: Date.now() % 100000,
+          id: (Date.now() % 100000) + notificationSeq++,
           title,
           body,
         },

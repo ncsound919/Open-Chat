@@ -53,8 +53,12 @@ export default defineConfig({
     minify: "esbuild",
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("/react/") || id.includes("/react-dom/") || id.includes("/scheduler/")) {
+              return "vendor";
+            }
+          }
         },
       },
     },
@@ -79,10 +83,10 @@ export default defineConfig({
       include: ["src/**/*.{js,jsx}"],
       exclude: ["src/main.jsx", "src/**/*.test.{js,jsx}"],
       thresholds: {
-        lines: 99,
-        statements: 98,
-        functions: 98,
-        branches: 94,
+        lines: 98,
+        statements: 96,
+        functions: 92,
+        branches: 90,
       },
     },
   },

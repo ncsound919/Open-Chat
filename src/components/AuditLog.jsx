@@ -16,11 +16,14 @@ export function AuditLog({ toolLog, onClose }) {
 
   // Apply filters
   const filtered = entries.filter((entry) => {
+    const toolName = String(entry.toolName ?? "").toLowerCase();
+    const agentId = String(entry.agentId ?? "").toLowerCase();
+    const status = String(entry.status ?? "").toLowerCase();
     const matchesText =
       !filter ||
-      entry.toolName?.toLowerCase().includes(filter.toLowerCase()) ||
-      entry.agentId?.toLowerCase().includes(filter.toLowerCase()) ||
-      entry.status?.toLowerCase().includes(filter.toLowerCase());
+      toolName.includes(filter.toLowerCase()) ||
+      agentId.includes(filter.toLowerCase()) ||
+      status.includes(filter.toLowerCase());
 
     const matchesType =
       typeFilter === "all" ||

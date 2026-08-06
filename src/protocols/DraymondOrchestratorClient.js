@@ -96,7 +96,8 @@ export class DraymondOrchestratorClient {
     this._pollTimerIds = new Set();
 
     // Offline command queue
-    this._offlineQueue = this._loadOfflineQueue();
+    this._offlineQueue = [];
+    this._queueReady = this._loadOfflineQueue();
     this._flushing = false;
 
     // New callbacks
@@ -135,7 +136,8 @@ export class DraymondOrchestratorClient {
       // Report online status to Draymond
       this.reportStatus("connect").catch(() => {});
 
-      // Flush any queued offline commands
+      // Flush any queued offline commands (after the persisted queue loads)
+      await this._queueReady;
       if (this._offlineQueue.length > 0) {
         this.flushOfflineQueue().catch(() => {});
       }
@@ -1108,7 +1110,12 @@ export class DraymondOrchestratorClient {
       if (signal?.aborted) return;
 
       const workflow = this.activeWorkflows[workflowId];
-      if (!workflow || workflow.status === "completed" || workflow.status === "failed") {
+      if (
+        !workflow ||
+        workflow.status === "completed" ||
+        workflow.status === "failed" ||
+        workflow.status === "cancelled"
+      ) {
         return;
       }
 
@@ -1177,24 +1184,29 @@ export class DraymondOrchestratorClient {
 
   /** @private */
   _loadOfflineQueue() {
+    const setFromParsed = (parsed) => {
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Loaded commands were queued first, so flush them before any that were
+        // enqueued in memory while the native queue was still loading.
+        this._offlineQueue = [...parsed, ...this._offlineQueue];
+      }
+    };
     try {
       if (isNative) {
-        // On native, load asynchronously then merge (queue starts empty on cold boot)
-        Preferences.get({ key: OFFLINE_QUEUE_KEY }).then(({ value }) => {
-          if (!value) return;
-          const parsed = JSON.parse(value);
-          if (Array.isArray(parsed) && parsed.length > 0 && this._offlineQueue.length === 0) {
-            this._offlineQueue = parsed;
-          }
-        }).catch(() => {});
-        return [];
+        // Load asynchronously and return a promise so connect() can await
+        // hydration before flushing the queue.
+        return Preferences.get({ key: OFFLINE_QUEUE_KEY })
+          .then(({ value }) => {
+            if (!value) return;
+            setFromParsed(JSON.parse(value));
+          })
+          .catch(() => {});
       }
       const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      if (raw) setFromParsed(JSON.parse(raw));
     } catch {
-      return [];
+      // ignore storage errors
     }
+    return Promise.resolve();
   }
 }

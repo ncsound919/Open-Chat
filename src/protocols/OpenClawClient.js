@@ -147,6 +147,9 @@ export class OpenClawClient {
       this.ws.onclose = () => {
         clearConnectTimeout();
         this.onStatusChange?.("disconnected");
+        // Reject any in-flight requests so send() settles instead of hanging
+        // the chat in the streaming state forever.
+        this._rejectPending(new Error("Connection closed"));
 
         // Auto-reconnect with exponential backoff, capped at MAX_RECONNECT_ATTEMPTS
         if (!this._destroyed && this._reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -198,8 +201,19 @@ export class OpenClawClient {
   disconnect() {
     this._destroyed = true;
     clearTimeout(this._reconnectTimer);
+    this._rejectPending(new Error("Disconnected"));
     this.ws?.close();
     this.ws = null;
     this.pendingReqs.clear();
+  }
+
+  _rejectPending(err) {
+    for (const [, entry] of this.pendingReqs) {
+      try {
+        entry.reject(err);
+      } catch {
+        // Already settled — ignore
+      }
+    }
   }
 }

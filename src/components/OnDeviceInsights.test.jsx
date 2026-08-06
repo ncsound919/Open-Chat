@@ -118,7 +118,9 @@ describe("OnDeviceInsights", () => {
     expect(await screen.findByText(/Gemini Nano/)).toBeInTheDocument();
     expect(screen.queryByText(/generating/)).not.toBeInTheDocument();
     expect(screen.getByText(/Hello world/)).toBeInTheDocument();
-    expect(capturedSignal.aborted).toBe(true);
+    // A completed generation must NOT abort its own signal (the signal is only
+    // aborted on unmount / retry / re-open).
+    expect(capturedSignal.aborted).toBe(false);
   });
 
   it("aborts the in-flight generation when unmounted", async () => {

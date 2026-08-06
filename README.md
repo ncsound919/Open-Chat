@@ -7,6 +7,18 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## 📦 Releases
+
+Pre-built Android APKs are published on the
+**[GitHub Releases page](https://github.com/ncsound919/Open-Chat/releases)**.
+
+- Download the latest `.apk`, enable **Install unknown apps** for your file manager,
+  and sideload it onto your Android device.
+- Each release includes the app icon, the compiled web bundle (React 19 / Vite 8),
+  and the Capacitor native shell.
+- See **Setup** and **Testing** sections below for agent configuration and how to
+  verify the app.
+
 ## Why Open Chat?
 
 **Third-party messaging platforms are fundamentally insecure for AI agent communication.** Telegram, Slack, Discord, and WhatsApp introduce critical vulnerabilities:
@@ -43,8 +55,9 @@ Open-Chat is a clean, local-first messaging app designed to replace Telegram/Sla
 ## Quick Start
 
 ### Prerequisites
-- **Node.js** 18+ and npm
+- **Node.js** 20.19+ (required by Vite 8) and npm
 - **One or more agents**: OpenClaw, Hermes, Uplift Agent, SubTeam, or Draymond Orchestrator
+- **Android** (optional): Android Studio SDK + JDK 21 for APK builds
 
 ### Installation
 
@@ -59,7 +72,7 @@ npm install
 # Start development server
 npm run dev
 
-# Open http://localhost:3000 in your browser
+# Open http://localhost:5173 in your browser
 ```
 
 ### Building for Production
@@ -71,6 +84,42 @@ npm run build
 # Preview production build
 npm run preview
 ```
+
+### Android App (Capacitor)
+
+Open-Chat ships as an Android app built with Capacitor. Pre-built APKs are published
+to the [GitHub Releases](https://github.com/ncsound919/Open-Chat/releases) page —
+download the `.apk`, enable "Install unknown apps" for your file manager, and sideload it.
+
+To build the APK yourself:
+
+```bash
+# 1. Build the web bundle and sync it into the Android project
+npm run android:build
+
+# 2. Compile the APK (JDK 21 + Android SDK required)
+cd android
+./gradlew assembleDebug
+
+# 3. The signed debug APK is at:
+#    android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Notes:
+- The app icon is generated from `public/open chat logo.png` via `scripts/gen_icons.py`.
+- App icons live in `android/app/src/main/res/mipmap-*/ic_launcher*.png`.
+- Native-only features (StatusBar, Keyboard, haptics, local notifications) are guarded
+  by `src/utils/platform.js` and degrade gracefully on web/Electron.
+
+### Desktop App (Electron)
+
+```bash
+npm run electron:dev       # Build + launch the desktop app
+npm run electron:build     # Package installers for Windows/macOS/Linux
+```
+
+Electron runs sandboxed with `contextIsolation` enabled, `nodeIntegration` off, and a
+strict Content-Security-Policy injected on every response.
 
 ## Configuration
 
@@ -159,10 +208,56 @@ See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for details.
 - Tool execution console & developer mode
 - Team features & automation engine
 
+## Testing
+
+Open-Chat ships with a comprehensive Vitest + React Testing Library suite
+(695 tests across 33 files) covering components, hooks, protocol clients, and
+utilities.
+
+```bash
+npm run lint       # ESLint (zero warnings allowed)
+npm test           # Run the full test suite
+npx vitest --coverage   # Run with coverage (thresholds enforced)
+```
+
+Coverage thresholds (enforced by `vitest run --coverage`):
+
+| Metric     | Threshold |
+|------------|-----------|
+| Lines      | 98%       |
+| Statements | 96%       |
+| Functions  | 92%       |
+| Branches   | 90%       |
+
+### What's tested
+
+- **Protocol clients** — OpenClaw (WebSocket), Hermes, Ntfy, Draymond Orchestrator,
+  SubTeam, and Uplift Bridge: connect/send/reconnect, offline queueing, action
+  execution, and error paths.
+- **Components** — Chat, Inbox, Settings, MessageBubble, AuditLog, DeveloperPanel,
+  ToolExecutionConsole, OnDeviceInsights, ErrorBoundary, and icons.
+- **Hooks & utils** — auto-resize, scroll-follow, voice, storage (quota/pruning),
+  security (sanitization/token masking), markdown, and notifications.
+- **Android-native edge cases** — black-screen GPU compositing regressions,
+  `window.Capacitor` guards, and Capacitor plugin availability.
+
+### Manual test checklist
+
+1. **Chat streaming** — send a message to a Hermes bot and confirm token-by-token
+   streaming, then interrupt mid-stream (works for all protocols except OpenClaw).
+2. **Inbound mid-stream safety** — trigger an inbound ntfy/Draymond notification
+   while a reply is streaming; the stream must keep writing to its own message.
+3. **Protocol switch** — edit a bot from OpenClaw → Draymond and confirm the old
+   socket closes and the new client connects.
+4. **On-device insights** — open a Draymond message and confirm the panel completes
+   instead of hanging on "Thinking on-device…"; retry after a failed generation.
+5. **Remote management** — in Draymond bot Settings, confirm chains and schedules
+   load and that toggling a schedule sends `enable`/`disable`.
+
 ## Development
 
 ```bash
-npm run dev      # Start dev server (localhost:3000)
+npm run dev      # Start dev server (localhost:5173)
 npm run build    # Build for production
 npm run preview  # Preview production build
 ```
