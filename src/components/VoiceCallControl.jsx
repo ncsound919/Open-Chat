@@ -1,11 +1,12 @@
 import PropTypes from "prop-types";
 import { useVoiceCall } from "../hooks/useVoiceCall.js";
 
-/** The actual voice-call control — mounted only after an on-device model is ready. */
-export function VoiceCallControl({ botConfig, draymondUrl, chatSend }) {
+/** The actual voice-call control — mounted after a model or Draymond is available. */
+export function VoiceCallControl({ botConfig, draymondUrl, apiKey, chatSend }) {
   const call = useVoiceCall({
     systemPrompt: `You are ${botConfig?.name ?? "Open Chat"}, a helpful assistant. You can complete tasks on this phone by calling skills. Keep replies brief and conversational for voice.`,
     draymondUrl,
+    apiKey,
     chatSend,
   });
   const {

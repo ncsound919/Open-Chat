@@ -27,7 +27,7 @@ function speak(text) {
   });
 }
 
-export function useVoiceCall({ systemPrompt, draymondUrl, chatSend } = {}) {
+export function useVoiceCall({ systemPrompt, draymondUrl, apiKey, chatSend, chatEntity = "dca-brain" } = {}) {
   const [calling, setCalling] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -87,6 +87,38 @@ export function useVoiceCall({ systemPrompt, draymondUrl, chatSend } = {}) {
     }
   }, [draymondUrl, mutedRef]);
 
+  // Remote fallback for phones without an on-device model (or before the
+  // native GGUF plugin is wired up). POSTs to Draymond's registry-entity
+  // invoke endpoint using the bot's token as the CRON_SECRET bearer token.
+  //
+  // NOTE: `chatEntity` / the "chat" action are assumptions about your
+  // Draymond registry, not a verified contract — check that an entity with
+  // this slug exists and actually handles action:"chat" with input.message
+  // before relying on this in the field. Fails soft either way.
+  const remoteChat = useCallback(async (transcript) => {
+    if (!draymondUrl || !apiKey) {
+      return { text: "", provider: null, error: "No local model and no Draymond endpoint/token configured." };
+    }
+    try {
+      const res = await fetch(`${draymondUrl}/api/agents/${chatEntity}/invoke`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ action: "chat", input: { message: transcript } }),
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!res.ok) throw new Error(`invoke HTTP ${res.status}`);
+      const data = await res.json();
+      const text = data?.result?.text || data?.result?.message || data?.text || "";
+      if (!text) throw new Error("Empty reply from remote agent.");
+      return { text, provider: `draymond:${chatEntity}`, toolCalls: [] };
+    } catch (err) {
+      return { text: "", provider: null, error: `Remote chat failed: ${err.message}` };
+    }
+  }, [draymondUrl, apiKey, chatEntity]);
+
   const runOnce = useCallback(async () => {
     if (!activeRef.current) return;
     const rec = getRecognition();
@@ -119,23 +151,29 @@ export function useVoiceCall({ systemPrompt, draymondUrl, chatSend } = {}) {
     }
 
     setSpeaking(true);
-    // On-device chat WITH phone skills (read recap, open apps, reminders, send).
-    const reply = await localChatWithTools(transcript, {
-      systemPrompt,
-      tools: skillList(),
-      toolHandler: (name, args) => runSkill(name, args, {
-        draymondUrl,
-        onSend: chatSend,
-        onSpeak: async (text) => { if (!mutedRef.current) await speak(text); },
-      }),
-      forceGguf: modelKind === "gguf",
-    });
+    // On-device chat WITH phone skills (read recap, open apps, reminders, send)
+    // when a model is available; otherwise fall back to a remote Draymond
+    // agent invoke so the call still works on a phone with no local model yet.
+    // Skills still run locally either way — only the reasoning is remote.
+    const reply = modelKind && modelKind !== "none"
+      ? await localChatWithTools(transcript, {
+          systemPrompt,
+          tools: skillList(),
+          toolHandler: (name, args) => runSkill(name, args, {
+            draymondUrl,
+            onSend: chatSend,
+            onSpeak: async (text) => { if (!mutedRef.current) await speak(text); },
+          }),
+          forceGguf: modelKind === "gguf",
+        })
+      : await remoteChat(transcript);
+    if (reply.error) setError(reply.error);
     setProvider(reply.provider || "none");
     const toolNote = reply.toolCalls?.length ? ` (${reply.toolCalls.map((t) => t.name).join(", ")})` : "";
     setLastReply((reply.text || "") + toolNote);
     if (!mutedRef.current && reply.text) await speak(reply.text);
     setSpeaking(false);
-  }, [systemPrompt, modelKind, chatSend, draymondUrl]);
+  }, [systemPrompt, modelKind, chatSend, draymondUrl, remoteChat]);
 
   const start = useCallback(() => {
     if (activeRef.current) return;

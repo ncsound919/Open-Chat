@@ -204,7 +204,7 @@ async function loadWebLlm() {
 /** Does this device support WebGPU + web-llm? */
 export async function webllmAvailable() {
   try {
-    await loadWebLlm();
+    await withTimeout(loadWebLlm(), 3000, "webllm-cdn");
     return true;
   } catch {
     return false;
@@ -283,22 +283,46 @@ async function nativeModule(name) {
   }
 }
 
+/** True when running inside the Capacitor native shell (phone). */
+async function isNativeShell() {
+  try {
+    const core = await nativeModule("@capacitor/core");
+    return core?.Capacitor?.isNativePlatform?.() === true;
+  } catch {
+    return false;
+  }
+}
+
+/** resolve after `ms` (rejects) unless the promise wins first. */
+function withTimeout(promise, ms, tag) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${tag} timed out after ${ms}ms`)), ms)),
+  ]);
+}
+
 async function loadGgufRuntime() {
   // 1) Native llama.cpp bridge (real GGUF + Vulkan) on the phone.
-  const llama = await nativeModule("@capacitor/llama");
+  const llama = await withTimeout(nativeModule("@capacitor/llama"), 2500, "llama-plugin");
   if (llama?.LLaMA) return { runtime: "native-llama", api: llama.LLaMA };
   // 2) MediaPipe LLM Inference (GPU-accelerated, official Gemma, .task bundle).
-  const mp = await nativeModule("@capacitor/mediapipe");
+  const mp = await withTimeout(nativeModule("@capacitor/mediapipe"), 2500, "mediapipe-plugin");
   if (mp?.LLM) return { runtime: "mediapipe", api: mp.LLM };
-  // 3) Desktop dev fallback only — WebGPU WASM.
-  const mod = await import(/* @vite-ignore */ "https://unpkg.com/@mlc-ai/llama-cpp-wasm");
+  // 3) Desktop-dev WASM fallback — NEVER on the phone (a CDN fetch from a
+  //    WebView can stall the renderer, and WASM is useless without GPU/NPU).
+  if (await isNativeShell()) return { runtime: "none", api: null };
+  const mod = await withTimeout(
+    import(/* @vite-ignore */ "https://unpkg.com/@mlc-ai/llama-cpp-wasm"),
+    3000,
+    "wasm-cdn",
+  );
   return { runtime: "wasm-dev", api: mod };
 }
 
 export async function ggufAvailable() {
   try {
-    await loadGgufRuntime();
-    return true;
+    const r = await loadGgufRuntime();
+    return r.runtime !== "none" && !!r.api;
   } catch {
     return false;
   }
@@ -309,6 +333,7 @@ export async function initGguf(modelKey = "gemma3-4b", onProgress) {
   const ggufName = GGUF_MODELS[modelKey] ?? GGUF_MODELS["gemma3-1b"];
   if (_gguf?.modelKey === modelKey) return _gguf;
   const { runtime, api } = await loadGgufRuntime();
+  if (runtime === "none" || !api) throw new Error("No native GGUF runtime available on this device.");
   let session;
   if (runtime === "native-llama") {
     session = await api.loadModel({ modelFileName: ggufName, contextSize: 4096, gpu: "vulkan" });

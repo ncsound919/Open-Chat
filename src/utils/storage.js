@@ -129,9 +129,12 @@ export const DEFAULT_BOTS = [
     color: "#22d3ee",
     tagline: "Orchestrator · Multi-agent",
     protocol: "draymond",
-    host: "https://draymond.overlay365.com",
-    port: 3000,
-    token: "",
+    // Dev override (gitignored .env.local) so USB-debug builds can reach the
+    // local Draymond via `adb reverse tcp:3444`; defaults to the cloud URL.
+    host: import.meta.env.VITE_DRAYMOND_URL ? new URL(import.meta.env.VITE_DRAYMOND_URL).hostname : "https://draymond.overlay365.com",
+    port: import.meta.env.VITE_DRAYMOND_URL ? Number(new URL(import.meta.env.VITE_DRAYMOND_URL).port) || 3444 : 3000,
+    token: import.meta.env.VITE_DRAYMOND_TOKEN ?? "",
+    voiceCallEnabled: true,
     voiceEnabled: true,
     voiceBackend: "draymond",
     aetherdeskApiKey: "",

@@ -528,8 +528,18 @@ export function Chat({
               <MicIcon />
             </button>
           )}
-          {bot.voiceCallEnabled === true && (
-            <VoiceCallButton botConfig={bot} draymondUrl={bot.draymondUrl || draymondUrl} chatSend={onSend} />
+          {(bot.voiceCallEnabled === true || bot.voiceEnabled === true) && (
+            <VoiceCallButton
+              botConfig={bot}
+              draymondUrl={
+                bot.draymondUrl ||
+                (bot.protocol === "draymond" && bot.host && bot.port
+                  ? `http://${bot.host}:${bot.port}`
+                  : draymondUrl)
+              }
+              apiKey={bot.token || ""}
+              chatSend={onSend}
+            />
           )}
           {onToggleSpeak && (
             <button
