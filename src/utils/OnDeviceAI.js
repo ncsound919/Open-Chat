@@ -177,3 +177,80 @@ ${draymondResponse}
 
 Your job: add 2–4 brief, practical insights, tips, or relevant details that COMPLEMENT the response above — things not already covered. Be concise (under 120 words total). Use plain language. Do not restate what was already said. Format as short bullet points starting with "•".`;
 }
+
+/**
+ * -- WebLLM provider (runs in the Capacitor WebView via WebGPU) -------------
+ * Fallback for devices without the Chrome Prompt API. Loads a small quantized
+ * model on-device so Open-Chat can chat + voice-call with NO server.
+ */
+
+let _webLlm = null; // { engine, modelId }
+
+const SMALL_MODELS = {
+  "smol": "SmolLM2-135M-Instruct-q4f16_1-MLC",
+  "llama3.2-1b": "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+  "qwen2.5-1.5b": "Qwen2.5-1.5B-Instruct-q4f16_1-MLC",
+};
+
+/** Does this device support WebGPU + web-llm? */
+export async function webllmAvailable() {
+  try {
+    if (!navigator.gpu) return false;
+    const mod = await import("@mlc-ai/web-llm");
+    return typeof mod.CreateMLCEngine === "function" || typeof mod === "object";
+  } catch {
+    return false;
+  }
+}
+
+/** Load (or reuse) a local model. Returns the engine. */
+export async function initWebLlm(modelKey = "smol", onProgress) {
+  const modelId = SMALL_MODELS[modelKey] ?? SMALL_MODELS.smol;
+  if (_webLlm?.engine && _webLlm.modelId === modelId) return _webLlm.engine;
+  const mod = await import("@mlc-ai/web-llm");
+  const engine = await mod.CreateMLCEngine(modelId, {
+    initProgressCallback: (p) => {
+      if (typeof onProgress === "function" && p) {
+        onProgress(p.text || "");
+      }
+    },
+  });
+  _webLlm = { engine, modelId };
+  return engine;
+}
+
+/** One-shot local chat via WebLLM. */
+export async function chatWebLlm(prompt, options = {}) {
+  const { systemPrompt, onChunk, modelKey } = options;
+  const engine = await initWebLlm(modelKey);
+  const messages = [];
+  if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+  messages.push({ role: "user", content: prompt });
+  if (typeof onChunk === "function") {
+    return await engine.chat.completions.create({
+      messages, stream: true, stream_options: { include_usage: true },
+    }, onChunk);
+  }
+  const reply = await engine.chat.completions.create({ messages });
+  return reply.choices?.[0]?.message?.content ?? "";
+}
+
+/**
+ * Unified local chat: Gemini Nano first, WebLLM fallback.
+ * Returns { text, provider } where provider is "nan?" | "webllm" | null.
+ */
+export async function localChat(prompt, options = {}) {
+  if (await isAvailable()) {
+    try {
+      const text = await generate(prompt, options);
+      return { text, provider: "nano" };
+    } catch { /* fall through to webllm */ }
+  }
+  if (await webllmAvailable()) {
+    try {
+      const text = await chatWebLlm(prompt, options);
+      return { text, provider: "webllm" };
+    } catch { /* fall through */ }
+  }
+  return { text: "", provider: null };
+}
