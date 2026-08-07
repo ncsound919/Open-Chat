@@ -22,7 +22,7 @@ function speak(text) {
     u.onerror = () => resolve();
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
-    setTimeout(resolve, Math.min(30000, 5000 + text.length * 40)); // safety timeout
+    setTimeout(resolve, Math.min(30000, 5000 + text.length * 40));
   });
 }
 
@@ -68,14 +68,13 @@ export function useVoiceCall({ systemPrompt } = {}) {
       rec.onerror = () => finish("");
       rec.onend = () => finish("");
       rec.start();
-      setTimeout(() => finish(""), 15000); // stop listening after 15s silence
+      setTimeout(() => finish(""), 15000);
     });
 
     if (!activeRef.current) return;
     setListening(false);
     setLastTranscript(transcript);
     if (!transcript.trim()) {
-      // Nothing heard — brief prompt to continue, then keep the loop alive.
       if (!mutedRef.current) await speak("I'm listening.");
       return;
     }
@@ -98,7 +97,7 @@ export function useVoiceCall({ systemPrompt } = {}) {
       while (activeRef.current && loopRef.current) {
         setListening(true);
         await runOnce();
-        await new Promise((r) => setTimeout(r, 400)); // pause between turns
+        await new Promise((r) => setTimeout(r, 400));
       }
     })();
   }, [runOnce]);

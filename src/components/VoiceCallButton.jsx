@@ -1,9 +1,8 @@
 import { useState, useEffect, Suspense, lazy } from "react";
 import PropTypes from "prop-types";
 
-// Lazily loaded so Chat.jsx's module graph never pulls in the voice/model code
-// (keeps the main bundle + tests clean). Only mounts once an on-device model
-// is available.
+// Lazily loaded so Chat.jsx's module graph never pulls in the voice/model code.
+// Only mounts once an on-device model is available.
 const VoiceCallControl = lazy(() =>
   import("./VoiceCallControl.jsx").then((m) => ({ default: m.VoiceCallControl })),
 );

@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { MessageBubble } from "./MessageBubble.jsx";
 import { VoiceCallButton } from "./VoiceCallButton.jsx";
@@ -527,7 +527,7 @@ export function Chat({
               <MicIcon />
             </button>
           )}
-          <VoiceCallButton botConfig={bot} />
+          {bot.voiceCallEnabled === true && <VoiceCallButton botConfig={bot} />}
           {onToggleSpeak && (
             <button
               type="button"
