@@ -304,6 +304,19 @@ export default function App() {
           actions: Array.isArray(parsed.actions) ? parsed.actions : [],
         });
 
+        // Auto-speak Draymond phase recaps (evening recap → spoken on the
+        // phone) for bots that have voice-calling enabled. Recaps arrive via
+        // ntfy with a "recap" tag from Draymond's communicator.
+        const isRecap =
+          (Array.isArray(parsed.tags) && parsed.tags.includes("recap")) ||
+          /recap/i.test(parsed.title || parsed.message || "");
+        if (isRecap && bot.voiceCallEnabled === true && ("speechSynthesis" in window)) {
+          const text = [parsed.title, parsed.message].filter(Boolean).join(" — ");
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          window.speechSynthesis.speak(u);
+        }
+
         // Fire a native notification so approval requests alert the phone
         // even when the app is backgrounded (ntfy handles web/Electron).
         const hasActions = Array.isArray(parsed.actions) && parsed.actions.length > 0;

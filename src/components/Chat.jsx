@@ -76,6 +76,7 @@ export function Chat({
   pinned = false,
   onTogglePin = null,
   onCopyLastReply = null,
+  draymondUrl = "",
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showChainStrip, setShowChainStrip] = useState(false);
@@ -527,7 +528,9 @@ export function Chat({
               <MicIcon />
             </button>
           )}
-          {bot.voiceCallEnabled === true && <VoiceCallButton botConfig={bot} />}
+          {bot.voiceCallEnabled === true && (
+            <VoiceCallButton botConfig={bot} draymondUrl={bot.draymondUrl || draymondUrl} chatSend={onSend} />
+          )}
           {onToggleSpeak && (
             <button
               type="button"

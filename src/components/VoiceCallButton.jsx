@@ -7,16 +7,17 @@ const VoiceCallControl = lazy(() =>
   import("./VoiceCallControl.jsx").then((m) => ({ default: m.VoiceCallControl })),
 );
 
-export function VoiceCallButton({ botConfig }) {
+export function VoiceCallButton({ botConfig, draymondUrl, chatSend }) {
   const [modelReady, setModelReady] = useState(false);
 
   useEffect(() => {
     let mounted = true;
     Promise.all([
-      import("../utils/OnDeviceAI.js").then((m) => m.webllmAvailable()),
       import("../utils/OnDeviceAI.js").then((m) => m.isAvailable()),
+      import("../utils/OnDeviceAI.js").then((m) => m.webllmAvailable()),
+      import("../utils/OnDeviceAI.js").then((m) => m.ggufAvailable()),
     ])
-      .then(([w, n]) => { if (mounted) setModelReady(w || n); })
+      .then(([nano, wl, gg]) => { if (mounted) setModelReady(nano || wl || gg); })
       .catch(() => { if (mounted) setModelReady(false); });
     return () => { mounted = false; };
   }, []);
@@ -25,11 +26,13 @@ export function VoiceCallButton({ botConfig }) {
 
   return (
     <Suspense fallback={null}>
-      <VoiceCallControl botConfig={botConfig} />
+      <VoiceCallControl botConfig={botConfig} draymondUrl={draymondUrl} chatSend={chatSend} />
     </Suspense>
   );
 }
 
 VoiceCallButton.propTypes = {
-  botConfig: PropTypes.shape({ name: PropTypes.string }),
+  botConfig: PropTypes.shape({ name: PropTypes.string, voiceCallEnabled: PropTypes.bool }),
+  draymondUrl: PropTypes.string,
+  chatSend: PropTypes.func,
 };

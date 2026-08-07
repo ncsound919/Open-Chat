@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { localChat } from "../utils/OnDeviceAI.js";
+import { localChatWithTools, isAvailable, webllmAvailable, ggufAvailable } from "../utils/OnDeviceAI.js";
+import { skillList, runSkill } from "../utils/skillRegistry.js";
 
 /**
  * Hands-free voice call — listen → local model → speak, in a loop.
- * Fully on-device when the local model is loaded (no server needed).
+ * The on-device model can call phone skills (open apps, read notifications)
+ * and read the Draymond phase recap aloud.
  *
- * STT: Web Speech API (SpeechRecognition) · Model: OnDeviceAI.localChat ·
- * TTS: speechSynthesis.
+ * STT: Web Speech API · Model: OnDeviceAI (Nano/WebLLM/GGUF) · TTS: speechSynthesis.
  */
 
 function getRecognition() {
@@ -26,7 +27,7 @@ function speak(text) {
   });
 }
 
-export function useVoiceCall({ systemPrompt } = {}) {
+export function useVoiceCall({ systemPrompt, draymondUrl, chatSend } = {}) {
   const [calling, setCalling] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -34,6 +35,8 @@ export function useVoiceCall({ systemPrompt } = {}) {
   const [lastReply, setLastReply] = useState("");
   const [provider, setProvider] = useState("");
   const [error, setError] = useState(null);
+  const [recapText, setRecapText] = useState("");
+  const [modelKind, setModelKind] = useState("");
 
   const activeRef = useRef(false);
   const loopRef = useRef(false);
@@ -47,6 +50,42 @@ export function useVoiceCall({ systemPrompt } = {}) {
     setListening(false);
     setSpeaking(false);
   }, []);
+
+  // Detect which on-device model is usable (Nano / WebLLM / GGUF).
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([isAvailable(), webllmAvailable(), ggufAvailable()])
+      .then(([nano, wl, gg]) => {
+        if (mounted) setModelKind(nano ? "nano" : wl ? "webllm" : gg ? "gguf" : "none");
+      })
+      .catch(() => { if (mounted) setModelKind("none"); });
+    return () => { mounted = false; };
+  }, []);
+
+  const speakRecap = useCallback(async (phase = "evening") => {
+    if (!draymondUrl) {
+      const msg = "Draymond not configured; no recap available.";
+      setRecapText(msg);
+      if (!mutedRef.current) await speak(msg);
+      return { ok: false, detail: msg };
+    }
+    try {
+      const res = await fetch(`${draymondUrl}/api/ops/communicator?phase=${phase}`, {
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!res.ok) throw new Error(`recap HTTP ${res.status}`);
+      const data = await res.json();
+      const text = data?.recap?.summary || data?.markdown?.slice(0, 500) || "No recap available.";
+      setRecapText(text);
+      if (!mutedRef.current) await speak(text);
+      return { ok: true, text };
+    } catch (err) {
+      const msg = `Recap unavailable: ${err.message}`;
+      setRecapText(msg);
+      setError(msg);
+      return { ok: false, detail: msg };
+    }
+  }, [draymondUrl, mutedRef]);
 
   const runOnce = useCallback(async () => {
     if (!activeRef.current) return;
@@ -80,12 +119,23 @@ export function useVoiceCall({ systemPrompt } = {}) {
     }
 
     setSpeaking(true);
-    const reply = await localChat(transcript, { systemPrompt });
+    // On-device chat WITH phone skills (read recap, open apps, reminders, send).
+    const reply = await localChatWithTools(transcript, {
+      systemPrompt,
+      tools: skillList(),
+      toolHandler: (name, args) => runSkill(name, args, {
+        draymondUrl,
+        onSend: chatSend,
+        onSpeak: async (text) => { if (!mutedRef.current) await speak(text); },
+      }),
+      forceGguf: modelKind === "gguf",
+    });
     setProvider(reply.provider || "none");
-    setLastReply(reply.text);
+    const toolNote = reply.toolCalls?.length ? ` (${reply.toolCalls.map((t) => t.name).join(", ")})` : "";
+    setLastReply((reply.text || "") + toolNote);
     if (!mutedRef.current && reply.text) await speak(reply.text);
     setSpeaking(false);
-  }, [systemPrompt]);
+  }, [systemPrompt, modelKind, chatSend, draymondUrl]);
 
   const start = useCallback(() => {
     if (activeRef.current) return;
@@ -106,6 +156,7 @@ export function useVoiceCall({ systemPrompt } = {}) {
 
   return {
     calling, listening, speaking, lastTranscript, lastReply, provider, error,
+    recapText, modelKind, speakRecap,
     start, stop, mute: () => { mutedRef.current = true; window.speechSynthesis?.cancel?.(); },
     unmute: () => { mutedRef.current = false; },
   };

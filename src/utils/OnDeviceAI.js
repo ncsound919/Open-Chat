@@ -254,3 +254,143 @@ export async function localChat(prompt, options = {}) {
   }
   return { text: "", provider: null };
 }
+
+/**
+ * ── GGUF provider (Gemma 3 4B on-device, tool-calling + skills) ────────────
+ * Runs GGUF models NATIVELY on the phone — NOT via CDN llama-cpp-wasm (WASM
+ * has no GPU/NPU access and is far too slow for a 4B model in a WebView).
+ * Provider chain:
+ *   1. Native llama.cpp Capacitor bridge (`@capacitor/llama`, JNI + Vulkan)
+ *   2. Google MediaPipe LLM Inference API (`@capacitor/mediapipe`, .task bundle)
+ *   3. Desktop fallback: WebGPU WASM (dev only)
+ * Tool calling uses Gemma 3's structured chat-template format (a JSON tool
+ * call turn → execute → tool result turn → final answer).
+ */
+
+const GGUF_MODELS = {
+  "gemma3-4b": "gemma-3-4b-it-Q4_K_M.gguf",
+  "gemma3-1b": "gemma-3-1b-it-Q4_K_M.gguf",
+};
+
+let _gguf = null; // { runtime, session, modelKey }
+
+/** Dynamic import by VARIABLE specifier so Vite can't statically resolve it. */
+async function nativeModule(name) {
+  try {
+    return await import(name);
+  } catch {
+    return null;
+  }
+}
+
+async function loadGgufRuntime() {
+  // 1) Native llama.cpp bridge (real GGUF + Vulkan) on the phone.
+  const llama = await nativeModule("@capacitor/llama");
+  if (llama?.LLaMA) return { runtime: "native-llama", api: llama.LLaMA };
+  // 2) MediaPipe LLM Inference (GPU-accelerated, official Gemma, .task bundle).
+  const mp = await nativeModule("@capacitor/mediapipe");
+  if (mp?.LLM) return { runtime: "mediapipe", api: mp.LLM };
+  // 3) Desktop dev fallback only — WebGPU WASM.
+  const mod = await import(/* @vite-ignore */ "https://unpkg.com/@mlc-ai/llama-cpp-wasm");
+  return { runtime: "wasm-dev", api: mod };
+}
+
+export async function ggufAvailable() {
+  try {
+    await loadGgufRuntime();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Load a GGUF model (default Gemma 3 4B). Returns { runtime, api }. */
+export async function initGguf(modelKey = "gemma3-4b", onProgress) {
+  const ggufName = GGUF_MODELS[modelKey] ?? GGUF_MODELS["gemma3-1b"];
+  if (_gguf?.modelKey === modelKey) return _gguf;
+  const { runtime, api } = await loadGgufRuntime();
+  let session;
+  if (runtime === "native-llama") {
+    session = await api.loadModel({ modelFileName: ggufName, contextSize: 4096, gpu: "vulkan" });
+  } else if (runtime === "mediapipe") {
+    const asset = await api.loadModelFromAssets(ggufName.replace(/\.gguf$/, ".task"));
+    session = { runtime: "mediapipe", asset };
+  } else {
+    session = await api.createSession({
+      modelFilePath: `https://huggingface.co/bartowski/gemma-3-4b-it-GGUF/resolve/main/${ggufName}`,
+      contextSize: 4096,
+      onLoadingProgress: (p) => { if (typeof onProgress === "function") onProgress(`gguf ${Math.round(p * 100)}%`); },
+    });
+  }
+  _gguf = { modelKey, runtime, api, session };
+  return _gguf;
+}
+
+/**
+ * GGUF chat with STRUCTURED tool calling (Gemma chat-template JSON tool-call
+ * turns). Loop: model returns a JSON tool call → execute → feed the result
+ * back as a tool turn → model returns the final answer.
+ * Returns { text, provider, toolCalls }.
+ */
+export async function chatGguf(prompt, options = {}) {
+  const { systemPrompt, tools, toolHandler, modelKey, maxRounds = 4 } = options;
+  const { runtime, api, session } = await initGguf(modelKey);
+  const toolSchema = Array.isArray(tools) && tools.length
+    ? `You can call tools. Available tools:\n${JSON.stringify(tools)}\n` +
+      `When you need a tool, respond with ONLY a JSON object: {"tool":"<name>","args":{...}}. ` +
+      `You will receive the result as the next user turn.`
+    : "";
+  const messages = [];
+  if (systemPrompt) messages.push({ role: "system", content: `${systemPrompt}\n${toolSchema}` });
+  messages.push({ role: "user", content: prompt });
+
+  const complete = async (turns) => {
+    const transcript = turns.map((m) => `${m.role}: ${m.content}`).join("\n");
+    if (runtime === "native-llama") return api.chat(session, turns);
+    if (runtime === "mediapipe") return api.generateResponse(transcript);
+    return session.prompt(transcript);
+  };
+
+  const toolCalls = [];
+  for (let round = 0; round < maxRounds; round++) {
+    const reply = String(await complete(messages)).trim();
+    const toolCall = parseGemmaToolCall(reply);
+    if (toolCall && typeof toolHandler === "function") {
+      const result = await toolHandler(toolCall.name, toolCall.args);
+      toolCalls.push({ ...toolCall, result });
+      messages.push({ role: "assistant", content: reply });
+      messages.push({ role: "user", content: `Tool result: ${JSON.stringify(result)}` });
+      continue;
+    }
+    return { text: reply, provider: runtime, toolCalls };
+  }
+  return { text: "", provider: runtime, toolCalls };
+}
+
+/** Parse a Gemma-style JSON tool call: {"tool":"name","args":{...}} */
+function parseGemmaToolCall(reply) {
+  const match = reply.match(/\{\s*"tool"\s*:\s*"([^"]+)"[\s\S]*?\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    if (parsed && typeof parsed.tool === "string") {
+      return { name: parsed.tool, args: parsed.args ?? {} };
+    }
+  } catch { /* not valid JSON — treat as plain answer */ }
+  return null;
+}
+
+/** Unified local chat with tool support: Nano / WebLLM / GGUF. */
+export async function localChatWithTools(prompt, options = {}) {
+  if (options.forceGguf) return chatGguf(prompt, options);
+  if (await isAvailable()) {
+    try { return { text: await generate(prompt, options), provider: "nano", toolCalls: [] }; }
+    catch { /* fall through */ }
+  }
+  if (await webllmAvailable()) {
+    try { return { text: await chatWebLlm(prompt, options), provider: "webllm", toolCalls: [] }; }
+    catch { /* fall through */ }
+  }
+  if (await ggufAvailable()) return chatGguf(prompt, options);
+  return { text: "", provider: null, toolCalls: [] };
+}
