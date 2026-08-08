@@ -1,0 +1,209 @@
+/**
+ * phoneTools — the tool surface the on-device Gemma agent uses to control
+ * other phone apps. Each tool maps to a method on the native PhoneControl
+ * accessibility plugin. The model is instructed to emit JSON tool calls;
+ * execPhoneTool() runs them and returns a serializable result.
+ */
+
+import { loadPhoneControl } from "./modelRegistry.js";
+
+/** Canonical tool schemas exposed to the model. */
+export const PHONE_TOOLS = [
+  {
+    name: "get_foreground",
+    description:
+      "Return the package and activity of the app currently in the foreground. Use this before acting to know where you are.",
+    parameters: {},
+  },
+  {
+    name: "read_screen",
+    description:
+      "Read the current screen and return its interactive elements (text, buttons, coordinates). Use this to understand the UI before tapping or typing.",
+    parameters: {},
+  },
+  {
+    name: "open_app",
+    description:
+      "Open a specific app by its Android package name (e.g. com.whatsapp, com.google.android.apps.maps).",
+    parameters: { package_name: { type: "string", description: "Android package name to launch" } },
+  },
+  {
+    name: "tap",
+    description:
+      "Tap an element. Provide `text` to tap the element whose visible text/description matches, or `x` and `y` for an exact coordinate.",
+    parameters: {
+      text: { type: "string", description: "Visible text (or content-desc) of the element to tap (optional)" },
+      x: { type: "number", description: "Absolute x screen coordinate (optional if text given)" },
+      y: { type: "number", description: "Absolute y screen coordinate (optional if text given)" },
+    },
+  },
+  {
+    name: "type",
+    description:
+      "Type text into the currently focused/editable field. Use only after the field is visible on screen.",
+    parameters: { text: { type: "string", description: "Text to type" } },
+  },
+  {
+    name: "press",
+    description: "Press a system key or navigate.",
+    parameters: {
+      key: {
+        type: "string",
+        enum: ["back", "home", "recents", "notifications", "quick_settings"],
+        description: "Which global action to perform",
+      },
+    },
+  },
+  {
+    name: "swipe",
+    description: "Swipe from one point to another on screen (e.g. scroll or dismiss).",
+    parameters: {
+      from_x: { type: "number", description: "Start x" },
+      from_y: { type: "number", description: "Start y" },
+      to_x: { type: "number", description: "End x" },
+      to_y: { type: "number", description: "End y" },
+      duration: { type: "number", description: "Duration in ms (default 300)" },
+    },
+  },
+  {
+    name: "capture_screenshot",
+    description:
+      "Capture a screenshot of the current screen and return a reference to the image file.",
+    parameters: {},
+  },
+];
+
+const TOOL_NAMES = new Set(PHONE_TOOLS.map((t) => t.name));
+
+/** True if the name is one of the phone-control tools. */
+export function isPhoneTool(name) {
+  return TOOL_NAMES.has(name);
+}
+
+/**
+ * Find a clickable node on the current screen whose text or content-desc
+ * contains the query (case-insensitive). Returns its center coordinates.
+ */
+async function findNodeByText(phone, text) {
+  const screen = await phone.readScreen();
+  const nodes = screen?.nodes ?? [];
+  const query = String(text ?? "").trim().toLowerCase();
+  if (!query) return null;
+  const best = nodes
+    .filter((n) => (n.text || n.desc || "").toLowerCase().includes(query))
+    .sort((a, b) => (b.clickable === true ? 1 : 0) - (a.clickable === true ? 1 : 0))
+    [0];
+  if (!best) return null;
+  return { x: Math.round(best.x + best.w / 2), y: Math.round(best.y + best.h / 2) };
+}
+
+/**
+ * Execute one phone tool call.
+ * @param {string} name - tool name
+ * @param {object} args - tool args
+ * @param {object} [opts]
+ * @param {object} [opts.phoneControl] - preloaded plugin instance
+ * @returns {Promise<object>} serializable result
+ */
+export async function execPhoneTool(name, args = {}, opts = {}) {
+  const phone = opts.phoneControl ?? (await loadPhoneControl());
+  if (!phone) {
+    return { ok: false, error: "PhoneControl plugin unavailable" };
+  }
+  const status = await phone.getStatus().catch(() => ({ enabled: false }));
+  if (!status?.enabled) {
+    return {
+      ok: false,
+      error:
+        "Accessibility service is not enabled. Ask the user to enable 'Open Chat' in System Settings > Accessibility, then try again.",
+      needs_enablement: true,
+    };
+  }
+
+  switch (name) {
+    case "get_foreground": {
+      const fg = await phone.getForegroundApp();
+      return { ok: true, foreground_package: fg?.packageName ?? "", foreground_activity: fg?.className ?? "" };
+    }
+    case "read_screen": {
+      const screen = await phone.readScreen();
+      // Trim to the essentials so we don't blow the model context.
+      const nodes = (screen?.nodes ?? [])
+        .map((n) => ({
+          text: n.text || n.desc || "",
+          clickable: n.clickable === true,
+          editable: n.editable === true,
+          x: n.x,
+          y: n.y,
+          w: n.w,
+          h: n.h,
+        }))
+        .filter((n) => n.text)
+        .slice(0, 120);
+      return { ok: true, foreground_package: screen?.foregroundPackage ?? "", elements: nodes };
+    }
+    case "open_app": {
+      const pkg = String(args.package_name ?? "");
+      if (!pkg) return { ok: false, error: "package_name required" };
+      const res = await phone.openApp({ packageName: pkg });
+      return { ok: res?.ok === true, app: pkg };
+    }
+    case "tap": {
+      let target = null;
+      if (args.text) target = await findNodeByText(phone, args.text);
+      if (!target && args.x != null && args.y != null) {
+        target = { x: Math.round(Number(args.x)), y: Math.round(Number(args.y)) };
+      }
+      if (!target) {
+        return { ok: false, error: `Could not find element "${args.text ?? "(coordinates)"}" on screen` };
+      }
+      const res = await phone.performTap({ x: target.x, y: target.y });
+      return { ok: res?.ok === true, tapped: target };
+    }
+    case "type": {
+      const text = String(args.text ?? "");
+      if (!text) return { ok: false, error: "text required" };
+      const res = await phone.inputText({ text });
+      return { ok: res?.ok === true, typed: text.slice(0, 200) };
+    }
+    case "press": {
+      const key = String(args.key ?? "back");
+      const valid = ["back", "home", "recents", "notifications", "quick_settings"];
+      if (!valid.includes(key)) return { ok: false, error: `unknown key: ${key}` };
+      const res = await phone.performGlobalAction({ action: key === "quick_settings" ? "quickSettings" : key });
+      return { ok: res?.ok === true, action: key };
+    }
+    case "swipe": {
+      const res = await phone.swipe({
+        fromX: Math.round(Number(args.from_x ?? 0)),
+        fromY: Math.round(Number(args.from_y ?? 0)),
+        toX: Math.round(Number(args.to_x ?? 0)),
+        toY: Math.round(Number(args.to_y ?? 0)),
+        duration: Math.round(Number(args.duration ?? 300)),
+      });
+      return { ok: res?.ok === true };
+    }
+    case "capture_screenshot": {
+      if (typeof phone.screenshot !== "function") {
+        return { ok: false, error: "capture_screenshot requires native screenshot support" };
+      }
+      try {
+        const res = await phone.screenshot();
+        if (res?.ok === false) {
+          return { ok: false, error: res.error || "screenshot failed" };
+        }
+        const field = ["data", "uri", "path", "fileUri"].find(
+          (k) => typeof res?.[k] === "string" && res[k].length > 0
+        );
+        if (!field) {
+          return { ok: false, error: "screenshot returned no data" };
+        }
+        return { ok: true, screenshot: res[field], mime: "image/png", source: field };
+      } catch (err) {
+        return { ok: false, error: err?.message ?? "screenshot failed" };
+      }
+    }
+    default:
+      return { ok: false, error: `unknown phone tool: ${name}` };
+  }
+}
