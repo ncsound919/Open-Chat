@@ -70,6 +70,7 @@ export class LocalSkillLibrary {
     // Store impls may not support listing; try store.keys() when present.
     if (typeof this.store.keys === "function") {
       const keys = await this.store.keys();
+      if (!Array.isArray(keys)) return [];
       return keys.filter((k) => k.startsWith(PACK_PREFIX)).map((k) => k.slice(PACK_PREFIX.length));
     }
     return [];
