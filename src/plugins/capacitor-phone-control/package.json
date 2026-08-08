@@ -1,0 +1,25 @@
+{
+  "name": "@open-chat/phone-control",
+  "version": "1.0.0",
+  "description": "Open-Chat native Android phone-control plugin: AccessibilityService screen reading and input injection for on-device agent tool calling.",
+  "type": "module",
+  "main": "web/index.js",
+  "module": "web/index.js",
+  "types": "web/index.d.ts",
+  "files": [
+    "android",
+    "web"
+  ],
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "accessibility",
+    "android",
+    "automation"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}

@@ -125,9 +125,9 @@ export const DEFAULT_BOTS = [
   {
     id: "draymond",
     name: "Draymond",
-    avatar: "🎛️",
     color: "#22d3ee",
-    tagline: "Orchestrator · Multi-agent",
+    avatarUrl: "/avatars/draymond-orchestrator.png",
+    tagline: "Orchestrator — Multi-agent",
     protocol: "draymond",
     // Dev override (gitignored .env.local) so USB-debug builds can reach the
     // local Draymond via `adb reverse tcp:3444`; defaults to the cloud URL.
@@ -138,6 +138,20 @@ export const DEFAULT_BOTS = [
     voiceEnabled: true,
     voiceBackend: "draymond",
     aetherdeskApiKey: "",
+  },
+  {
+    id: "local",
+    name: "Private Local",
+    avatar: "🔒",
+    color: "#34d399",
+    tagline: "On-device · Gemma",
+    protocol: "local",
+    host: "",
+    port: 0,
+    token: "",
+    model: "auto",
+    phoneToolsEnabled: true,
+    voiceCallEnabled: false,
   },
 ];
 
@@ -223,6 +237,12 @@ export function loadBots() {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       console.warn("[OpenChat] Bot config corrupted — resetting to defaults.");
       return DEFAULT_BOTS;
+    }
+    // Ensure the Private Local bot exists even if it was added to DEFAULT_BOTS
+    // after this config was first persisted.
+    if (!parsed.some((b) => b.id === "local")) {
+      const localDefault = DEFAULT_BOTS.find((b) => b.id === "local");
+      if (localDefault) parsed.push(localDefault);
     }
     return parsed;
   } catch {

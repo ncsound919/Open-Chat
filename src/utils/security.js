@@ -53,15 +53,29 @@ export function isSafeUrl(url) {
   }
 }
 
+/** True when running on Android */
+const PRIVATE_IP_RE =
+  /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+
+/**
+ * True when `host` is a private LAN IP (10.x, 172.16-31.x, 192.168.x) that
+ * agents on the same network are served from over plain HTTP.
+ */
+export function isPrivateIp(host) {
+  if (!host || typeof host !== "string") return false;
+  return PRIVATE_IP_RE.test(host.trim());
+}
+
 /**
  * Build a base endpoint URL for an agent server, preferring secure schemes
  * for any host that is not local. This prevents bearer tokens from being
  * sent in cleartext over the network to remote/LAN hosts.
  *
  * Supports three forms:
- *   1. Full URL      — "https://tunnel.example.com" → used as-is
- *   2. Local host    — "127.0.0.1" + port          → http:///ws://host:port
- *   3. Remote host   — "agents.example.com" + port → https:///wss://host[:port]
+ *   1. Full URL      — "https://tunnel.example.com" — used as-is
+ *   2. Local host    — "127.0.0.1" + port          — http:///ws://host:port
+ *   3. Private IP    — "192.168.1.50" + port       — http://host:port (LAN)
+ *   4. Remote host   — "agents.example.com" + port — https:///wss://host[:port]
  *
  * @param {string} host
  * @param {string|number} [port]
@@ -76,7 +90,7 @@ export function resolveEndpoint(host, port, kind = "http") {
   if (/^https?:\/\//i.test(trimmed)) {
     return trimmed.replace(/\/$/, "");
   }
-  if (isLocalhost(trimmed)) {
+  if (isLocalhost(trimmed) || isPrivateIp(trimmed)) {
     const p = port ? `:${port}` : "";
     return `${insecure}://${trimmed}${p}`;
   }

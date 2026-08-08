@@ -166,6 +166,7 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
+      data-testid={isUser ? "msg-user" : "msg-bot"}
       style={{
         display: "flex",
         flexDirection: "column",

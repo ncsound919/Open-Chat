@@ -80,6 +80,40 @@ vi.mock("./protocols/NtfyClient.js", () => ({
     this.executeAction = vi.fn();
   }),
 }));
+vi.mock("./protocols/LocalModelClient.js", () => ({
+  LocalModelClient: vi.fn(function () {
+    this.status = "no-model";
+    this.connect = vi.fn(async () => {});
+    this.disconnect = vi.fn();
+    this.send = vi.fn(async () => "ok");
+  }),
+}));
+vi.mock("@open-chat/mediapipe-gemma", () => ({
+  default: {
+    getStatus: vi.fn(async () => ({ available: true, modelLoaded: false })),
+    listModels: vi.fn(async () => ({ models: [] })),
+    downloadModel: vi.fn(),
+    loadModel: vi.fn(),
+    generate: vi.fn(),
+    cancel: vi.fn(),
+    unloadModel: vi.fn(),
+    deleteModel: vi.fn(),
+  },
+}));
+vi.mock("@open-chat/phone-control", () => ({
+  default: {
+    getStatus: vi.fn(async () => ({ enabled: false, available: true })),
+    openAccessibilitySettings: vi.fn(),
+    getForegroundApp: vi.fn(),
+    readScreen: vi.fn(async () => ({ nodes: [] })),
+    performTap: vi.fn(),
+    inputText: vi.fn(),
+    performGlobalAction: vi.fn(),
+    openApp: vi.fn(),
+    swipe: vi.fn(),
+    screenshot: vi.fn(),
+  },
+}));
 vi.mock("./hooks/useVoice.js", () => ({
   useVoice: vi.fn(() => ({
     micActive: false,

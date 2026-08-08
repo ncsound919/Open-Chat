@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+﻿import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Inbox } from "./components/Inbox.jsx";
 import { AgentsScreen } from "./components/AgentsScreen.jsx";
 import { ModelsScreen } from "./components/ModelsScreen.jsx";
@@ -111,10 +111,10 @@ export default function App() {
   const [localSkillKeys] = useState([]);
 
   // Refs
-  const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
-  const orchestratorRefs = useRef({}); // botId → DraymondOrchestratorClient
-  const ntfyRefs = useRef({}); // botId → NtfyClient
-  const localRefs = useRef({}); // botId → LocalModelClient
+  const clawRefs = useRef({}); // botId â†’ OpenClawClient | UpliftBridgeClient
+  const orchestratorRefs = useRef({}); // botId â†’ DraymondOrchestratorClient
+  const ntfyRefs = useRef({}); // botId â†’ NtfyClient
+  const localRefs = useRef({}); // botId â†’ LocalModelClient
   const seenNtfyIds = useRef(new Set()); // ntfy message ids already rendered
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
@@ -153,7 +153,7 @@ export default function App() {
       : null
   );
 
-  // ── Persist state to localStorage ──────────────────────────────────────────
+  // â”€â”€ Persist state to localStorage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     saveHist(history);
   }, [history]);
@@ -186,12 +186,12 @@ export default function App() {
     saveSchedules(schedules);
   }, [schedules]);
 
-  // ── Status management ───────────────────────────────────────────────────────
+  // â”€â”€ Status management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const setStatus = useCallback((id, status) => {
     setStatuses((prev) => ({ ...prev, [id]: status }));
   }, []);
 
-  // ── OpenClaw connection ─────────────────────────────────────────────────────
+  // â”€â”€ OpenClaw connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectClaw = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -215,7 +215,7 @@ export default function App() {
     [setStatus]
   );
 
-  // ── Uplift Bridge connection ────────────────────────────────────────────────
+  // â”€â”€ Uplift Bridge connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectUpliftBridge = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -247,7 +247,7 @@ export default function App() {
     [setStatus]
   );
 
-  // ── Draymond Orchestrator connection ────────────────────────────────────────
+  // â”€â”€ Draymond Orchestrator connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectDraymond = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -283,7 +283,7 @@ export default function App() {
               b.agentRef === agentId
                 ? {
                     ...b,
-                    tagline: `Agent · ${agent.status ?? "unknown"}`,
+                    tagline: `Agent Â· ${agent.status ?? "unknown"}`,
                     avatarUrl: agent.avatarUrl || b.avatarUrl || `/avatars/${agentId}.png`,
                     avatar: "",
                   }
@@ -296,7 +296,7 @@ export default function App() {
             avatar: "",
             avatarUrl: agent.avatarUrl || `/avatars/${agentId}.png`,
             color: "#22d3ee",
-            tagline: `Agent · ${agent.status ?? "unknown"}`,
+            tagline: `Agent Â· ${agent.status ?? "unknown"}`,
             protocol: "draymond",
             host: bot.host,
             port: bot.port,
@@ -343,7 +343,7 @@ export default function App() {
     [setStatus]
   );
 
-  // ── ntfy subscription connection ────────────────────────────────────────────
+  // â”€â”€ ntfy subscription connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectNtfy = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -355,7 +355,7 @@ export default function App() {
       const client = new NtfyClient(bot.host, bot.port, bot.token, bot.topic);
       client.onStatusChange = (status) => setStatus(bot.id, status);
       client.onMessage = (parsed) => {
-        // Dedupe by ntfy message id (belt-and-suspenders — the stream
+        // Dedupe by ntfy message id (belt-and-suspenders â€” the stream
         // can redeliver on reconnect).
         if (seenNtfyIds.current.has(parsed.id)) return;
         seenNtfyIds.current.add(parsed.id);
@@ -373,14 +373,14 @@ export default function App() {
           actions: Array.isArray(parsed.actions) ? parsed.actions : [],
         });
 
-        // Auto-speak Draymond phase recaps (evening recap → spoken on the
+        // Auto-speak Draymond phase recaps (evening recap â†’ spoken on the
         // phone) for bots that have voice-calling enabled. Recaps arrive via
         // ntfy with a "recap" tag from Draymond's communicator.
         const isRecap =
           (Array.isArray(parsed.tags) && parsed.tags.includes("recap")) ||
           /recap/i.test(parsed.title || parsed.message || "");
         if (isRecap && bot.voiceCallEnabled === true && ("speechSynthesis" in window)) {
-          const text = [parsed.title, parsed.message].filter(Boolean).join(" — ");
+          const text = [parsed.title, parsed.message].filter(Boolean).join(" â€” ");
           window.speechSynthesis.cancel();
           const u = new SpeechSynthesisUtterance(text);
           window.speechSynthesis.speak(u);
@@ -408,7 +408,7 @@ export default function App() {
     [setStatus]
   );
 
-  // ── Local on-device chat connection ─────────────────────────────────────────
+  // â”€â”€ Local on-device chat connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const connectLocal = useCallback(
     async (bot) => {
       if (localRefs.current[bot.id]) {
@@ -448,14 +448,14 @@ export default function App() {
     [setStatus]
   );
 
-  // ── Execute an ntfy action button (e.g. Draymond approve/reject) ───────────
+  // â”€â”€ Execute an ntfy action button (e.g. Draymond approve/reject) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleNtfyAction = useCallback(async (botId, action) => {
     const client = ntfyRefs.current[botId];
     if (!client) return { ok: false, error: "ntfy not connected" };
     return client.executeAction(action);
   }, []);
 
-  // ── Auto-connect bots on mount and when bots list changes ──────────────────
+  // â”€â”€ Auto-connect bots on mount and when bots list changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     // Connect OpenClaw bots
     bots
@@ -528,10 +528,10 @@ export default function App() {
     }
   }, [bots, connectClaw, connectUpliftBridge, connectDraymond, connectNtfy, connectLocal, setStatus]);
 
-  // ── Disconnect all clients on unmount ───────────────────────────────────────
+  // â”€â”€ Disconnect all clients on unmount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     return () => {
-      // Empty deps [] is intentional — this cleanup runs only when the component
+      // Empty deps [] is intentional â€” this cleanup runs only when the component
       // unmounts. clawRefs.current is read at that point to reach every client
       // registered during the component's lifetime, including those added after mount.
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -547,7 +547,7 @@ export default function App() {
     };
   }, []);
 
-  // ── Android hardware back button ───────────────────────────────────────────
+  // â”€â”€ Android hardware back button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!isNative) return;
 
@@ -557,19 +557,19 @@ export default function App() {
       try {
         const { App: CapApp } = await import("@capacitor/app");
         const handle = await CapApp.addListener("backButton", () => {
-          // Navigate: Settings → Chat/Inbox, Chat → Inbox
+          // Navigate: Settings â†’ Chat/Inbox, Chat â†’ Inbox
           if (showCfg) {
             setCfgBot(null);
             setShowCfg(false);
           } else if (activeId) {
             setActiveId(null);
           }
-          // At inbox level — do nothing (Capacitor default would minimize)
+          // At inbox level â€” do nothing (Capacitor default would minimize)
         });
         removeListener = handle.remove;
         if (cancelled) removeListener();
       } catch {
-        // Plugin not available — ignore
+        // Plugin not available â€” ignore
       }
     })();
 
@@ -579,7 +579,7 @@ export default function App() {
     };
   }, [showCfg, activeId]);
 
-  // ── Network change detection (native) ──────────────────────────────────────
+  // â”€â”€ Network change detection (native) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!isNative) return;
 
@@ -589,7 +589,7 @@ export default function App() {
         const { Network } = await import("@capacitor/network");
         const handle = await Network.addListener("networkStatusChange", (status) => {
           if (status.connected) {
-            console.log("[OpenChat] Network restored — flushing offline queues");
+            console.log("[OpenChat] Network restored â€” flushing offline queues");
             // Flush offline queues for all Draymond clients
             Object.values(orchestratorRefs.current).forEach((client) => {
               if (client.flushOfflineQueue) client.flushOfflineQueue();
@@ -598,7 +598,7 @@ export default function App() {
         });
         removeListener = handle.remove;
       } catch {
-        // Plugin not available — ignore
+        // Plugin not available â€” ignore
       }
     })();
 
@@ -607,7 +607,7 @@ export default function App() {
     };
   }, []);
 
-  // ── Message management ──────────────────────────────────────────────────────
+  // â”€â”€ Message management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function addMessage(botId, msg) {
     setHistory((prev) => ({
       ...prev,
@@ -642,7 +642,7 @@ export default function App() {
     setHistory((prev) => ({ ...prev, [botId]: [] }));
   }
 
-  // ── Send message ────────────────────────────────────────────────────────────
+  // â”€â”€ Send message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function sendMessage() {
     const text = input.trim();
     if (!text || !bot || streaming) return;
@@ -671,7 +671,7 @@ export default function App() {
         // OpenClaw WebSocket
         const client = clawRefs.current[bot.id];
         if (!client || client.ws?.readyState !== WebSocket.OPEN) {
-          throw new Error("Not connected — check Settings");
+          throw new Error("Not connected â€” check Settings");
         }
 
         const finalText = await client.send(text, (delta) => {
@@ -683,7 +683,7 @@ export default function App() {
         });
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "✓",
+          text: streamBuf.current || finalText || "âœ“",
           streaming: false,
         });
 
@@ -739,7 +739,7 @@ export default function App() {
         // Uplift Bridge
         const client = clawRefs.current[bot.id];
         if (!client || !client.sessionId) {
-          throw new Error("Not connected — check Settings");
+          throw new Error("Not connected â€” check Settings");
         }
 
         abortRef.current = new AbortController();
@@ -757,7 +757,7 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "✓",
+          text: streamBuf.current || finalText || "âœ“",
           streaming: false,
         });
 
@@ -816,7 +816,7 @@ export default function App() {
           client = orchestratorRefs.current[bot.id];
         }
         if (!client || client.status !== "connected") {
-          throw new Error("Orchestrator not connected — check Settings");
+          throw new Error("Orchestrator not connected â€” check Settings");
         }
 
         abortRef.current = new AbortController();
@@ -851,7 +851,7 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || result.text || "✓",
+          text: streamBuf.current || result.text || "âœ“",
           streaming: false,
           workflowId,
         });
@@ -864,21 +864,21 @@ export default function App() {
           ),
         }));
       } else if (bot.protocol === "ntfy") {
-        // ntfy publish — forward the message to the subscribed topic
+        // ntfy publish â€” forward the message to the subscribed topic
         const client = ntfyRefs.current[bot.id];
         if (!client || client.status !== "connected") {
-          throw new Error("ntfy not connected — check Settings");
+          throw new Error("ntfy not connected â€” check Settings");
         }
 
         const ok = await client.publish({
-          title: `${bot.name} · ${new Date().toLocaleTimeString()}`,
+          title: `${bot.name} Â· ${new Date().toLocaleTimeString()}`,
           message: text,
         });
 
         updateLastMessage(bot.id, {
           text: ok
-            ? "✓ Published"
-            : "⚠ Publish failed — check ntfy connection",
+            ? "âœ“ Published"
+            : "âš  Publish failed â€” check ntfy connection",
           streaming: false,
         });
 
@@ -897,7 +897,7 @@ export default function App() {
           client = localRefs.current[bot.id];
         }
         if (!client || (client.status !== "connected" && client.status !== "no-model")) {
-          throw new Error("Local model not ready — check Models");
+          throw new Error("Local model not ready â€” check Models");
         }
 
         abortRef.current = new AbortController();
@@ -926,7 +926,7 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "✓",
+          text: streamBuf.current || finalText || "âœ“",
           streaming: false,
         });
 
@@ -940,7 +940,7 @@ export default function App() {
       }
     } catch (e) {
       const errText =
-        e.name === "AbortError" ? "[interrupted]" : `⚠ ${e.message}`;
+        e.name === "AbortError" ? "[interrupted]" : `âš  ${e.message}`;
       updateLastMessage(bot.id, {
         text: errText,
         streaming: false,
@@ -976,14 +976,14 @@ export default function App() {
     setStreaming(false);
   }
 
-  // ── Open chat ───────────────────────────────────────────────────────────────
+  // â”€â”€ Open chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function openChat(id) {
     setActiveId(id);
     setHistory((prev) => markAllSeen(prev, id));
     setSearchMode("bots");
   }
 
-  // ── Sidebar / screen navigation ────────────────────────────────────────────
+  // â”€â”€ Sidebar / screen navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const totalUnread = Object.values(history).reduce(
     (sum, msgs) =>
       sum + (Array.isArray(msgs) ? msgs.filter((m) => m.role === "bot" && !m.read).length : 0),
@@ -1015,7 +1015,7 @@ export default function App() {
     );
     if (!draymondBot) return { ok: false, error: "no connected Draymond bot" };
     const baseUrl = `${draymondBot.host?.includes("://") ? "" : "http://"}${draymondBot.host}${
-      draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 8644}`
+      draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 3444}`
     }/api`;
     return syncBenchmarksViaDraymond({ baseUrl, token: draymondBot.token, rows });
   }
@@ -1044,7 +1044,7 @@ export default function App() {
     if (!exchange.length) return false;
     const res = await syncMessagesToDraymond({
       baseUrl: `${draymondBot.host?.includes("://") ? "" : "http://"}${draymondBot.host}${
-        draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 8644}`
+        draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 3444}`
       }/api`,
       token: draymondBot.token,
       sessionId: `open-chat-local-${new Date().toISOString().slice(0, 10)}`,
@@ -1053,7 +1053,7 @@ export default function App() {
     return res?.ok === true;
   }
 
-  // ── Worker screen stubs (real worker loop wiring is a later task) ──────────
+  // â”€â”€ Worker screen stubs (real worker loop wiring is a later task) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function handleProposeSkill() {
     console.log("[work] propose skill");
   }
@@ -1062,12 +1062,12 @@ export default function App() {
     console.log("[work] run task", task);
   }
 
-  // ── Bot management ──────────────────────────────────────────────────────────
+  // â”€â”€ Bot management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function addBot() {
     const newBot = {
       id: uuid(),
       name: "",
-      avatar: "🤖",
+      avatar: "ðŸ¤–",
       color: "#818cf8",
       tagline: "Custom agent",
       protocol: "hermes",
@@ -1135,7 +1135,7 @@ export default function App() {
     } else {
       // Update existing bot
       setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
-      // Protocol/host/token may have changed — tear down any previous client.
+      // Protocol/host/token may have changed â€” tear down any previous client.
       disconnectBotClients(updated.id);
     }
 
@@ -1181,7 +1181,7 @@ export default function App() {
     setUnreadNotifications(0);
   }
 
-  // ── Phase 4 & 5 handlers ────────────────────────────────────────────────────
+  // â”€â”€ Phase 4 & 5 handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   // Tool execution
   function handleExecuteTool(toolName, parameters) {
@@ -1236,7 +1236,7 @@ export default function App() {
     reconnectBot(updatedBot);
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <div
       style={{
@@ -1502,3 +1502,4 @@ export default function App() {
     </div>
   );
 }
+

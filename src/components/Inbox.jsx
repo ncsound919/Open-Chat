@@ -1,5 +1,6 @@
 import React from "react";
 import PropTypes from "prop-types";
+import { BotAvatar } from "./BotAvatar.jsx";
 import {
   SearchIcon,
   PlusIcon,
@@ -30,6 +31,7 @@ export function Inbox({
   onSearchMode = null,
   searchMode = "bots",
   pinnedIds = [],
+  onOpenMenu = null,
 }) {
   const filtered = bots.filter((b) =>
     String(b.name ?? "").toLowerCase().includes(search.toLowerCase())
@@ -60,6 +62,27 @@ export function Inbox({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {onOpenMenu && (
+              <button
+                onClick={onOpenMenu}
+                aria-label="Open navigation menu"
+                style={{
+                  background: "#1c1c28",
+                  border: "1px solid #2c2c38",
+                  borderRadius: 10,
+                  width: 36,
+                  height: 36,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#888",
+                  cursor: "pointer",
+                  fontSize: 16,
+                }}
+              >
+                ☰
+              </button>
+            )}
             <h1
               style={{
                 fontSize: 28,
@@ -193,6 +216,7 @@ export function Inbox({
           return (
             <div
               key={bot.id}
+              data-testid={`chat-${bot.id}`}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -211,21 +235,7 @@ export function Inbox({
             >
               {/* Avatar with status dot */}
               <div style={{ position: "relative", flexShrink: 0 }}>
-                <div
-                  style={{
-                    width: 52,
-                    height: 52,
-                    borderRadius: "50%",
-                    background: `${bot.color}20`,
-                    border: `1.5px solid ${bot.color}40`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 22,
-                  }}
-                >
-                  {bot.avatar}
-                </div>
+                <BotAvatar bot={bot} size={52} />
                 <div
                   style={{
                     position: "absolute",
@@ -373,4 +383,5 @@ Inbox.propTypes = {
   onAddBot: PropTypes.func.isRequired,
   mode: PropTypes.string.isRequired,
   onToggleMode: PropTypes.func.isRequired,
+  onOpenMenu: PropTypes.func,
 };

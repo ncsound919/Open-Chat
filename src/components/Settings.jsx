@@ -1,14 +1,16 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { BackIcon } from "./icons/Icons.jsx";
+import { BotAvatar } from "./BotAvatar.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
 import { isFieldVisible, getAvailableProtocols, getModeDefaults, MODES } from "../utils/modeConfig.js";
+import { scanLocalModels, modelServerToBot } from "../utils/localModels.js";
 
 const PROTOCOL_DEFAULT_PORTS = {
   openclaw: "18789",
   hermes: "8642",
   "uplift-bridge": "8642",
-  draymond: "8644",
+  draymond: "3444",
   ntfy: "80",
   // subteam omitted intentionally — port is deployment-specific
 };
@@ -31,6 +33,7 @@ export function Settings({
   onOpenScheduler,
   draymondClient,
   draymondNotifications = [],
+  draymondAgents = {},
 }) {
   // In Basic mode, pre-fill with mode defaults
   const [form, setForm] = useState(() => {
@@ -54,6 +57,71 @@ export function Settings({
   const [executingChain, setExecutingChain] = useState(null);
   const [togglingSchedule, setTogglingSchedule] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
+
+  // ── Connection test state ─────────────────────────────────────────────────
+  const [testingConn, setTestingConn] = useState(false);
+  const [connResult, setConnResult] = useState(null); // { ok, message }
+
+  /** Test the Draymond connection: health + authenticated agent discovery. */
+  const handleTestConnection = useCallback(async () => {
+    if (!draymondClient) return;
+    setTestingConn(true);
+    setConnResult(null);
+    try {
+      const server = await draymondClient.getServerStatus();
+      const health = await fetch(
+        `${draymondClient.baseUrl}/v1/health`,
+        { headers: draymondClient.token ? { Authorization: `Bearer ${draymondClient.token}` } : {} }
+      ).then((r) => r.ok);
+      if (!health) {
+        setConnResult({ ok: false, message: "Health check failed — is Draymond running and reachable?" });
+        return;
+      }
+      const agents = await draymondClient._discoverAgents();
+      const count = Object.keys(agents || {}).length;
+      setConnResult({
+        ok: count > 0,
+        message: count > 0
+          ? `Connected — ${count} agents discovered${server?.status ? ` (${server.status})` : ""}.`
+          : "Health OK but no agents discovered (auth may be wrong).",
+      });
+    } catch (err) {
+      setConnResult({ ok: false, message: `Connection failed: ${err?.message || err}` });
+    } finally {
+      setTestingConn(false);
+    }
+  }, [draymondClient]);
+
+  // ── Local model scanning state ────────────────────────────────────────────
+  const [scanning, setScanning] = useState(false);
+  const [scanResults, setScanResults] = useState([]);
+  const [scanError, setScanError] = useState(null);
+  const [expandedServer, setExpandedServer] = useState(null);
+  const [lanHost, setLanHost] = useState("");
+
+  const handleScan = useCallback(async () => {
+    setScanning(true);
+    setScanError(null);
+    setScanResults([]);
+    try {
+      const results = await scanLocalModels({ extraHost: lanHost });
+      setScanResults(results);
+      if (results.length === 0) {
+        setScanError("No local model servers found. Start Ollama, LM Studio, or another OpenAI-compatible server, then scan again.");
+      }
+    } catch (err) {
+      setScanError(`Scan failed: ${err?.message || err}`);
+    } finally {
+      setScanning(false);
+    }
+  }, [lanHost]);
+
+  const handleUseModel = async (server, modelId) => {
+    const bot = modelServerToBot(server, modelId);
+    // Keep the current form's identity if this is a new-bot creation flow
+    const merged = isNew ? { ...form, ...bot } : bot;
+    onSave(merged);
+  };
 
   /** Fetch chains and schedules from the server */
   const refreshDraymondData = useCallback(async () => {
@@ -153,6 +221,12 @@ export function Settings({
     return `http://${normalizedHost}:${port || 8644}`;
   };
 
+  /** Origin (scheme://host:port) of the connected Draymond server. */
+  const getDraymondOrigin = (client) => {
+    if (!client?.baseUrl) return "";
+    return client.baseUrl.replace(/\/api\/?$/, "");
+  };
+
   return (
     <div
       style={{
@@ -202,6 +276,8 @@ export function Settings({
               ? "Draymond Orchestrator"
               : form.protocol === "ntfy"
               ? "ntfy (push)"
+              : form.protocol === "local"
+              ? "Private Local · On-device"
               : "Unknown Protocol"}
           </div>
         </div>
@@ -279,6 +355,9 @@ export function Settings({
                   {availableProtocols.includes("ntfy") && (
                     <option value="ntfy">ntfy (Push / Approvals)</option>
                   )}
+                  {availableProtocols.includes("local") && (
+                    <option value="local">Private Local (On-device)</option>
+                  )}
                 </select>
               </div>
             )}
@@ -294,7 +373,7 @@ export function Settings({
           </>
         )}
 
-        {isFieldVisible("host", mode) && (
+        {form.protocol !== "local" && isFieldVisible("host", mode) && (
           <div>
             <span style={labelStyle}>
               {form.protocol === "draymond" ? "Host / Tunnel URL" : form.protocol === "ntfy" ? "ntfy Server" : "Host"}
@@ -350,7 +429,7 @@ export function Settings({
           </div>
         )}
 
-        {isFieldVisible("port", mode) && (
+        {form.protocol !== "local" && isFieldVisible("port", mode) && (
           <div>
             <span style={labelStyle}>Port</span>
             <input
@@ -362,7 +441,7 @@ export function Settings({
           </div>
         )}
 
-        {isFieldVisible("token", mode) && (
+        {form.protocol !== "local" && isFieldVisible("token", mode) && (
           <div>
           <span style={labelStyle}>
             {form.protocol === "openclaw"
@@ -393,6 +472,107 @@ export function Settings({
             </div>
           )}
         </div>
+        )}
+
+        {/* Private Local model config */}
+        {form.protocol === "local" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <span style={labelStyle}>Model</span>
+              <select
+                style={{ ...inputStyle, cursor: "pointer" }}
+                value={form.model || "auto"}
+                onChange={updateField("model")}
+              >
+                <option value="auto">Auto (best available)</option>
+                <option value="gemma_e4b">Gemma 3n E4B (flagship)</option>
+                <option value="gemma_e2b">Gemma 3n E2B (fast)</option>
+                <option value="nano">Gemini Nano</option>
+                <option value="webllm">WebLLM (WebGPU)</option>
+              </select>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={form.phoneToolsEnabled !== false}
+                onChange={(e) =>
+                  updateField("phoneToolsEnabled")({ target: { value: e.target.checked } })
+                }
+              />
+              <span style={{ fontSize: 13, color: "#e0e0ea" }}>
+                Allow phone control (tap, type, open apps)
+              </span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={form.galaxySkillsEnabled !== false}
+                onChange={(e) =>
+                  updateField("galaxySkillsEnabled")({ target: { value: e.target.checked } })
+                }
+              />
+              <span style={{ fontSize: 13, color: "#e0e0ea" }}>
+                Allow Galaxy AI skills (Samsung app AI)
+              </span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={form.verifyEnabled === true}
+                onChange={(e) =>
+                  updateField("verifyEnabled")({ target: { value: e.target.checked } })
+                }
+              />
+              <span style={{ fontSize: 13, color: "#e0e0ea" }}>
+                Verify replies (Gemini Nano cross-check)
+              </span>
+            </label>
+            <div style={{ fontSize: 12, color: "#8b8b9e", lineHeight: 1.5 }}>
+              Chat runs fully on-device. Download models and enable the
+              accessibility service under Models.
+            </div>
+          </div>
+        )}
+
+        {/* Avatar image URL (e.g. a Draymond agent portrait) */}
+        <div>
+          <span style={labelStyle}>Avatar image URL (optional)</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+            <BotAvatar bot={form} size={40} />
+            <input
+              style={{ ...inputStyle, marginTop: 0 }}
+              value={form.avatarUrl || ""}
+              onChange={updateField("avatarUrl")}
+              placeholder="https://host/avatars/slug.png or /avatars/slug.png"
+            />
+          </div>
+          {form.avatarUrl && /^\/avatars\//.test(form.avatarUrl) && (
+            <div style={{ marginTop: 4, fontSize: 11, color: "#8b8b9e" }}>
+              Relative paths resolve against the Draymond server origin.
+            </div>
+          )}
+        </div>
+
+        {/* Draymond connection test */}
+        {isDraymond && (
+          <div>
+            <button
+              onClick={handleTestConnection}
+              disabled={testingConn}
+              style={{
+                width: "100%",
+                background: connResult?.ok ? "#1e3a2f" : connResult ? "#2d1f1f" : "#141924",
+                border: `1px solid ${connResult?.ok ? "#34d39980" : connResult ? "#ef444480" : "rgba(34,211,238,0.20)"}`,
+                borderRadius: 8,
+                padding: "10px 12px",
+                color: connResult?.ok ? "#34d399" : connResult ? "#ef4444" : "#f0f0f5",
+                fontSize: 13,
+                cursor: testingConn ? "default" : "pointer",
+              }}
+            >
+              {testingConn ? "Testing connection…" : connResult ? `↻ Test again — ${connResult.message}` : "Test connection"}
+            </button>
+          </div>
         )}
 
         {isFieldVisible("voiceEnabled", mode) && (
@@ -639,6 +819,76 @@ export function Settings({
             >
               Draymond Remote
             </div>
+
+            {/* Agent Roster */}
+            {draymondAgents && Object.keys(draymondAgents).length > 0 && (
+              <div
+                style={{
+                  background: "#0e1117",
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  marginBottom: 10,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#f6f7f9", marginBottom: 8 }}>
+                  Agent Roster ({Object.keys(draymondAgents).length})
+                </div>
+                {Object.values(draymondAgents).map((agent) => {
+                  const avatarUrl =
+                    agent.avatarUrl &&
+                    (agent.avatarUrl.startsWith("http")
+                      ? agent.avatarUrl
+                      : `${getDraymondOrigin(draymondClient)}${agent.avatarUrl}`);
+                  return (
+                    <div
+                      key={agent.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "6px 0",
+                        borderTop: "1px solid #2a2a38",
+                      }}
+                    >
+                      <BotAvatar bot={{ name: agent.name, avatarUrl, color: "#22d3ee" }} size={34} />
+                      <div style={{ flex: 1, overflow: "hidden" }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            color: "#f0f0f5",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {agent.name}
+                        </div>
+                        <div style={{ fontSize: 10, color: "#8b8b9e" }}>
+                          {agent.status || "unknown"}
+                          {agent.capabilities?.length ? ` · ${agent.capabilities.slice(0, 3).join(", ")}` : ""}
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: "50%",
+                          background:
+                            agent.status === "online" || agent.status === "active"
+                              ? "#34d399"
+                              : agent.status === "degraded"
+                              ? "#f59e0b"
+                              : agent.status === "offline"
+                              ? "#ef4444"
+                              : "#6b7280",
+                          flexShrink: 0,
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Chain Management */}
             <div
@@ -910,6 +1160,135 @@ export function Settings({
         )}
       </div>
 
+      {/* Local Model Discovery */}
+      <div style={{ padding: "0 20px 24px" }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#f6f7f9",
+            marginBottom: 10,
+            marginTop: 10,
+          }}
+        >
+          Local Models
+        </div>
+        <div style={{ fontSize: 12, color: "#8b8b9e", marginBottom: 10, lineHeight: 1.5 }}>
+          Scan this device (and optionally a LAN host) for OpenAI-compatible local
+          model servers — Ollama, LM Studio, llama.cpp, MLC, KoboldCpp, vLLM, Jan, GPT4All.
+          Detected models can be added as chat bots instantly.
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <input
+            style={{ ...inputStyle, marginTop: 0, flex: 1 }}
+            value={lanHost}
+            onChange={(e) => setLanHost(e.target.value)}
+            placeholder="LAN host (optional, e.g. 192.168.1.50)"
+          />
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            style={{
+              background: "#1e3a2f",
+              border: "1px solid #34d39980",
+              borderRadius: 8,
+              padding: "10px 16px",
+              color: "#34d399",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: scanning ? "default" : "pointer",
+              flexShrink: 0,
+            }}
+          >
+            {scanning ? "Scanning…" : "Scan"}
+          </button>
+        </div>
+
+        {scanError && (
+          <div
+            style={{
+              background: "#2d1f1f",
+              border: "1px solid #ef444440",
+              borderRadius: 8,
+              padding: "10px 12px",
+              fontSize: 12,
+              color: "#ef4444",
+              marginBottom: 10,
+            }}
+          >
+            {scanError}
+          </div>
+        )}
+
+        {scanResults.map((server) => {
+          const expanded = expandedServer === server.baseUrl;
+          return (
+            <div
+              key={server.baseUrl}
+              style={{
+                background: "#0e1117",
+                border: "1px solid #2a2a38",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 8,
+              }}
+            >
+              <div
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}
+                onClick={() => setExpandedServer(expanded ? null : server.baseUrl)}
+              >
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#f0f0f5" }}>{server.name}</div>
+                  <div style={{ fontSize: 11, color: "#8b8b9e", fontFamily: "monospace" }}>
+                    {server.baseUrl} · {server.models.length} model{server.models.length === 1 ? "" : "s"}
+                  </div>
+                </div>
+                <span style={{ fontSize: 12, color: "#22d3ee" }}>{expanded ? "−" : "+"}</span>
+              </div>
+
+              {expanded && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {server.models.map((modelId) => (
+                    <div
+                      key={modelId}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        padding: "6px 0",
+                        borderTop: "1px solid #2a2a38",
+                      }}
+                    >
+                      <span style={{ fontSize: 12, color: "#f0f0f5", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {modelId}
+                      </span>
+                      <button
+                        onClick={() => handleUseModel(server, modelId)}
+                        style={{
+                          background: "#818cf8",
+                          border: "none",
+                          borderRadius: 6,
+                          padding: "4px 12px",
+                          color: "#0d0d14",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          flexShrink: 0,
+                        }}
+                      >
+                        Use
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       {/* Save Button */}
       <div style={{ padding: "12px 20px 32px", borderTop: "1px solid #1a1a26" }}>
         <button
@@ -961,4 +1340,5 @@ Settings.propTypes = {
   onOpenScheduler: PropTypes.func,
   draymondClient: PropTypes.object,
   draymondNotifications: PropTypes.array,
+  draymondAgents: PropTypes.object,
 };

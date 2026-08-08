@@ -66,7 +66,7 @@ describe("modeConfig", () => {
       expect(getAvailableProtocols(MODES.BASIC)).toEqual(["hermes"]);
     });
 
-    it("returns all six protocols in dev mode", () => {
+    it("returns all seven protocols in dev mode", () => {
       expect(getAvailableProtocols(MODES.DEV)).toEqual([
         "hermes",
         "openclaw",
@@ -74,6 +74,7 @@ describe("modeConfig", () => {
         "subteam",
         "draymond",
         "ntfy",
+        "local",
       ]);
     });
   });

@@ -8,7 +8,7 @@ import { resolveEndpoint } from "../utils/security.js";
 /** Connection timeout in milliseconds for the initial HTTP request. */
 const CONNECT_TIMEOUT_MS = 30_000;
 
-export async function hermesStream(host, port, token, messages, onChunk, signal) {
+export async function hermesStream(host, port, token, messages, onChunk, signal, model) {
   const baseUrl = resolveEndpoint(host, port, "http");
   const url = `${baseUrl}/v1/chat/completions`;
 
@@ -38,7 +38,7 @@ export async function hermesStream(host, port, token, messages, onChunk, signal)
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({
-        model: "hermes-agent",
+        model: model || "hermes-agent",
         messages,
         stream: true,
       }),

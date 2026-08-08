@@ -1,0 +1,97 @@
+import { describe, it, expect, vi } from "vitest";
+import {
+  mediaPipeBundleToEntry,
+  formatBytes,
+  detectLocalModels,
+  detectMediaPipeBundles,
+  MODEL_STATE,
+} from "./modelRegistry.js";
+
+vi.mock("./localModels.js", () => ({
+  scanLocalModels: vi.fn(async () => [
+    { name: "Ollama", baseUrl: "http://127.0.0.1:11434", models: ["llama3.2"] },
+  ]),
+}));
+
+vi.mock("@open-chat/mediapipe-gemma", () => ({
+  default: {
+    getStatus: vi.fn(async () => ({ available: true, modelLoaded: false })),
+    listModels: vi.fn(async () => ({ models: [] })),
+    downloadModel: vi.fn(),
+    loadModel: vi.fn(),
+    generate: vi.fn(),
+    cancel: vi.fn(),
+    unloadModel: vi.fn(),
+    deleteModel: vi.fn(),
+  },
+}));
+
+vi.mock("@open-chat/phone-control", () => ({
+  default: {
+    getStatus: vi.fn(async () => ({ enabled: false, available: true })),
+    readScreen: vi.fn(async () => ({ nodes: [] })),
+    performTap: vi.fn(),
+    inputText: vi.fn(),
+    performGlobalAction: vi.fn(),
+    openApp: vi.fn(),
+    swipe: vi.fn(),
+    screenshot: vi.fn(),
+  },
+}));
+
+describe("mediaPipeBundleToEntry", () => {
+  it("normalizes a known bundle", () => {
+    const entry = mediaPipeBundleToEntry({
+      fileName: "gemma-3n-E4B-it-int4.task",
+      sizeBytes: 1000,
+      loaded: true,
+      path: "/data/user/0/com.openchat.app/files/models/gemma-3n-E4B-it-int4.task",
+    });
+    expect(entry.id).toBe("gemma-e4b");
+    expect(entry.name).toBe("Gemma 3n E4B");
+    expect(entry.kind).toBe("ondevice");
+    expect(entry.provider).toBe("mediapipe");
+    expect(entry.loaded).toBe(true);
+  });
+
+  it("falls back for unknown bundles", () => {
+    const entry = mediaPipeBundleToEntry({ fileName: "custom.task", sizeBytes: 5, loaded: false });
+    expect(entry.id).toBe("custom.task");
+    expect(entry.name).toBe("custom");
+    expect(entry.url).toBe("");
+  });
+});
+
+describe("detectMediaPipeBundles", () => {
+  it("returns [] when the plugin is unavailable", async () => {
+    const bundles = await detectMediaPipeBundles();
+    expect(bundles).toEqual([]);
+  });
+});
+
+describe("detectLocalModels", () => {
+  it("includes server models when scanning", async () => {
+    const { sources } = await detectLocalModels({ includeServers: true });
+    const servers = sources.find((s) => s.id === "servers");
+    expect(servers).toBeDefined();
+    expect(servers.models[0].name).toBe("llama3.2");
+    expect(servers.models[0].kind).toBe("server");
+  });
+});
+
+describe("formatBytes", () => {
+  it("formats units", () => {
+    expect(formatBytes(0)).toBe("—");
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(2048)).toBe("2 KB");
+    expect(formatBytes(1048576)).toBe("1 MB");
+    expect(formatBytes(4405655031)).toMatch(/GB/);
+  });
+});
+
+describe("MODEL_STATE", () => {
+  it("has stable states", () => {
+    expect(MODEL_STATE.LOADED).toBe("loaded");
+    expect(MODEL_STATE.DOWNLOADING).toBe("downloading");
+  });
+});

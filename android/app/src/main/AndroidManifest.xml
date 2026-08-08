@@ -43,4 +43,13 @@
     <!-- Microphone access for push-to-talk voice (getUserMedia). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Package visibility: let the agent see and launch every installed app
+         (Android 11+ restricts this without a <queries> declaration). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 </manifest>

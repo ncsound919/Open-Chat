@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { MessageBubble } from "./MessageBubble.jsx";
 import { VoiceCallButton } from "./VoiceCallButton.jsx";
+import { BotAvatar } from "./BotAvatar.jsx";
 import {
   BackIcon,
   SettingsIcon,
@@ -43,7 +44,7 @@ function getDraymondConnectionLabel(bot) {
   if (!isLocalhostHost(host)) {
     return `https://${host}/api/v1`;
   }
-  return `http://${host}:${bot.port || 8644}/api/v1`;
+  return `http://${host}:${bot.port || 3444}/api/v1`;
 }
 
 /**
@@ -77,9 +78,11 @@ export function Chat({
   onTogglePin = null,
   onCopyLastReply = null,
   draymondUrl = "",
+  onSyncToDraymond = null,
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showChainStrip, setShowChainStrip] = useState(false);
+  const [syncState, setSyncState] = useState("idle");
   const inputRef = useAutoResize(input);
   const bottomRef = useScrollFollow([messages, streaming]);
   const color = safeColor(bot.color);
@@ -137,21 +140,7 @@ export function Chat({
           <BackIcon />
         </button>
 
-        <div
-          style={{
-            width: 38,
-            height: 38,
-            borderRadius: "50%",
-            background: `${color}20`,
-            border: `1.5px solid ${color}40`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 17,
-          }}
-        >
-          {bot.avatar}
-        </div>
+        <BotAvatar bot={bot} size={38} />
 
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 600, fontSize: 16, color: "#f0f0f5" }}>
@@ -229,6 +218,35 @@ export function Chat({
               <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
               <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
             </svg>
+          </button>
+        )}
+
+        {/* Sync private local chat to Draymond (local bot only) */}
+        {bot.protocol === "local" && onSyncToDraymond && (
+          <button
+            onClick={async () => {
+              setSyncState("syncing");
+              const ok = await onSyncToDraymond();
+              setSyncState(ok ? "ok" : "error");
+              setTimeout(() => setSyncState("idle"), 2500);
+            }}
+            aria-label="Send to Draymond"
+            title="Send the last private exchange to the Draymond orchestrator"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color:
+                syncState === "ok" ? "#34d399" : syncState === "error" ? "#ef4444" : "#555568",
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {syncState === "syncing" ? "…" : syncState === "ok" ? "✓" : "↔"}
           </button>
         )}
 
@@ -494,6 +512,7 @@ export function Chat({
 
       {/* Input */}
       <div
+        className="safe-bottom"
         style={{
           background: "#0e1117",
           borderTop: "1px solid rgba(34,211,238,0.14)",

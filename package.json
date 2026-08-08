@@ -31,6 +31,8 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.3.0",
+    "@open-chat/mediapipe-gemma": "file:src/plugins/capacitor-mediapipe-gemma",
+    "@open-chat/phone-control": "file:src/plugins/capacitor-phone-control",
     "@capacitor/app": "^8.1.0",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/keyboard": "^8.0.2",

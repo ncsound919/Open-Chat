@@ -69,8 +69,23 @@ describe("storage load/save round-trip", () => {
   it("saves and loads bots, returning defaults when empty", () => {
     const bots = [{ id: "x", name: "X", protocol: "hermes" }];
     storageModule.saveBots(bots);
-    expect(storageModule.loadBots()).toEqual(bots);
-    expect(storageModule.loadBots()).not.toBe(bots);
+    const loaded = storageModule.loadBots();
+    expect(loaded[0]).toEqual(bots[0]);
+    expect(loaded).not.toBe(bots);
+  });
+
+  it("auto-adds the Private Local bot to a stored config missing it", () => {
+    global.localStorage.setItem("openchat_conf_v1", JSON.stringify([{ id: "x", name: "X" }]));
+    const loaded = storageModule.loadBots();
+    expect(loaded.some((b) => b.id === "local")).toBe(true);
+    expect(loaded[0].id).toBe("x");
+  });
+
+  it("does not duplicate the local bot when already present", () => {
+    const bots = [{ id: "local", name: "Private Local", protocol: "local" }];
+    storageModule.saveBots(bots);
+    const loaded = storageModule.loadBots();
+    expect(loaded.filter((b) => b.id === "local").length).toBe(1);
   });
 
   it("returns DEFAULT_BOTS when no bot config stored", () => {

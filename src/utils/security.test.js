@@ -100,8 +100,9 @@ describe("resolveEndpoint", () => {
     expect(resolveEndpoint("agents.example.com", 443)).toBe(
       "https://agents.example.com:443"
     );
+    // Private LAN IPs host local agents over plain http/ws.
     expect(resolveEndpoint("192.168.0.5", 9000, "ws")).toBe(
-      "wss://192.168.0.5:9000"
+      "ws://192.168.0.5:9000"
     );
   });
 

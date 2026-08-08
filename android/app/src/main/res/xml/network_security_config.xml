@@ -1,21 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Network Security Configuration for Open Chat.
-  Allows cleartext (HTTP) traffic to localhost addresses used by local AI agents.
-  All other traffic requires HTTPS.
+  Open Chat is a local-first app: agents run on your LAN (Draymond, Hermes,
+  OpenClaw, Ollama, llama.cpp, etc.) and are reached over plain HTTP on
+  private addresses, which Android blocks by default. We therefore permit
+  cleartext traffic app-wide. Traffic to public/cloud endpoints should still
+  use HTTPS; the app never sends secrets over cleartext to remote hosts.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-
-    <!-- Allow cleartext for local agent servers -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-        <!-- Android emulator maps 10.0.2.2 to host machine's localhost -->
-        <domain includeSubdomains="false">10.0.2.2</domain>
-    </domain-config>
 </network-security-config>

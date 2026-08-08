@@ -2,6 +2,12 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
 
+include ':open-chat-mediapipe-gemma'
+project(':open-chat-mediapipe-gemma').projectDir = new File('../src/plugins/capacitor-mediapipe-gemma/android')
+
+include ':open-chat-phone-control'
+project(':open-chat-phone-control').projectDir = new File('../src/plugins/capacitor-phone-control/android')
+
 include ':capacitor-app'
 project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/android')
 

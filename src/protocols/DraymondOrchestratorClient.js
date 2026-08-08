@@ -27,6 +27,7 @@
 
 import { Preferences } from '@capacitor/preferences';
 import { isNative } from '../utils/platform.js';
+import { isPrivateIp } from '../utils/security.js';
 
 /** Connection timeout in milliseconds */
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -64,7 +65,9 @@ export class DraymondOrchestratorClient {
     // live at /api/v1/*, not /v1/*.
     const trimmedHost = String(host || "").trim();
     const isFullUrl = /^https?:\/\//i.test(trimmedHost);
-    const isRemoteHost = isFullUrl || !LOCALHOST_HOSTS.has(trimmedHost.toLowerCase());
+    const isRemoteHost =
+      isFullUrl ||
+      (!LOCALHOST_HOSTS.has(trimmedHost.toLowerCase()) && !isPrivateIp(trimmedHost));
 
     if (isFullUrl) {
       // Already a full URL
@@ -73,7 +76,7 @@ export class DraymondOrchestratorClient {
       // Remote hostname — prefer HTTPS tunnel URL even if a stale port is still saved.
       this.baseUrl = `https://${trimmedHost}/api`;
     } else {
-      // Classic local host:port
+      // Local host:port or a private LAN IP — plain HTTP.
       this.baseUrl = `http://${trimmedHost}:${port}/api`;
     }
 
@@ -241,6 +244,7 @@ export class DraymondOrchestratorClient {
           workflow_id: workflowId,
           task,
           stream: true,
+          auto_route: true,
           metadata: {
             client: "open-chat",
             version: "1.0.0",
@@ -810,6 +814,7 @@ export class DraymondOrchestratorClient {
             capabilities: agent.capabilities || [],
             status: agent.status || "unknown",
             lastHeartbeat: agent.last_heartbeat,
+            avatarUrl: agent.avatar_url || null,
           };
 
           // Notify callback
@@ -1007,6 +1012,7 @@ export class DraymondOrchestratorClient {
             capabilities: data.agent.capabilities || [],
             status: data.agent.status || "unknown",
             lastHeartbeat: data.agent.last_heartbeat,
+            avatarUrl: data.agent.avatar_url || null,
           };
           this.onAgentDiscovered?.(this.registeredAgents[data.agent.id]);
         }

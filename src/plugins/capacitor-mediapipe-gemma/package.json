@@ -1,0 +1,26 @@
+{
+  "name": "@open-chat/mediapipe-gemma",
+  "version": "1.0.0",
+  "description": "Open-Chat native on-device Gemma runtime via MediaPipe tasks-genai: download, load, stream, and tool-call Gemma E2B/E4B .task bundles fully on-device.",
+  "type": "module",
+  "main": "web/index.js",
+  "module": "web/index.js",
+  "types": "web/index.d.ts",
+  "files": [
+    "android",
+    "web"
+  ],
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "mediapipe",
+    "gemma",
+    "llm",
+    "on-device"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}
