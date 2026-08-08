@@ -155,7 +155,7 @@ export function WorkScreen({
                   </span>
                 </div>
                 <div style={{ fontSize: 12, color: "#666679", marginTop: 4 }}>
-                  id: {t.id} · due: {t.due_at || "asap"}
+                  id: {t.id} · due: {t.due_at ?? "asap"}
                 </div>
                 {t.status === "queued" && (
                   <button
@@ -194,7 +194,7 @@ export function WorkScreen({
 
         <div style={{ ...sectionStyle, marginTop: 12 }}>
           <button
-            onClick={onProposeSkill}
+            onClick={() => onProposeSkill && onProposeSkill()}
             style={{
               ...btnStyle,
               width: "100%",
