@@ -1,5 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Inbox } from "./components/Inbox.jsx";
+import { AgentsScreen } from "./components/AgentsScreen.jsx";
+import { ModelsScreen } from "./components/ModelsScreen.jsx";
+import { WorkScreen } from "./components/WorkScreen.jsx";
+import { HomeScreen } from "./components/HomeScreen.jsx";
+import { Sidebar } from "./components/Sidebar.jsx";
 import { Chat } from "./components/Chat.jsx";
 import { SearchResults } from "./components/SearchResults.jsx";
 import { Settings } from "./components/Settings.jsx";
@@ -13,7 +18,10 @@ import { hermesStream, hermesHealthCheck } from "./protocols/HermesClient.js";
 import { UpliftBridgeClient } from "./protocols/UpliftBridgeClient.js";
 import { subTeamStream, subTeamHealthCheck } from "./protocols/SubTeamClient.js";
 import { DraymondOrchestratorClient } from "./protocols/DraymondOrchestratorClient.js";
+import { LocalModelClient } from "./protocols/LocalModelClient.js";
 import { NtfyClient } from "./protocols/NtfyClient.js";
+import { syncMessagesToDraymond, lastLocalExchange } from "./utils/draymondSync.js";
+import { syncBenchmarksViaDraymond } from "./utils/benchmarks.js";
 import {
   loadHist,
   saveHist,
@@ -66,6 +74,23 @@ export default function App() {
   const [cfgBot, setCfgBot] = useState(null);
   const [isNewBot, setIsNewBot] = useState(false);
   const [mode, setMode] = useState(loadMode);
+  const [screen, setScreen] = useState(() => {
+    try {
+      return localStorage.getItem("openchat_screen_v1") || "home";
+    } catch {
+      return "home";
+    }
+  }); // home | chats | agents | models | work
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Remember the last visited screen across launches.
+  useEffect(() => {
+    try {
+      localStorage.setItem("openchat_screen_v1", screen);
+    } catch {
+      /* ignore */
+    }
+  }, [screen]);
 
   // Phase 4 & 5 state
   const [teams, setTeams] = useState(loadTeams);
@@ -81,10 +106,15 @@ export default function App() {
   const [draymondChains, setDraymondChains] = useState([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
+  // Worker screen state (queued Draymond tasks + local skill cache)
+  const [workerTasks] = useState([]);
+  const [localSkillKeys] = useState([]);
+
   // Refs
   const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
   const orchestratorRefs = useRef({}); // botId → DraymondOrchestratorClient
   const ntfyRefs = useRef({}); // botId → NtfyClient
+  const localRefs = useRef({}); // botId → LocalModelClient
   const seenNtfyIds = useRef(new Set()); // ntfy message ids already rendered
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
@@ -239,6 +269,45 @@ export default function App() {
       };
       client.onAgentDiscovered = (agent) => {
         setAgentRegistry((prev) => ({ ...prev, [agent.id]: agent }));
+        // Auto-populate a pinned chat bot per discovered fleet agent so every
+        // agent is reachable from the Chats list. Skips the orchestrator's own
+        // "openchat"/"draymond" records and anything already represented.
+        const agentId = agent.id ?? agent.slug;
+        if (!agentId) return;
+        const systemIds = new Set(["openchat", "draymond", "draymond-orchestrator", "open-chat"]);
+        if (systemIds.has(String(agentId).toLowerCase())) return;
+        setBots((prev) => {
+          const exists = prev.some((b) => b.agentRef === agentId);
+          if (exists) {
+            return prev.map((b) =>
+              b.agentRef === agentId
+                ? {
+                    ...b,
+                    tagline: `Agent · ${agent.status ?? "unknown"}`,
+                    avatarUrl: agent.avatarUrl || b.avatarUrl || `/avatars/${agentId}.png`,
+                    avatar: "",
+                  }
+                : b
+            );
+          }
+          const shell = {
+            id: `agent-${agentId}`,
+            name: agent.name ?? agentId,
+            avatar: "",
+            avatarUrl: agent.avatarUrl || `/avatars/${agentId}.png`,
+            color: "#22d3ee",
+            tagline: `Agent · ${agent.status ?? "unknown"}`,
+            protocol: "draymond",
+            host: bot.host,
+            port: bot.port,
+            token: bot.token,
+            agentRef: agentId,
+            autoPopulated: true,
+            manualConnect: true, // don't stream events until opened
+            pinned: true,
+          };
+          return [...prev, shell];
+        });
       };
       client.onToolExecution = (execution) => {
         setToolLog((prev) => [...prev, execution].slice(-1000));
@@ -339,6 +408,46 @@ export default function App() {
     [setStatus]
   );
 
+  // ── Local on-device chat connection ─────────────────────────────────────────
+  const connectLocal = useCallback(
+    async (bot) => {
+      if (localRefs.current[bot.id]) {
+        localRefs.current[bot.id].disconnect();
+        delete localRefs.current[bot.id];
+      }
+
+      const client = new LocalModelClient(bot, {
+        onToolCall: (call, resultValue) => {
+          setToolLog((prev) =>
+            [
+              ...prev,
+              {
+                executionId: `local-tool-${Date.now()}`,
+                timestamp: Date.now(),
+                toolName: call.name,
+                parameters: call.args,
+                agentId: bot.id,
+                status: "completed",
+                result: resultValue,
+              },
+            ].slice(-1000)
+          );
+        },
+      });
+      client.onStatusChange = (status) => setStatus(bot.id, status);
+      localRefs.current[bot.id] = client;
+
+      setStatus(bot.id, "connecting");
+      try {
+        await client.connect();
+      } catch (e) {
+        console.error(`Failed to connect local model for ${bot.name}:`, e);
+        setStatus(bot.id, "error");
+      }
+    },
+    [setStatus]
+  );
+
   // ── Execute an ntfy action button (e.g. Draymond approve/reject) ───────────
   const handleNtfyAction = useCallback(async (botId, action) => {
     const client = ntfyRefs.current[botId];
@@ -404,11 +513,20 @@ export default function App() {
         }
       });
 
+    // Connect local on-device chat bots (skips auto-populated agent shells)
+    bots
+      .filter((b) => b.protocol === "local" && !b.manualConnect)
+      .forEach((b) => {
+        if (!localRefs.current[b.id]) {
+          connectLocal(b);
+        }
+      });
+
     // Native notification permission (approval alerts on the phone).
     if (isNative) {
       requestNotificationPermission().catch(() => {});
     }
-  }, [bots, connectClaw, connectUpliftBridge, connectDraymond, connectNtfy, setStatus]);
+  }, [bots, connectClaw, connectUpliftBridge, connectDraymond, connectNtfy, connectLocal, setStatus]);
 
   // ── Disconnect all clients on unmount ───────────────────────────────────────
   useEffect(() => {
@@ -424,6 +542,8 @@ export default function App() {
       );
       // eslint-disable-next-line react-hooks/exhaustive-deps
       Object.values(ntfyRefs.current).forEach((client) => client.disconnect());
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      Object.values(localRefs.current).forEach((client) => client.disconnect());
     };
   }, []);
 
@@ -599,7 +719,8 @@ export default function App() {
               streaming: true,
             });
           },
-          abortRef.current.signal
+          abortRef.current.signal,
+          bot.model
         );
 
         updateLastMessage(bot.id, {
@@ -689,7 +810,11 @@ export default function App() {
         }));
       } else if (bot.protocol === "draymond") {
         // Draymond Orchestrator
-        const client = orchestratorRefs.current[bot.id];
+        let client = orchestratorRefs.current[bot.id];
+        if (!client && bot.manualConnect) {
+          await connectDraymond(bot);
+          client = orchestratorRefs.current[bot.id];
+        }
         if (!client || client.status !== "connected") {
           throw new Error("Orchestrator not connected — check Settings");
         }
@@ -764,6 +889,54 @@ export default function App() {
             m.id === userMsg.id ? { ...m, read: true } : m
           ),
         }));
+      } else if (bot.protocol === "local") {
+        // Private on-device chat (Gemma / Nano / WebLLM) + phone control
+        let client = localRefs.current[bot.id];
+        if (!client) {
+          await connectLocal(bot);
+          client = localRefs.current[bot.id];
+        }
+        if (!client || (client.status !== "connected" && client.status !== "no-model")) {
+          throw new Error("Local model not ready — check Models");
+        }
+
+        abortRef.current = new AbortController();
+
+        // Pass recent context so private chat is multi-turn.
+        const prior = (history[bot.id] || [])
+          .filter((m) => m.role === "user" || (m.role === "bot" && !m.streaming))
+          .slice(-12)
+          .map((m) => ({
+            role: m.role === "user" ? "user" : "assistant",
+            content: m.text,
+          }));
+        prior.pop(); // drop the just-added user message; send() re-appends it
+
+        const finalText = await client.send(
+          text,
+          (delta) => {
+            streamBuf.current += delta;
+            updateLastMessage(bot.id, {
+              text: streamBuf.current,
+              streaming: true,
+            });
+          },
+          abortRef.current.signal,
+          prior
+        );
+
+        updateLastMessage(bot.id, {
+          text: streamBuf.current || finalText || "✓",
+          streaming: false,
+        });
+
+        // Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
       }
     } catch (e) {
       const errText =
@@ -810,6 +983,85 @@ export default function App() {
     setSearchMode("bots");
   }
 
+  // ── Sidebar / screen navigation ────────────────────────────────────────────
+  const totalUnread = Object.values(history).reduce(
+    (sum, msgs) =>
+      sum + (Array.isArray(msgs) ? msgs.filter((m) => m.role === "bot" && !m.read).length : 0),
+    0
+  );
+
+  const localModelStatus =
+    statuses["local"] === "connected" ? "Gemma ready" : "No model loaded";
+
+  /** Navigate via the sidebar. 'settings'/'local' are actions, not screens. */
+  function navigate(id, chatId) {
+    setSidebarOpen(false);
+    if (id === "settings") {
+      if (bots[0]) openSettings(bots[0]);
+      return;
+    }
+    if (id === "local") {
+      openChat("local");
+      return;
+    }
+    setScreen(id);
+    if (chatId) openChat(chatId);
+  }
+
+  /** Push benchmark rows into the connected Draymond orchestrator. */
+  async function handleSyncBenchmarks(rows) {
+    const draymondBot = bots.find(
+      (b) => b.protocol === "draymond" && orchestratorRefs.current[b.id]?.status === "connected"
+    );
+    if (!draymondBot) return { ok: false, error: "no connected Draymond bot" };
+    const baseUrl = `${draymondBot.host?.includes("://") ? "" : "http://"}${draymondBot.host}${
+      draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 8644}`
+    }/api`;
+    return syncBenchmarksViaDraymond({ baseUrl, token: draymondBot.token, rows });
+  }
+
+  /** Select the model used by the Private Local bot. */
+  function handleSelectLocalModel(entry) {
+    const modelKey =
+      entry?.id === "gemma-e2b"
+        ? "gemma_e2b"
+        : entry?.provider === "mediapipe"
+          ? "gemma_e4b"
+          : "auto";
+    setBots((prev) =>
+      prev.map((b) => (b.id === "local" ? { ...b, model: modelKey } : b))
+    );
+  }
+
+  /** Push the last private local exchange into the connected Draymond store. */
+  async function handleSyncLocalToDraymond() {
+    const draymondBot = bots.find(
+      (b) => b.protocol === "draymond" && orchestratorRefs.current[b.id]?.status === "connected"
+    );
+    if (!draymondBot) return false;
+    const localMessages = history["local"] || [];
+    const exchange = lastLocalExchange(localMessages);
+    if (!exchange.length) return false;
+    const res = await syncMessagesToDraymond({
+      baseUrl: `${draymondBot.host?.includes("://") ? "" : "http://"}${draymondBot.host}${
+        draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 8644}`
+      }/api`,
+      token: draymondBot.token,
+      sessionId: `open-chat-local-${new Date().toISOString().slice(0, 10)}`,
+      messages: exchange,
+    });
+    return res?.ok === true;
+  }
+
+  // ── Worker screen stubs (real worker loop wiring is a later task) ──────────
+  function handleProposeSkill() {
+    console.log("[work] propose skill");
+  }
+
+  function handleRunTask(task) {
+    console.log("[work] run task", task);
+  }
+
   // ── Bot management ──────────────────────────────────────────────────────────
   function addBot() {
     const newBot = {
@@ -844,6 +1096,10 @@ export default function App() {
       ntfyRefs.current[botId].disconnect();
       delete ntfyRefs.current[botId];
     }
+    if (localRefs.current[botId]) {
+      localRefs.current[botId].disconnect();
+      delete localRefs.current[botId];
+    }
   }
 
   // (Re)connect the client for a bot based on its current protocol config.
@@ -856,6 +1112,8 @@ export default function App() {
       connectDraymond(updated);
     } else if (updated.protocol === "ntfy") {
       connectNtfy(updated);
+    } else if (updated.protocol === "local") {
+      connectLocal(updated);
     } else if (updated.protocol === "subteam") {
       setStatus(updated.id, "connecting");
       subTeamHealthCheck(updated.host, updated.port, updated.token)
@@ -990,7 +1248,7 @@ export default function App() {
         boxShadow: isNative ? "none" : "0 0 80px rgba(34,211,238,0.12)",
       }}
     >
-      {/* Inbox */}
+      {/* Primary screens (home / chats / agents / models) */}
       {!activeId && !showCfg && (
         <div
           style={{
@@ -1000,21 +1258,69 @@ export default function App() {
             zIndex: 10,
           }}
         >
-        <Inbox
-          bots={bots}
-          history={history}
-          statuses={statuses}
-          search={search}
-          onSearch={setSearch}
-          onOpenChat={openChat}
-          onOpenSettings={openSettings}
-          onAddBot={addBot}
-          mode={mode}
-          onToggleMode={toggleMode}
-          onSearchMode={setSearchMode}
-          searchMode={searchMode}
-          pinnedIds={bots.filter((b) => b.pinned).map((b) => b.id)}
-        />
+          {screen === "home" && (
+            <HomeScreen
+              onOpenMenu={() => setSidebarOpen(true)}
+              onNavigate={navigate}
+              unread={totalUnread}
+              agents={agentRegistry}
+              modelStatus={localModelStatus}
+              bots={bots}
+              history={history}
+            />
+          )}
+          {screen === "chats" && (
+            <Inbox
+              bots={bots}
+              history={history}
+              statuses={statuses}
+              search={search}
+              onSearch={setSearch}
+              onOpenChat={openChat}
+              onOpenSettings={openSettings}
+              onAddBot={addBot}
+              mode={mode}
+              onToggleMode={toggleMode}
+              onSearchMode={setSearchMode}
+              searchMode={searchMode}
+              pinnedIds={bots.filter((b) => b.pinned).map((b) => b.id)}
+              onOpenMenu={() => setSidebarOpen(true)}
+            />
+          )}
+          {screen === "agents" && (
+            <AgentsScreen
+              agents={agentRegistry}
+              bots={bots}
+              onOpenChat={openChat}
+              onOpenSettings={openSettings}
+              onOpenMenu={() => setSidebarOpen(true)}
+            />
+          )}
+          {screen === "models" && (
+            <ModelsScreen
+              onChatLocal={() => openChat("local")}
+              onSelectLocalModel={handleSelectLocalModel}
+              onOpenMenu={() => setSidebarOpen(true)}
+              onSyncBenchmarks={handleSyncBenchmarks}
+            />
+          )}
+          {screen === "work" && (
+            <WorkScreen
+              tasks={workerTasks}
+              localSkills={localSkillKeys}
+              onProposeSkill={handleProposeSkill}
+              onRunTask={handleRunTask}
+              onOpenMenu={() => setSidebarOpen(true)}
+            />
+          )}
+
+          <Sidebar
+            open={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+            onNavigate={navigate}
+            unread={totalUnread}
+            agentCount={Object.keys(agentRegistry).length}
+          />
         </div>
       )}
 
@@ -1081,6 +1387,9 @@ export default function App() {
                 navigator.clipboard.writeText(lastBot.text).catch(() => {});
               }
             }}
+            onSyncToDraymond={
+              bot.protocol === "local" ? handleSyncLocalToDraymond : undefined
+            }
           />
           {micError && (
           <div
@@ -1144,6 +1453,7 @@ export default function App() {
             draymondNotifications={
               cfgBot.protocol === "draymond" ? draymondNotifications : []
             }
+            draymondAgents={agentRegistry}
           />
         </div>
       )}
