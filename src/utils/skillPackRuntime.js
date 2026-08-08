@@ -7,14 +7,40 @@
  * The context passed to each handler includes the original context plus
  * `pack` and `tool`.
  *
- * execute() is graceful: unknown tools and handler failures are collected in
- * `failed` while successful tool outputs are collected in `output`, so a pack
- * with a bad step still returns partial output.
+ * Reserved keys: `pack` and `tool` are injected into the handler args and will
+ * override any same-named keys already present in the caller's context.
+ *
+ * execute() is graceful: unknown tools and handler failures (including
+ * timeouts) are collected in `failed` while successful tool outputs are
+ * collected in `output`, so a pack with a bad step still returns partial
+ * output. Every recorded error is a plain string so the result survives
+ * JSON serialization on the report path.
  */
 
+function normalizeError(err) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`tool timeout: ${label}`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export class SkillPackRuntime {
-  constructor(handlers) {
+  constructor(handlers, { timeoutMs = 30_000 } = {}) {
     this.handlers = handlers ?? {};
+    this.timeoutMs = timeoutMs;
   }
 
   async execute(pack, context = {}) {
@@ -29,13 +55,14 @@ export class SkillPackRuntime {
         continue;
       }
       try {
-        output[tool] = await fn({ ...context, pack, tool });
+        output[tool] = await withTimeout(fn({ ...context, pack, tool }), this.timeoutMs, tool);
       } catch (error) {
-        failed.push({ tool, error });
-        output[tool] = { ok: false, error };
+        const msg = normalizeError(error);
+        failed.push({ tool, error: msg });
+        output[tool] = { ok: false, error: msg };
       }
     }
 
-    return { pack: pack.name, context, output, failed };
+    return { pack: pack.name, version: pack.version ?? "unknown", context, output, failed };
   }
 }
