@@ -379,8 +379,18 @@ export default function App() {
         const isRecap =
           (Array.isArray(parsed.tags) && parsed.tags.includes("recap")) ||
           /recap/i.test(parsed.title || parsed.message || "");
-        if (isRecap && bot.voiceCallEnabled === true && ("speechSynthesis" in window)) {
-          const text = [parsed.title, parsed.message].filter(Boolean).join(" â€” ");
+        const isSale =
+          (Array.isArray(parsed.tags) && parsed.tags.includes("sale")) ||
+          /sale|received a new payment|moneybag/i.test(parsed.title || parsed.message || "");
+        const isCall =
+          (Array.isArray(parsed.tags) && parsed.tags.includes("call")) ||
+          /^[📞]/u.test(parsed.title || "");
+        if (
+          (isRecap || isSale || isCall) &&
+          bot.voiceCallEnabled === true &&
+          ("speechSynthesis" in window)
+        ) {
+          const text = [parsed.title, parsed.message].filter(Boolean).join(" ");
           window.speechSynthesis.cancel();
           const u = new SpeechSynthesisUtterance(text);
           window.speechSynthesis.speak(u);
