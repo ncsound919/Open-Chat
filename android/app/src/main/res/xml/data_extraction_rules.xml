@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Data extraction rules for Open Chat.
+
+  The app stores private agent conversations locally. Backup/restore and
+  device-to-device transfer are disabled so chat history, tokens, and other
+  local state cannot be exfiltrated via adb backup / cloud restore.
+  (allowBackup=false is enforced too; this also covers Android 12+ extraction.)
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+    </device-transfer>
+</data-extraction-rules>

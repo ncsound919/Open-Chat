@@ -166,3 +166,68 @@ describe("AuditLog", () => {
     expect(screen.getByText("web_search")).toBeInTheDocument();
   });
 });
+
+describe("AuditLog unified trail", () => {
+  const notif = {
+    type: "notification.sent",
+    receivedAt: 4000,
+    data: { title: "Sale alert", message: "A payment landed" },
+  };
+  const chain = {
+    type: "chain.completed",
+    chain_instance_id: "ci-1",
+    chain_slug: "daily-recap",
+    ts: 5000,
+  };
+  const workflow = { id: "wf-1", status: "completed", startTime: 6000 };
+  const worker = { id: "w-1", skill_pack_id: "social_post:1.0.0", status: "completed", completed_at: 7000 };
+
+  it("merges notifications, chains, workflows, and worker tasks into the feed", () => {
+    render(
+      <AuditLog
+        toolLog={[]}
+        notifications={[notif]}
+        chains={[chain]}
+        workflows={{ "wf-1": workflow }}
+        workerTasks={[worker]}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText("Sale alert")).toBeInTheDocument();
+    expect(screen.getByText("Chain: daily-recap")).toBeInTheDocument();
+    expect(screen.getByText("Workflow: wf-1")).toBeInTheDocument();
+    expect(screen.getByText("Worker task: social_post:1.0.0")).toBeInTheDocument();
+    expect(screen.getByText("4 of 4 entries")).toBeInTheDocument();
+  });
+
+  it("filters by source using the chip buttons", () => {
+    render(
+      <AuditLog
+        toolLog={entries}
+        notifications={[notif]}
+        onClose={vi.fn()}
+      />
+    );
+    // 3 tool + 1 notification = 4 total
+    expect(screen.getByText("4 of 4 entries")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Notifications"));
+    expect(screen.getByText("1 of 4 entries")).toBeInTheDocument();
+    expect(screen.getByText("Sale alert")).toBeInTheDocument();
+    expect(screen.queryByText("web_search")).not.toBeInTheDocument();
+  });
+
+  it("sorts mixed-source entries newest first", () => {
+    render(
+      <AuditLog
+        toolLog={entries} // 1000,2000,3000
+        notifications={[notif]} // 4000
+        onClose={vi.fn()}
+      />
+    );
+    const sale = screen.getByText("Sale alert");
+    const custom = screen.getByText("custom"); // newest tool (3000)
+    expect(
+      sale.compareDocumentPosition(custom) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+});

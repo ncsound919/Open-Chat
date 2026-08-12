@@ -65,7 +65,6 @@ export function useVoice(bot) {
         cap.sampleRate,
         backend,
         bot?.host,
-        bot?.port,
         bot?.token,
         bot?.aetherdeskApiKey,
         bot?.aetherdeskBaseUrl
@@ -96,7 +95,6 @@ export function useVoice(bot) {
           text,
           backend,
           bot?.host,
-          bot?.port,
           bot?.token,
           bot?.aetherdeskApiKey,
           bot?.aetherdeskBaseUrl

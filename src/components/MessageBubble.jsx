@@ -10,6 +10,154 @@ import {
 import { OnDeviceInsights } from "./OnDeviceInsights.jsx";
 import { sanitizeText } from "../utils/security.js";
 
+/** Pretty-print a tool result/args value, truncated to keep bubbles compact. */
+function preview(value, max = 260) {
+  if (value === undefined || value === null) return String(value);
+  if (typeof value === "string") return value.length > max ? `${value.slice(0, max)}…` : value;
+  try {
+    const json = JSON.stringify(value, null, 1);
+    return json.length > max ? `${json.slice(0, max)}…` : json;
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Collapsible tool-call card rendered inside a bot message. Shows the tool
+ * name, its args, and the serializable result returned by the executor.
+ */
+function ToolCallCard({ call }) {
+  const [open, setOpen] = useState(false);
+  const running = call?.status === "running";
+  const ok = call?.status !== "error" && call?.result?.ok !== false && !running;
+  const resultText = preview(call?.result);
+  const argsText = preview(call?.args);
+
+  return (
+    <div
+      data-testid="tool-call-card"
+      style={{
+        margin: "6px 0",
+        border: `1px solid ${running ? "#f59e0b60" : ok ? "#34d39940" : "#ef444440"}`,
+        borderRadius: 10,
+        background: "#0b0e14",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          width: "100%",
+          padding: "7px 10px",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: "#d7d7e5",
+          fontFamily: "inherit",
+          textAlign: "left",
+        }}
+      >
+        <span style={{ fontSize: 13 }} aria-hidden="true">🛠</span>
+        <span
+          style={{
+            flex: 1,
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#e0e0f0",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {call?.name || "tool"}
+        </span>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            color: running ? "#f59e0b" : ok ? "#34d399" : "#ef4444",
+            background: running ? "#f59e0b18" : ok ? "#34d39918" : "#ef444418",
+            borderRadius: 6,
+            padding: "2px 7px",
+            flexShrink: 0,
+          }}
+        >
+          {running ? "running…" : ok ? "done" : "error"}
+        </span>
+        <span style={{ color: "#555568", fontSize: 10, flexShrink: 0 }}>
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            padding: "8px 10px",
+            borderTop: "1px solid #1a1a28",
+            fontSize: 12,
+            color: "#9a9ab0",
+            lineHeight: 1.5,
+          }}
+        >
+          {argsText && (
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.5px", color: "#666680", marginBottom: 2 }}>
+                args
+              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  fontFamily: "inherit",
+                  background: "#ffffff08",
+                  borderRadius: 6,
+                  padding: "5px 8px",
+                }}
+              >
+                {argsText}
+              </pre>
+            </div>
+          )}
+          <div>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.5px", color: "#666680", marginBottom: 2 }}>
+              result
+            </div>
+            <pre
+              style={{
+                margin: 0,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                fontFamily: "inherit",
+                background: "#ffffff08",
+                borderRadius: 6,
+                padding: "5px 8px",
+                color: ok ? "#cfe8d8" : "#ef9a9a",
+              }}
+            >
+              {resultText}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ToolCallCard.propTypes = {
+  call: PropTypes.shape({
+    name: PropTypes.string,
+    args: PropTypes.any,
+    result: PropTypes.any,
+    status: PropTypes.string,
+  }),
+  accent: PropTypes.string,
+};
+
 /** Validate a CSS color string — only allow hex, rgb(a), hsl(a), named colors */
 const SAFE_COLOR_RE =
   /^(#[0-9a-fA-F]{3,8}|rgba?\(\s*[\d.%,\s/]+\)|hsla?\(\s*[\d.%,\s/]+\)|[a-zA-Z]{1,20})$/;
@@ -18,7 +166,6 @@ function safeColor(color, fallback = "#818cf8") {
     ? color.trim()
     : fallback;
 }
-
 /**
  * Single ntfy action button with idle / running / done / error states.
  * Resets back to idle 2s after finishing so the button can be re-tapped
@@ -214,6 +361,14 @@ export const MessageBubble = memo(function MessageBubble({
 
         {msg.streaming && <TypingDots color={isUser ? "#8b8b9e" : color} />}
 
+        {Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            {msg.toolCalls.map((call, i) => (
+              <ToolCallCard key={`${call?.name}-${i}`} call={call} accent={color} />
+            ))}
+          </div>
+        )}
+
         {isUser && !msg.streaming && (
           <span
             style={{
@@ -356,6 +511,7 @@ MessageBubble.propTypes = {
     read: PropTypes.bool,
     ntfyId: PropTypes.string,
     actions: PropTypes.array,
+    toolCalls: PropTypes.array,
   }).isRequired,
   bot: PropTypes.shape({
     color: PropTypes.string.isRequired,

@@ -11,6 +11,7 @@ import { GALAXY_AI_SKILLS, execGalaxySkill } from "../utils/galaxyAi.js";
 import { DEFAULT_LOCAL_SYSTEM_PROMPT } from "../utils/galaxyPlanning.js";
 import { verifyOutput } from "../utils/verification.js";
 import { discoverApps, buildAppContext } from "../utils/appRegistry.js";
+import { DRAYMOND_TOOL_NAMES } from "../utils/draymondTools.js";
 
 export const LOCAL_PROVIDER_HINTS = {
   auto: undefined,
@@ -32,6 +33,10 @@ export class LocalModelClient {
     this.phoneToolsEnabled = bot.phoneToolsEnabled !== false;
     this.galaxySkillsEnabled = bot.galaxySkillsEnabled !== false;
     this.verifyEnabled = bot.verifyEnabled === true;
+    // Optional Draymond skill tools (schemas + handler injected by the app).
+    this.draymondToolsEnabled = bot.draymondSkillsEnabled === true;
+    this.draymondTools = Array.isArray(opts.draymondTools) ? opts.draymondTools : [];
+    this.draymondToolHandler = opts.draymondToolHandler ?? null;
     this.status = "disconnected";
     this.onStatusChange = null;
     this.onToolCall = opts.onToolCall ?? null;
@@ -100,19 +105,28 @@ export class LocalModelClient {
     const tools = [];
     if (this.phoneToolsEnabled) tools.push(...PHONE_TOOLS);
     if (this.galaxySkillsEnabled) tools.push(...GALAXY_AI_SKILLS);
+    if (this.draymondToolsEnabled && this.draymondTools.length > 0) {
+      tools.push(...this.draymondTools);
+    }
 
     // Append the discovered-app capability surface to the system prompt so
     // Gemma knows exactly what it can open and drive on this device.
     const appSection = this.phoneToolsEnabled ? await this._appContext() : "";
     const systemPrompt = appSection ? `${this.systemPrompt}\n\n${appSection}` : this.systemPrompt;
 
+    const draymondToolHandler = this.draymondToolHandler;
     const result = await chatLocal({
       userMessage: text,
       systemPrompt,
       messages: prior,
       provider: LOCAL_PROVIDER_HINTS[this.model],
       tools,
-      toolHandler: (name, args) => this._execTool(name, args),
+      toolHandler: async (name, args) => {
+        if (draymondToolHandler && DRAYMOND_TOOL_NAMES.has(name)) {
+          return draymondToolHandler(name, args);
+        }
+        return this._execTool(name, args);
+      },
       onChunk,
       onToolCall: (call, resultValue) => this.onToolCall?.(call, resultValue),
       signal: mergedSignal,

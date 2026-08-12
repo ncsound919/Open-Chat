@@ -5,6 +5,8 @@ const MENU = [
   { id: "home", label: "Home", icon: "🏠" },
   { id: "chats", label: "Chats", icon: "💬", badgeKey: "unread" },
   { id: "agents", label: "Agents", icon: "🤖", badgeKey: "agents" },
+  { id: "approvals", label: "Approvals", icon: "✅", badgeKey: "approvals" },
+  { id: "stats", label: "Stats", icon: "📊" },
   { id: "work", label: "Work", icon: "📋" },
   { id: "models", label: "Models", icon: "🧠" },
   { id: "settings", label: "Settings", icon: "⚙️" },
@@ -14,7 +16,7 @@ const MENU = [
  * Sidebar — slide-in navigation drawer (Facebook Messenger style). Replaces
  * the cryptic icon-only bottom bar with clearly labeled destinations.
  */
-export function Sidebar({ open, onClose, onNavigate, unread = 0, agentCount = 0 }) {
+export function Sidebar({ open, onClose, onNavigate, unread = 0, agentCount = 0, approvalCount = 0 }) {
   return (
     <>
       {open && (
@@ -59,7 +61,7 @@ export function Sidebar({ open, onClose, onNavigate, unread = 0, agentCount = 0 
 
         <div style={{ flex: 1, overflowY: "auto", padding: "4px 12px" }}>
           {MENU.map((item) => {
-            const badge = item.badgeKey === "unread" ? unread : item.badgeKey === "agents" ? agentCount : 0;
+            const badge = item.badgeKey === "unread" ? unread : item.badgeKey === "agents" ? agentCount : item.badgeKey === "approvals" ? approvalCount : 0;
             return (
               <button
                 key={item.id}
@@ -158,4 +160,5 @@ Sidebar.propTypes = {
   onNavigate: PropTypes.func.isRequired,
   unread: PropTypes.number,
   agentCount: PropTypes.number,
+  approvalCount: PropTypes.number,
 };

@@ -127,6 +127,7 @@ export function HomeScreen({
         <div style={{ marginBottom: 6 }}>
           {[
             { id: "chats", icon: "💬", title: "Chats", subtitle: `${bots.length} conversations` },
+            { id: "stats", icon: "📊", title: "Stats", subtitle: "Fleet health & activity at a glance" },
             { id: "agents", icon: "🤖", title: "Agents", subtitle: `${agentCount} in your fleet` },
             { id: "models", icon: "🧠", title: "Models", subtitle: "On-device AI & downloads" },
           ].map((c) => (

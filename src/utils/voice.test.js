@@ -14,30 +14,45 @@ import {
 
 describe("buildVoiceEndpoint", () => {
   it("builds Draymond backend URLs", () => {
-    expect(buildVoiceEndpoint("draymond", "127.0.0.1", 3000, "transcribe")).toBe(
-      "http://127.0.0.1:3000/api/v1/voice/transcribe"
+    expect(buildVoiceEndpoint("draymond", "127.0.0.1", "transcribe")).toBe(
+      "http://127.0.0.1:8648/api/v1/voice/transcribe"
     );
-    expect(buildVoiceEndpoint("draymond", "example.com", null, "synthesize")).toBe(
+    expect(buildVoiceEndpoint("draymond", "example.com", "synthesize")).toBe(
       "https://example.com/api/v1/voice/synthesize"
     );
   });
 
+  it("routes draymond voice to the proxy port (8648) regardless of the bot chat port", () => {
+    expect(buildVoiceEndpoint("draymond", "127.0.0.1", "transcribe")).toBe(
+      "http://127.0.0.1:8648/api/v1/voice/transcribe"
+    );
+    expect(buildVoiceEndpoint("draymond", "127.0.0.1", "synthesize")).toBe(
+      "http://127.0.0.1:8648/api/v1/voice/synthesize"
+    );
+  });
+
   it("builds AetherDesk backend URLs", () => {
-    expect(buildVoiceEndpoint("aetherdesk", "127.0.0.1", 8000, "transcribe")).toBe(
+    expect(buildVoiceEndpoint("aetherdesk", "127.0.0.1", "transcribe")).toBe(
       "http://127.0.0.1:8000/api/v1/voice/transcribe"
     );
-    expect(buildVoiceEndpoint("aetherdesk", null, null, "synthesize")).toBe(
+    expect(buildVoiceEndpoint("aetherdesk", null, "synthesize")).toBe(
       "http://127.0.0.1:8000/api/v1/voice/synthesize"
     );
   });
 
   it("uses a custom base URL for AetherDesk when provided", () => {
     expect(
-      buildVoiceEndpoint("aetherdesk", "127.0.0.1", 8000, "transcribe", "https://voice.example.com/api/v1/")
+      buildVoiceEndpoint("aetherdesk", "127.0.0.1", "transcribe", "https://voice.example.com/api/v1/")
     ).toBe("https://voice.example.com/api/v1/voice/transcribe");
     expect(
-      buildVoiceEndpoint("aetherdesk", null, null, "synthesize", "https://voice.example.com")
+      buildVoiceEndpoint("aetherdesk", null, "synthesize", "https://voice.example.com")
     ).toBe("https://voice.example.com/voice/synthesize");
+  });
+
+  it("keeps AetherDesk voice routing unchanged", () => {
+    expect(
+      buildVoiceEndpoint("aetherdesk", "127.0.0.1", "transcribe", "http://127.0.0.1:8000/api/v1")
+    ).toBe("http://127.0.0.1:8000/api/v1/voice/transcribe");
   });
 });
 
@@ -87,7 +102,7 @@ describe("transcribeAudio", () => {
       json: async () => ({ text: "hello" }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    const result = await transcribeAudio(new Float32Array([1, 0, -1]), 48000, "aetherdesk", null, null, null, "key");
+    const result = await transcribeAudio(new Float32Array([1, 0, -1]), 48000, "aetherdesk", null, null, "key");
     expect(result).toBe("hello");
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toBe("http://127.0.0.1:8000/api/v1/voice/transcribe");
@@ -102,7 +117,7 @@ describe("transcribeAudio", () => {
       json: async () => ({ text: "" }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    await transcribeAudio(new Float32Array([1, 0, -1]), 48000, "aetherdesk", null, null, null, "key");
+    await transcribeAudio(new Float32Array([1, 0, -1]), 48000, "aetherdesk", null, null, "key");
     const [, init] = fetchMock.mock.calls[0];
     // 3 samples at 48k -> 1 sample at 16k -> 2 bytes int16
     expect(init.body.length).toBe(2);
@@ -128,31 +143,31 @@ describe("resolveCapture", () => {
 
 describe("buildVoiceEndpoint edge cases", () => {
   it("wraps IPv6 localhost in brackets", () => {
-    expect(buildVoiceEndpoint("draymond", "::1", 3000, "transcribe")).toBe(
-      "http://[::1]:3000/api/v1/voice/transcribe"
+    expect(buildVoiceEndpoint("draymond", "::1", "transcribe")).toBe(
+      "http://[::1]:8648/api/v1/voice/transcribe"
     );
   });
 
   it("uses a full URL for draymond as-is", () => {
-    expect(buildVoiceEndpoint("draymond", "https://voice.example.com", 9999, "transcribe")).toBe(
+    expect(buildVoiceEndpoint("draymond", "https://voice.example.com", "transcribe")).toBe(
       "https://voice.example.com/api/v1/voice/transcribe"
     );
   });
 
-  it("defaults draymond port to 3000 for localhost", () => {
-    expect(buildVoiceEndpoint("draymond", "localhost", null, "synthesize")).toBe(
-      "http://localhost:3000/api/v1/voice/synthesize"
+  it("defaults draymond port to 8648 for localhost", () => {
+    expect(buildVoiceEndpoint("draymond", "localhost", "synthesize")).toBe(
+      "http://localhost:8648/api/v1/voice/synthesize"
     );
   });
 
   it("defaults the host to 127.0.0.1 when omitted", () => {
-    expect(buildVoiceEndpoint("draymond", undefined, 3100, "transcribe")).toBe(
-      "http://127.0.0.1:3100/api/v1/voice/transcribe"
+    expect(buildVoiceEndpoint("draymond", undefined, "transcribe")).toBe(
+      "http://127.0.0.1:8648/api/v1/voice/transcribe"
     );
   });
 
   it("prefers https for remote draymond hosts regardless of port", () => {
-    expect(buildVoiceEndpoint("draymond", "remote.example.com", 8644, "transcribe")).toBe(
+    expect(buildVoiceEndpoint("draymond", "remote.example.com", "transcribe")).toBe(
       "https://remote.example.com/api/v1/voice/transcribe"
     );
   });
@@ -219,7 +234,7 @@ describe("transcribeAudio headers and errors", () => {
   it("adds a Bearer token for the draymond backend", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "hi" }) });
     vi.stubGlobal("fetch", fetchMock);
-    await transcribeAudio(new Float32Array([1]), 48000, "draymond", "127.0.0.1", 3000, "tok123");
+    await transcribeAudio(new Float32Array([1]), 48000, "draymond", "127.0.0.1", "tok123");
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers.Authorization).toBe("Bearer tok123");
   });
@@ -227,7 +242,7 @@ describe("transcribeAudio headers and errors", () => {
   it("adds an x-api-key for the aetherdesk backend", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ text: "" }) });
     vi.stubGlobal("fetch", fetchMock);
-    await transcribeAudio(new Float32Array([1]), 48000, "aetherdesk", null, null, null, "akey");
+    await transcribeAudio(new Float32Array([1]), 48000, "aetherdesk", null, null, "akey");
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers["x-api-key"]).toBe("akey");
   });
@@ -253,7 +268,6 @@ describe("transcribeAudio headers and errors", () => {
       new Float32Array([1, 0, -1]),
       undefined,
       "aetherdesk",
-      null,
       null,
       null,
       "key"
@@ -284,7 +298,7 @@ describe("synthesizeAndPlay", () => {
       json: async () => ({ audio: "QUFBQQ==" }), // base64 "AAAA"
     });
     vi.stubGlobal("fetch", fetchMock);
-    const audio = await synthesizeAndPlay("hello", "aetherdesk", null, null, null, "akey");
+    const audio = await synthesizeAndPlay("hello", "aetherdesk", null, null, "akey");
     expect(audio).toBeInstanceOf(global.Audio);
     expect(audio.play).toHaveBeenCalled();
     const [url, init] = fetchMock.mock.calls[0];
@@ -299,7 +313,7 @@ describe("synthesizeAndPlay", () => {
       json: async () => ({ audio: "QUFBQQ==" }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    await synthesizeAndPlay("hi", "draymond", "127.0.0.1", 3000, "tok456");
+    await synthesizeAndPlay("hi", "draymond", "127.0.0.1", "tok456");
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers.Authorization).toBe("Bearer tok456");
   });

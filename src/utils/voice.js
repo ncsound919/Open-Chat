@@ -5,6 +5,7 @@
  */
 
 const AETHERDESK_BASE = "http://127.0.0.1:8000/api/v1";
+const DRAYMOND_VOICE_PORT = Number(import.meta.env.VITE_DRAYMOND_VOICE_PORT) || 8648;
 
 function isFullUrl(value) {
   return /^https?:\/\//i.test(String(value || "").trim());
@@ -16,7 +17,7 @@ function isLocalhostHost(value) {
 }
 
 /** Build the transcribe/synthesize endpoint URL for a backend. */
-export function buildVoiceEndpoint(backend, host, port, kind, baseUrl) {
+export function buildVoiceEndpoint(backend, host, kind, baseUrl) {
   const action = kind === "transcribe" ? "transcribe" : "synthesize";
   if (backend === "aetherdesk") {
     const base = String(baseUrl || AETHERDESK_BASE).replace(/\/$/, "");
@@ -29,7 +30,10 @@ export function buildVoiceEndpoint(backend, host, port, kind, baseUrl) {
   }
   if (isLocalhostHost(trimmed)) {
     const hostForUrl = trimmed === "::1" ? "[::1]" : trimmed;
-    return `http://${hostForUrl}:${port || 3000}/api/v1/voice/${action}`;
+    // Voice for the draymond backend always lives on the proxy (DRAYMOND_VOICE_PORT,
+    // default 8648) — the proxy is the only thing serving /api/v1/voice/*. The bot's
+    // chat port (8642 for Hermes api_server) has no voice routes.
+    return `http://${hostForUrl}:${DRAYMOND_VOICE_PORT}/api/v1/voice/${action}`;
   }
   return `https://${trimmed}/api/v1/voice/${action}`;
 }
@@ -119,9 +123,9 @@ export async function captureAudio(stream) {
 }
 
 /** Transcribe Float32 PCM audio and return the transcript text. */
-export async function transcribeAudio(audioData, sampleRate, backend, host, port, token, apiKey, baseUrl) {
+export async function transcribeAudio(audioData, sampleRate, backend, host, token, apiKey, baseUrl) {
   const bytes = pcmToBytes(audioData, sampleRate || 48000);
-  const url = buildVoiceEndpoint(backend, host, port, "transcribe", baseUrl);
+  const url = buildVoiceEndpoint(backend, host, "transcribe", baseUrl);
   const headers = { "Content-Type": "application/octet-stream" };
   if (backend === "draymond" && token) headers.Authorization = `Bearer ${token}`;
   if (backend === "aetherdesk" && apiKey) headers["x-api-key"] = apiKey;
@@ -132,8 +136,8 @@ export async function transcribeAudio(audioData, sampleRate, backend, host, port
 }
 
 /** Synthesize text and return a playable HTMLAudioElement. */
-export async function synthesizeAndPlay(text, backend, host, port, token, apiKey, baseUrl) {
-  const url = buildVoiceEndpoint(backend, host, port, "synthesize", baseUrl);
+export async function synthesizeAndPlay(text, backend, host, token, apiKey, baseUrl) {
+  const url = buildVoiceEndpoint(backend, host, "synthesize", baseUrl);
   const headers = { "Content-Type": "application/json" };
   if (backend === "draymond" && token) headers.Authorization = `Bearer ${token}`;
   if (backend === "aetherdesk" && apiKey) headers["x-api-key"] = apiKey;

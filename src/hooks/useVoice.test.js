@@ -134,7 +134,6 @@ describe("useVoice", () => {
       16000,
       "draymond",
       "127.0.0.1",
-      3000,
       "sekrit",
       "akey",
       "https://voice.example.com"
@@ -188,7 +187,6 @@ describe("useVoice", () => {
       16000,
       "aetherdesk",
       "127.0.0.1",
-      3000,
       "sekrit",
       "akey",
       "https://voice.example.com"
@@ -240,7 +238,6 @@ describe("useVoice", () => {
       "say this",
       "draymond",
       "127.0.0.1",
-      3000,
       "sekrit",
       "akey",
       "https://voice.example.com"
@@ -318,7 +315,6 @@ describe("useVoice", () => {
       "hi from the agent",
       "draymond",
       "127.0.0.1",
-      3000,
       "sekrit",
       "akey",
       "https://voice.example.com"

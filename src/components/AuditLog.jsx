@@ -1,36 +1,140 @@
 import React, { useState } from "react";
 import PropTypes from "prop-types";
 
+const SOURCES = ["all", "tool", "notification", "chain", "workflow", "worker"];
+
+const SOURCE_LABEL = {
+  tool: "Tools",
+  notification: "Notifications",
+  chain: "Chains",
+  workflow: "Workflows",
+  worker: "Workers",
+};
+
 /**
- * Audit Log Viewer
- * Displays a chronological log of agent actions and system events
+ * Build a unified, chronological audit feed from every agent-activity source:
+ * tool executions, Draymond notifications, chain updates, workflows, and
+ * worker-task completions. Newest first.
  */
-export function AuditLog({ toolLog, onClose }) {
+export function buildAuditEntries({ toolLog = [], notifications = [], chains = [], workflows = {}, workerTasks = [] }) {
+  const entries = [];
+
+  for (const t of toolLog) {
+    entries.push({
+      key: `tool-${t.executionId || `${t.timestamp}-${Math.random()}`}`,
+      time: Number(t.timestamp) || 0,
+      source: "tool",
+      title: t.toolName || t.action || "Unknown Action",
+      agentId: t.agentId,
+      status: t.status || (t.error ? "failed" : "completed"),
+      parameters: t.parameters,
+      result: t.result,
+      error: t.error,
+    });
+  }
+
+  for (const n of notifications) {
+    const data = n?.data ?? n;
+    const title =
+      data?.title || (typeof n?.type === "string" ? n.type : "notification");
+    const body =
+      typeof data === "string"
+        ? data
+        : data?.message || data?.body || data?.text || "";
+    entries.push({
+      key: `ntf-${n.receivedAt || Date.now()}-${Math.random()}`,
+      time: Number(n.receivedAt) || Date.now(),
+      source: "notification",
+      title: String(title),
+      agentId: data?.agent_id || (typeof n?.type === "string" ? n.type : ""),
+      status: /failed/i.test(String(title)) ? "failed" : "completed",
+      result: String(body),
+    });
+  }
+
+  for (const c of chains) {
+    const type = String(c?.type || c?.event || "");
+    const status = /failed/i.test(type)
+      ? "failed"
+      : /completed|done/i.test(type)
+      ? "completed"
+      : "in_progress";
+    entries.push({
+      key: `chain-${c?.chain_instance_id || c?.chain_id || Math.random()}`,
+      time: Number(c?.ts || c?.timestamp) || Date.now(),
+      source: "chain",
+      title: `Chain: ${c?.chain_slug || c?.chain_instance_id || "?"}`,
+      agentId: c?.step_name || c?.step || "",
+      status,
+      result: String(c?.output || c?.message || c?.step || "").slice(0, 400),
+    });
+  }
+
+  for (const wf of Object.values(workflows || {})) {
+    entries.push({
+      key: `wf-${wf?.id || Math.random()}`,
+      time: Number(wf?.startTime || wf?.endTime) || Date.now(),
+      source: "workflow",
+      title: `Workflow: ${wf?.id || "?"}`,
+      agentId: wf?.currentPhase || "",
+      status: wf?.status || "in_progress",
+      result: wf?.currentPhase || "",
+    });
+  }
+
+  for (const t of workerTasks) {
+    const status =
+      t?.status === "completed"
+        ? "completed"
+        : t?.status === "failed"
+        ? "failed"
+        : "in_progress";
+    entries.push({
+      key: `worker-${t?.id || Math.random()}`,
+      time: Number(t?.completed_at || t?.claimed_at) || Date.now(),
+      source: "worker",
+      title: `Worker task: ${t?.skill_pack_id || t?.id || "?"}`,
+      agentId: t?.worker_id || "",
+      status,
+      result: String(t?.result || "").slice(0, 400),
+    });
+  }
+
+  return entries.sort((a, b) => b.time - a.time);
+}
+
+/**
+ * Audit Log — the fleet's audit trail. Chronological feed of every agent
+ * action (tools, notifications, chains, workflows, worker tasks) with search,
+ * status, and source filters. Read-only: nothing here is mutable.
+ */
+export function AuditLog({
+  toolLog,
+  notifications = [],
+  chains = [],
+  workflows = {},
+  workerTasks = [],
+  onClose,
+}) {
   const [filter, setFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
 
-  // Sort entries newest-first (slice to avoid mutating the prop)
-  const entries = toolLog.slice().sort(
-    (a, b) => b.timestamp - a.timestamp
-  );
+  const entries = buildAuditEntries({ toolLog, notifications, chains, workflows, workerTasks });
 
-  // Apply filters
   const filtered = entries.filter((entry) => {
-    const toolName = String(entry.toolName ?? "").toLowerCase();
-    const agentId = String(entry.agentId ?? "").toLowerCase();
-    const status = String(entry.status ?? "").toLowerCase();
-    const matchesText =
-      !filter ||
-      toolName.includes(filter.toLowerCase()) ||
-      agentId.includes(filter.toLowerCase()) ||
-      status.includes(filter.toLowerCase());
+    const haystack = `${entry.title} ${entry.agentId || ""} ${entry.status} ${entry.source}`.toLowerCase();
+    const matchesText = !filter || haystack.includes(filter.toLowerCase());
 
     const matchesType =
       typeFilter === "all" ||
       entry.status === typeFilter ||
       (typeFilter === "error" && entry.error);
 
-    return matchesText && matchesType;
+    const matchesSource =
+      sourceFilter === "all" || entry.source === sourceFilter;
+
+    return matchesText && matchesType && matchesSource;
   });
 
   const formatTimestamp = (timestamp) => {
@@ -122,7 +226,7 @@ export function AuditLog({ toolLog, onClose }) {
           </div>
 
           {/* Filters */}
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
             <input
               type="text"
               placeholder="Search by tool, agent, or status..."
@@ -153,11 +257,38 @@ export function AuditLog({ toolLog, onClose }) {
                 cursor: "pointer",
               }}
             >
-              <option value="all">All Events</option>
+              <option value="all">All States</option>
               <option value="completed">Completed</option>
               <option value="in_progress">In Progress</option>
               <option value="error">Errors</option>
             </select>
+          </div>
+
+          {/* Source chips */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {SOURCES.map((src) => {
+              const active = sourceFilter === src;
+              const label = src === "all" ? "All sources" : SOURCE_LABEL[src];
+              return (
+                <button
+                  key={src}
+                  onClick={() => setSourceFilter(src)}
+                  style={{
+                    background: active ? "#22d3ee" : "#0d0d14",
+                    border: active ? "1px solid #22d3ee" : "1px solid #2a2a38",
+                    borderRadius: 999,
+                    padding: "4px 12px",
+                    color: active ? "#05060a" : "#8b8b9e",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -184,7 +315,7 @@ export function AuditLog({ toolLog, onClose }) {
           ) : (
             filtered.map((entry) => (
               <div
-                key={entry.executionId || entry.timestamp}
+                key={entry.key}
                 style={{
                   background: "#0d0d14",
                   borderRadius: 10,
@@ -223,13 +354,13 @@ export function AuditLog({ toolLog, onClose }) {
 
                   {/* Entry Details */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Tool/Agent Info */}
                     <div
                       style={{
                         display: "flex",
                         alignItems: "center",
                         gap: 8,
                         marginBottom: 6,
+                        flexWrap: "wrap",
                       }}
                     >
                       <span
@@ -239,7 +370,7 @@ export function AuditLog({ toolLog, onClose }) {
                           color: "#e8e8f0",
                         }}
                       >
-                        {entry.toolName || entry.action || "Unknown Action"}
+                        {entry.title}
                       </span>
                       {entry.agentId && (
                         <span
@@ -254,6 +385,19 @@ export function AuditLog({ toolLog, onClose }) {
                           {entry.agentId}
                         </span>
                       )}
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: "#555568",
+                          background: "#ffffff08",
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.04em",
+                        }}
+                      >
+                        {entry.source}
+                      </span>
                     </div>
 
                     {/* Timestamp */}
@@ -264,7 +408,7 @@ export function AuditLog({ toolLog, onClose }) {
                         marginBottom: 8,
                       }}
                     >
-                      {formatTimestamp(entry.timestamp)}
+                      {formatTimestamp(entry.time)}
                     </div>
 
                     {/* Parameters/Details */}
@@ -303,7 +447,7 @@ export function AuditLog({ toolLog, onClose }) {
                     )}
 
                     {/* Result */}
-                    {entry.result && !entry.error && (
+                    {entry.result !== undefined && entry.result !== "" && !entry.error && (
                       <div
                         style={{
                           fontSize: 13,
@@ -311,7 +455,10 @@ export function AuditLog({ toolLog, onClose }) {
                           marginTop: 6,
                         }}
                       >
-                        Result: {typeof entry.result === "string" ? entry.result : JSON.stringify(entry.result)}
+                        Result:{" "}
+                        {typeof entry.result === "string"
+                          ? entry.result
+                          : JSON.stringify(entry.result)}
                       </div>
                     )}
                   </div>
@@ -357,5 +504,9 @@ export function AuditLog({ toolLog, onClose }) {
 
 AuditLog.propTypes = {
   toolLog: PropTypes.array.isRequired,
+  notifications: PropTypes.array,
+  chains: PropTypes.array,
+  workflows: PropTypes.object,
+  workerTasks: PropTypes.array,
   onClose: PropTypes.func.isRequired,
 };

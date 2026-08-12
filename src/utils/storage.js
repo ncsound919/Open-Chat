@@ -1,5 +1,6 @@
 import { Preferences } from '@capacitor/preferences';
 import { isNative } from './platform.js';
+import * as secureStore from './secureStore.js';
 
 // Storage keys
 const HIST_KEY = "openchat_hist_v1";
@@ -10,6 +11,13 @@ const TOOLLOG_KEY = "openchat_toollog_v1";
 const MODE_KEY = "openchat_mode_v1";
 const TEAMS_KEY = "openchat_teams_v1";
 const SCHEDULES_KEY = "openchat_schedules_v1";
+const APPROVALS_KEY = "openchat_approvals_v1";
+
+// Keys whose contents are encrypted at rest (chat history + bot config, which
+// holds access tokens). storageGet/storageSet delegate these to secureStore
+// when encryption is enabled; everything else stays plaintext.
+const ENCRYPTED_KEYS = [HIST_KEY, CONF_KEY];
+secureStore.configure({ keys: ENCRYPTED_KEYS });
 
 // ── Platform-aware storage abstraction ───────────────────────────────────────
 // On native (Android/iOS), use Capacitor Preferences (SharedPreferences).
@@ -29,7 +37,7 @@ export async function initNativeStorage() {
   if (!isNative) return;
   const keys = [
     HIST_KEY, CONF_KEY, WORKFLOWS_KEY, AGENTS_KEY, TOOLLOG_KEY,
-    MODE_KEY, TEAMS_KEY, SCHEDULES_KEY,
+    MODE_KEY, TEAMS_KEY, SCHEDULES_KEY, APPROVALS_KEY,
   ];
   await Promise.all(
     keys.map(async (key) => {
@@ -41,6 +49,9 @@ export async function initNativeStorage() {
 
 /** Synchronous read — returns raw string or null */
 function storageGet(key) {
+  if (ENCRYPTED_KEYS.includes(key) && secureStore.isEnabled()) {
+    return secureStore.get(key);
+  }
   if (isNative) {
     return _nativeCache[key] ?? null;
   }
@@ -49,6 +60,10 @@ function storageGet(key) {
 
 /** Synchronous write — persists to native asynchronously */
 function storageSet(key, value) {
+  if (ENCRYPTED_KEYS.includes(key) && secureStore.isEnabled()) {
+    secureStore.set(key, value);
+    return;
+  }
   if (isNative) {
     _nativeCache[key] = value;
     // Fire-and-forget async persist
@@ -131,9 +146,10 @@ export const DEFAULT_BOTS = [
     protocol: "draymond",
     // Dev override (gitignored .env.local) so USB-debug builds can reach the
     // local Draymond via `adb reverse tcp:3444`; defaults to the cloud URL.
+    // The access token is NEVER baked into the bundle — enter it in Settings.
     host: import.meta.env.VITE_DRAYMOND_URL ? new URL(import.meta.env.VITE_DRAYMOND_URL).hostname : "https://draymond.overlay365.com",
     port: import.meta.env.VITE_DRAYMOND_URL ? Number(new URL(import.meta.env.VITE_DRAYMOND_URL).port) || 3444 : 3000,
-    token: import.meta.env.VITE_DRAYMOND_TOKEN ?? "",
+    token: "",
     voiceCallEnabled: true,
     voiceEnabled: true,
     voiceBackend: "draymond",
@@ -418,6 +434,7 @@ export function saveMode(mode) {
 // Clear all stored data (useful for debugging)
 export function clearAllStorage() {
   try {
+    secureStore.clearAll();
     storageRemove(HIST_KEY);
     storageRemove(CONF_KEY);
     storageRemove(WORKFLOWS_KEY);
@@ -426,6 +443,7 @@ export function clearAllStorage() {
     storageRemove(MODE_KEY);
     storageRemove(TEAMS_KEY);
     storageRemove(SCHEDULES_KEY);
+    storageRemove(APPROVALS_KEY);
   } catch (e) {
     console.error("Failed to clear storage:", e);
   }
@@ -484,6 +502,33 @@ export function saveSchedules(schedules) {
     storageSet(SCHEDULES_KEY, serialised);
   } catch (e) {
     console.error("Failed to save schedules:", e);
+  }
+}
+
+// Load resolved approvals from localStorage
+// Shape: { [itemKey]: { decision, at } }
+export function loadResolvedApprovals() {
+  try {
+    const raw = storageGet(APPROVALS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || Array.isArray(parsed) || parsed === null) {
+      console.warn("[OpenChat] Resolved approvals data corrupted — resetting.");
+      return {};
+    }
+    return parsed;
+  } catch {
+    console.warn("[OpenChat] Resolved approvals data could not be parsed — resetting.");
+    return {};
+  }
+}
+
+// Save resolved approvals to localStorage
+export function saveResolvedApprovals(resolved) {
+  try {
+    storageSet(APPROVALS_KEY, JSON.stringify(resolved || {}));
+  } catch (e) {
+    console.error("Failed to save resolved approvals:", e);
   }
 }
 

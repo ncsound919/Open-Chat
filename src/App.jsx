@@ -1,8 +1,10 @@
-﻿import React, { useState, useRef, useEffect, useCallback } from "react";
+﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Inbox } from "./components/Inbox.jsx";
 import { AgentsScreen } from "./components/AgentsScreen.jsx";
 import { ModelsScreen } from "./components/ModelsScreen.jsx";
 import { WorkScreen } from "./components/WorkScreen.jsx";
+import { StatsScreen } from "./components/StatsScreen.jsx";
+import { ApprovalsScreen } from "./components/ApprovalsScreen.jsx";
 import { HomeScreen } from "./components/HomeScreen.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 import { Chat } from "./components/Chat.jsx";
@@ -22,6 +24,10 @@ import { LocalModelClient } from "./protocols/LocalModelClient.js";
 import { NtfyClient } from "./protocols/NtfyClient.js";
 import { syncMessagesToDraymond, lastLocalExchange } from "./utils/draymondSync.js";
 import { syncBenchmarksViaDraymond } from "./utils/benchmarks.js";
+import { chatPrivate } from "./utils/localChat.js";
+import { buildDraymondTools } from "./utils/draymondTools.js";
+import { useWorkerEngine, createPreferencesStore } from "./hooks/useWorkerEngine.js";
+import { resolveWorkerBaseUrl } from "./utils/workerEngine.js";
 import {
   loadHist,
   saveHist,
@@ -39,6 +45,7 @@ import {
   saveTeams,
   loadSchedules,
   saveSchedules,
+  loadResolvedApprovals,
   searchMessages,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
@@ -80,7 +87,7 @@ export default function App() {
     } catch {
       return "home";
     }
-  }); // home | chats | agents | models | work
+  }); // home | chats | agents | models | work | stats | approvals
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Remember the last visited screen across launches.
@@ -106,22 +113,98 @@ export default function App() {
   const [draymondChains, setDraymondChains] = useState([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  // Worker screen state (queued Draymond tasks + local skill cache)
-  const [workerTasks] = useState([]);
-  const [localSkillKeys] = useState([]);
+  // Worker screen state (live Draymond worker loop — see useWorkerEngine below)
 
   // Refs
-  const clawRefs = useRef({}); // botId â†’ OpenClawClient | UpliftBridgeClient
-  const orchestratorRefs = useRef({}); // botId â†’ DraymondOrchestratorClient
-  const ntfyRefs = useRef({}); // botId â†’ NtfyClient
-  const localRefs = useRef({}); // botId â†’ LocalModelClient
+  const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
+  const orchestratorRefs = useRef({}); // botId → DraymondOrchestratorClient
+  const ntfyRefs = useRef({}); // botId → NtfyClient
+  const localRefs = useRef({}); // botId → LocalModelClient
   const seenNtfyIds = useRef(new Set()); // ntfy message ids already rendered
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
   const streamMsgIdRef = useRef(null); // id of the streaming placeholder message
+  const streamToolCallsRef = useRef([]); // tool calls accumulated during a local stream
+  const draymondBotRef = useRef(null); // latest connected Draymond bot (for closures)
 
   const bot = bots.find((b) => b.id === activeId);
   const messages = history[activeId] || [];
+
+  // ── Worker engine (Open Chat as a Draymond executor) ───────────────────────
+  // The connected Draymond bot drives the pull/claim/execute/report loop; its
+  // state feeds the Work screen and task results land back in the chat.
+  const draymondBot = bots.find(
+    (b) => b.protocol === "draymond" && statuses[b.id] === "connected"
+  );
+  draymondBotRef.current = draymondBot;
+
+  const workerDeps = useMemo(
+    () => ({
+      onSend: (text) => {
+        const dym = draymondBotRef.current;
+        if (dym && text) {
+          addMessage(dym.id, { id: uuid(), role: "bot", text, time: ts(), read: true });
+        }
+      },
+      onNotify: (title, body) => notifyLocal(title, body),
+      chat: async (prompt, opts) => {
+        const r = await chatPrivate(prompt, opts);
+        return { text: r.text, provider: r.provider };
+      },
+    }),
+    []
+  );
+
+  const handleWorkerTaskResult = useCallback((result) => {
+    const dym = draymondBotRef.current;
+    if (!dym || !result) return;
+    const ok = result.ok === true;
+    addMessage(dym.id, {
+      id: uuid(),
+      role: "bot",
+      text: ok ? "Worker task completed" : "Worker task failed",
+      read: true,
+      toolCalls: [
+        {
+          name: "worker_task",
+          args: { task_id: result.taskId, ...(result.error ? { error: result.error } : {}) },
+          result,
+          status: ok ? "done" : "error",
+        },
+      ],
+    });
+  }, []);
+
+  const {
+    tasks: workerTasks,
+    skills: workerSkills,
+    status: workerStatus,
+    lastError: workerLastError,
+    runningTaskId: workerRunningTaskId,
+    lastPullAt: workerLastPullAt,
+    workerId,
+    runTask: engineRunTask,
+    proposeSkill: engineProposeSkill,
+    refresh: engineRefresh,
+  } = useWorkerEngine({
+    bot: draymondBot,
+    enabled: !!draymondBot,
+    deps: workerDeps,
+    onTaskResult: handleWorkerTaskResult,
+  });
+
+  const handleRunTask = useCallback(
+    async (task) => {
+      if (!task?.id) return;
+      await engineRunTask(task.id);
+    },
+    [engineRunTask]
+  );
+
+  const handleProposeSkill = useCallback(
+    async (pack) => engineProposeSkill(pack),
+    [engineProposeSkill]
+  );
 
   // Voice: push-to-talk + auto-speak for the active bot.
   const lastBotMessage = (messages || [])
@@ -426,7 +509,24 @@ export default function App() {
         delete localRefs.current[bot.id];
       }
 
+      // When a Draymond orchestrator is connected and the bot allows it, give
+      // the on-device model Draymond skill tools (list/run/chains/enqueue).
+      const dym = draymondBotRef.current;
+      const toolKit =
+        bot.draymondSkillsEnabled === true && dym
+          ? buildDraymondTools({
+              baseUrl: resolveWorkerBaseUrl(dym),
+              token: dym.token || "",
+              workerId: `open-chat-${dym.id}`,
+              store: createPreferencesStore(),
+              orchestrator: orchestratorRefs.current[dym.id] || null,
+              deps: workerDeps,
+            })
+          : null;
+
       const client = new LocalModelClient(bot, {
+        draymondTools: toolKit?.tools ?? [],
+        draymondToolHandler: toolKit?.handler ?? null,
         onToolCall: (call, resultValue) => {
           setToolLog((prev) =>
             [
@@ -442,6 +542,17 @@ export default function App() {
               },
             ].slice(-1000)
           );
+          // Surface the tool call inline on the streaming message as a card.
+          streamToolCallsRef.current = [
+            ...streamToolCallsRef.current,
+            {
+              name: call.name,
+              args: call.args,
+              result: resultValue,
+              status: resultValue?.ok === false ? "error" : "done",
+            },
+          ];
+          updateLastMessage(bot.id, { toolCalls: [...streamToolCallsRef.current] });
         },
       });
       client.onStatusChange = (status) => setStatus(bot.id, status);
@@ -455,7 +566,7 @@ export default function App() {
         setStatus(bot.id, "error");
       }
     },
-    [setStatus]
+    [setStatus, workerDeps]
   );
 
   // â”€â”€ Execute an ntfy action button (e.g. Draymond approve/reject) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -705,8 +816,9 @@ export default function App() {
           ),
         }));
       } else if (bot.protocol === "hermes") {
-        // Hermes HTTP/SSE
+        // Hermes HTTP/SSE (real hermes-agent gateway)
         abortRef.current = new AbortController();
+        streamToolCallsRef.current = []; // fresh set of tool-call cards per turn
 
         const prior = (history[bot.id] || [])
           .filter((m) => m.role === "user" || (m.role === "bot" && !m.streaming))
@@ -716,6 +828,25 @@ export default function App() {
             content: m.text,
           }));
         prior.push({ role: "user", content: text });
+
+        // The gateway streams `event: hermes.tool.progress` frames while the
+        // agent calls tools. Render them as live tool-call cards, keyed by
+        // toolCallId so "running" → "completed" updates the same card.
+        const handleHermesTool = (progress) => {
+          const { tool, label, toolCallId, status } = progress || {};
+          if (!tool) return;
+          if (status === "running") {
+            streamToolCallsRef.current = [
+              ...streamToolCallsRef.current,
+              { name: tool, args: {}, label: label || tool, status: "running", toolCallId },
+            ];
+          } else {
+            streamToolCallsRef.current = streamToolCallsRef.current.map((c) =>
+              c.toolCallId === toolCallId ? { ...c, status: "done" } : c
+            );
+          }
+          updateLastMessage(bot.id, { toolCalls: [...streamToolCallsRef.current] });
+        };
 
         await hermesStream(
           bot.host,
@@ -730,7 +861,8 @@ export default function App() {
             });
           },
           abortRef.current.signal,
-          bot.model
+          bot.model,
+          { sessionId: bot.id, onToolCall: handleHermesTool }
         );
 
         updateLastMessage(bot.id, {
@@ -911,6 +1043,7 @@ export default function App() {
         }
 
         abortRef.current = new AbortController();
+        streamToolCallsRef.current = []; // fresh set of tool-call cards per turn
 
         // Pass recent context so private chat is multi-turn.
         const prior = (history[bot.id] || [])
@@ -1000,6 +1133,21 @@ export default function App() {
     0
   );
 
+  // Pending approval count (ntfy messages with action buttons not yet resolved).
+  const approvalCount = useMemo(() => {
+    const resolved = loadResolvedApprovals();
+    let count = 0;
+    for (const bot of bots) {
+      if (bot.protocol !== "ntfy") continue;
+      for (const m of history[bot.id] || []) {
+        if (!Array.isArray(m.actions) || m.actions.length === 0) continue;
+        const key = m.ntfyId || m.id || `${bot.id}-${m.time}`;
+        if (!resolved[key]) count++;
+      }
+    }
+    return count;
+  }, [bots, history]);
+
   const localModelStatus =
     statuses["local"] === "connected" ? "Gemma ready" : "No model loaded";
 
@@ -1063,16 +1211,7 @@ export default function App() {
     return res?.ok === true;
   }
 
-  // â”€â”€ Worker screen stubs (real worker loop wiring is a later task) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  function handleProposeSkill() {
-    console.log("[work] propose skill");
-  }
-
-  function handleRunTask(task) {
-    console.log("[work] run task", task);
-  }
-
-  // â”€â”€ Bot management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â”€â”€ Bot management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   function addBot() {
     const newBot = {
       id: uuid(),
@@ -1083,6 +1222,8 @@ export default function App() {
       protocol: "hermes",
       host: "127.0.0.1",
       port: 8642,
+      // Access token is entered at runtime in Settings — never baked into
+      // the bundle (VITE_ vars are extractable from the APK).
       token: "",
       topic: "",
     };
@@ -1317,10 +1458,37 @@ export default function App() {
           {screen === "work" && (
             <WorkScreen
               tasks={workerTasks}
-              localSkills={localSkillKeys}
+              localSkills={workerSkills}
+              status={workerStatus}
+              lastError={workerLastError}
+              runningTaskId={workerRunningTaskId}
+              workerId={workerId}
+              lastPullAt={workerLastPullAt}
               onProposeSkill={handleProposeSkill}
               onRunTask={handleRunTask}
+              onRefresh={engineRefresh}
               onOpenMenu={() => setSidebarOpen(true)}
+            />
+          )}
+          {screen === "stats" && (
+            <StatsScreen
+              onOpenMenu={() => setSidebarOpen(true)}
+              bots={bots}
+              statuses={statuses}
+              history={history}
+              toolLog={toolLog}
+              workflows={workflows}
+              draymondNotifications={draymondNotifications}
+              agentRegistry={agentRegistry}
+              unread={totalUnread}
+            />
+          )}
+          {screen === "approvals" && (
+            <ApprovalsScreen
+              onOpenMenu={() => setSidebarOpen(true)}
+              bots={bots}
+              history={history}
+              onExecute={handleNtfyAction}
             />
           )}
 
@@ -1330,6 +1498,7 @@ export default function App() {
             onNavigate={navigate}
             unread={totalUnread}
             agentCount={Object.keys(agentRegistry).length}
+            approvalCount={approvalCount}
           />
         </div>
       )}
@@ -1472,6 +1641,10 @@ export default function App() {
       {showAuditLog && (
         <AuditLog
           toolLog={toolLog}
+          notifications={draymondNotifications}
+          chains={draymondChains}
+          workflows={workflows}
+          workerTasks={workerTasks}
           onClose={() => setShowAuditLog(false)}
         />
       )}

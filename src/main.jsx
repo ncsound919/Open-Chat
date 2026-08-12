@@ -1,9 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import { ErrorBoundary } from './components/ErrorBoundary.jsx'
+import { LockScreen } from './components/LockScreen.jsx'
 import { isNative, isAndroid } from './utils/platform.js'
 import { initNativeStorage } from './utils/storage.js'
+import * as secureStore from './utils/secureStore.js'
 import './index.css'
 
 /**
@@ -38,13 +40,46 @@ async function initCapacitor() {
   if (isAndroid) document.body.classList.add('android');
 }
 
-// Initialise Capacitor then render
-initCapacitor().then(() => {
-  ReactDOM.createRoot(document.getElementById('root')).render(
+/** Render the app, or the lock screen first when local data is encrypted. */
+async function bootstrap() {
+  await initCapacitor();
+
+  // Preload encrypted blobs so we can decide whether a passphrase is needed.
+  await secureStore.initSecureStore();
+  const locked = secureStore.isEnabled() && !secureStore.isUnlocked();
+
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+
+  function UnlockGate() {
+    const [unlocked, setUnlocked] = useState(!locked);
+    return (
+      <>
+        {unlocked ? (
+          <App />
+        ) : (
+          <LockScreen
+            onUnlock={async (passphrase) => {
+              try {
+                await secureStore.unlock(passphrase);
+                setUnlocked(true);
+                return true;
+              } catch {
+                return false;
+              }
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
+  root.render(
     <React.StrictMode>
       <ErrorBoundary>
-        <App />
+        <UnlockGate />
       </ErrorBoundary>
     </React.StrictMode>,
-  )
-});
+  );
+}
+
+bootstrap();

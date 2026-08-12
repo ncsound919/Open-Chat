@@ -106,6 +106,16 @@ export class WorkerClient {
     return res.ok === true;
   }
 
+  async enqueueTask(skillPackId, payload = {}, dueAt) {
+    const res = await this._post("/v1/worker/tasks", {
+      skill_pack_id: skillPackId ?? null,
+      payload: payload ?? {},
+      due_at: dueAt ?? null,
+    });
+    if (!res.ok) return { ok: false, error: res.error };
+    return { ok: true, id: res.id };
+  }
+
   async heartbeat(workerId = this.workerId, platform = "open-chat", version = "1.0.0") {
     const res = await this._post("/v1/worker/heartbeat", { client_id: workerId, platform, version });
     if (!res.ok) return { ok: false, error: res.error };

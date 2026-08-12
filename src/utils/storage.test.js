@@ -123,6 +123,28 @@ describe("storage load/save round-trip", () => {
     storageModule.clearAllStorage();
     expect(store.size).toBe(0);
   });
+
+  it("round-trips resolved approvals", () => {
+    expect(storageModule.loadResolvedApprovals()).toEqual({});
+    storageModule.saveResolvedApprovals({ "ntfy-m1": { decision: "Approve", at: 5 } });
+    expect(storageModule.loadResolvedApprovals()).toEqual({
+      "ntfy-m1": { decision: "Approve", at: 5 },
+    });
+  });
+
+  it("resets corrupted resolved approvals and clears them with all storage", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    global.localStorage.setItem("openchat_approvals_v1", "not json{{");
+    expect(storageModule.loadResolvedApprovals()).toEqual({});
+    global.localStorage.setItem("openchat_approvals_v1", JSON.stringify([1, 2]));
+    expect(storageModule.loadResolvedApprovals()).toEqual({});
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+
+    storageModule.saveResolvedApprovals({ k: { decision: "ok", at: 1 } });
+    storageModule.clearAllStorage();
+    expect(store.has("openchat_approvals_v1")).toBe(false);
+  });
 });
 
 describe("pruneHistory", () => {

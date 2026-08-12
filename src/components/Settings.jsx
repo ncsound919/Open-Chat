@@ -5,6 +5,7 @@ import { BotAvatar } from "./BotAvatar.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
 import { isFieldVisible, getAvailableProtocols, getModeDefaults, MODES } from "../utils/modeConfig.js";
 import { scanLocalModels, modelServerToBot } from "../utils/localModels.js";
+import * as secureStore from "../utils/secureStore.js";
 
 const PROTOCOL_DEFAULT_PORTS = {
   openclaw: "18789",
@@ -61,6 +62,59 @@ export function Settings({
   // ── Connection test state ─────────────────────────────────────────────────
   const [testingConn, setTestingConn] = useState(false);
   const [connResult, setConnResult] = useState(null); // { ok, message }
+
+  // ── Local security (at-rest encryption) state ─────────────────────────────
+  const [secNewPass, setSecNewPass] = useState("");
+  const [secConfirmPass, setSecConfirmPass] = useState("");
+  const [secCurrPass, setSecCurrPass] = useState("");
+  const [secNew2, setSecNew2] = useState("");
+  const [secConfirm2, setSecConfirm2] = useState("");
+  const [secMsg, setSecMsg] = useState("");
+  const [secErr, setSecErr] = useState("");
+  const [secBusy, setSecBusy] = useState(false);
+
+  const handleEnableEncryption = async () => {
+    setSecErr(""); setSecMsg("");
+    if (secNewPass !== secConfirmPass) {
+      setSecErr("Passphrases do not match.");
+      return;
+    }
+    setSecBusy(true);
+    try {
+      await secureStore.enable(secNewPass);
+      setSecNewPass(""); setSecConfirmPass("");
+      setSecMsg("Encryption enabled — history and bot tokens are now encrypted at rest.");
+    } catch (e) {
+      setSecErr(e?.message || "Could not enable encryption.");
+    } finally {
+      setSecBusy(false);
+    }
+  };
+
+  const handleChangePassphrase = async () => {
+    setSecErr(""); setSecMsg("");
+    if (secNew2 !== secConfirm2) {
+      setSecErr("New passphrases do not match.");
+      return;
+    }
+    setSecBusy(true);
+    try {
+      // Verify the current passphrase by a lock/unlock round-trip, then re-encrypt.
+      await secureStore.unlock(secCurrPass);
+      await secureStore.change(secCurrPass, secNew2);
+      setSecCurrPass(""); setSecNew2(""); setSecConfirm2("");
+      setSecMsg("Passphrase changed.");
+    } catch {
+      setSecErr("Current passphrase is incorrect.");
+    } finally {
+      setSecBusy(false);
+    }
+  };
+
+  const handleLockNow = () => {
+    secureStore.lock();
+    window.location.reload();
+  };
 
   /** Test the Draymond connection: health + authenticated agent discovery. */
   const handleTestConnection = useCallback(async () => {
@@ -513,6 +567,18 @@ export function Settings({
               />
               <span style={{ fontSize: 13, color: "#e0e0ea" }}>
                 Allow Galaxy AI skills (Samsung app AI)
+              </span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={form.draymondSkillsEnabled === true}
+                onChange={(e) =>
+                  updateField("draymondSkillsEnabled")({ target: { value: e.target.checked } })
+                }
+              />
+              <span style={{ fontSize: 13, color: "#e0e0ea" }}>
+                Allow Draymond skills (list / run / chains / enqueue)
               </span>
             </label>
             <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1288,6 +1354,180 @@ export function Settings({
           );
         })}
       </div>
+
+      {/* Local security (at-rest encryption) */}
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: "#f6f7f9",
+          marginBottom: 10,
+          marginTop: 10,
+        }}
+      >
+        Security
+      </div>
+
+      {!secureStore.isSupported() ? (
+        <div style={{ fontSize: 12, color: "#8b8b9e", lineHeight: 1.5 }}>
+          At-rest encryption is not available in this context (requires WebCrypto
+          in a secure context, e.g. the installed app or HTTPS).
+        </div>
+      ) : !secureStore.isEnabled() ? (
+        <div
+          style={{
+            background: "#0e1117",
+            border: "1px solid #2a2a38",
+            borderRadius: 10,
+            padding: "12px 14px",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#8b8b9e", lineHeight: 1.5, marginBottom: 10 }}>
+            Encrypt chat history and bot tokens (access keys) at rest. You will
+            unlock with this passphrase every time the app opens.
+          </div>
+          <input
+            type="password"
+            style={{ ...inputStyle, marginTop: 0 }}
+            value={secNewPass}
+            onChange={(e) => setSecNewPass(e.target.value)}
+            placeholder="New passphrase"
+            aria-label="New passphrase"
+          />
+          <input
+            type="password"
+            style={inputStyle}
+            value={secConfirmPass}
+            onChange={(e) => setSecConfirmPass(e.target.value)}
+            placeholder="Confirm passphrase"
+            aria-label="Confirm passphrase"
+          />
+          <button
+            onClick={handleEnableEncryption}
+            disabled={secBusy || !secNewPass || !secConfirmPass}
+            style={{
+              width: "100%",
+              marginTop: 10,
+              background: "#22d3ee",
+              border: "none",
+              borderRadius: 8,
+              padding: "10px",
+              color: "#05060a",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: secBusy ? "default" : "pointer",
+              opacity: secBusy || !secNewPass || !secConfirmPass ? 0.6 : 1,
+            }}
+          >
+            {secBusy ? "Encrypting…" : "Enable encryption"}
+          </button>
+        </div>
+      ) : (
+        <div
+          style={{
+            background: "#0e1117",
+            border: "1px solid #34d39940",
+            borderRadius: 10,
+            padding: "12px 14px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "#34d399" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#34d399" }} />
+            Local data encrypted
+          </div>
+
+          <div style={{ fontSize: 11, color: "#8b8b9e", margin: "10px 0 8px" }}>Change passphrase</div>
+          <input
+            type="password"
+            style={{ ...inputStyle, marginTop: 0 }}
+            value={secCurrPass}
+            onChange={(e) => setSecCurrPass(e.target.value)}
+            placeholder="Current passphrase"
+            aria-label="Current passphrase"
+          />
+          <input
+            type="password"
+            style={inputStyle}
+            value={secNew2}
+            onChange={(e) => setSecNew2(e.target.value)}
+            placeholder="New passphrase"
+            aria-label="New passphrase (change)"
+          />
+          <input
+            type="password"
+            style={inputStyle}
+            value={secConfirm2}
+            onChange={(e) => setSecConfirm2(e.target.value)}
+            placeholder="Confirm new passphrase"
+            aria-label="Confirm new passphrase"
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button
+              onClick={handleChangePassphrase}
+              disabled={secBusy || !secCurrPass || !secNew2 || !secConfirm2}
+              style={{
+                flex: 1,
+                background: "#818cf8",
+                border: "none",
+                borderRadius: 8,
+                padding: "10px",
+                color: "#0d0d14",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: secBusy ? "default" : "pointer",
+                opacity: secBusy || !secCurrPass || !secNew2 || !secConfirm2 ? 0.6 : 1,
+              }}
+            >
+              {secBusy ? "Working…" : "Change"}
+            </button>
+            <button
+              onClick={handleLockNow}
+              style={{
+                flex: 1,
+                background: "#2d1f1f",
+                border: "1px solid #ef444440",
+                borderRadius: 8,
+                padding: "10px",
+                color: "#ef4444",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Lock now
+            </button>
+          </div>
+        </div>
+      )}
+
+      {secMsg && (
+        <div
+          role="status"
+          style={{
+            fontSize: 12,
+            color: "#34d399",
+            background: "#34d39918",
+            borderRadius: 8,
+            padding: "8px 10px",
+          }}
+        >
+          {secMsg}
+        </div>
+      )}
+      {secErr && (
+        <div
+          role="alert"
+          style={{
+            fontSize: 12,
+            color: "#ef4444",
+            background: "#ef444418",
+            borderRadius: 8,
+            padding: "8px 10px",
+          }}
+        >
+          {secErr}
+        </div>
+      )}
 
       {/* Save Button */}
       <div style={{ padding: "12px 20px 32px", borderTop: "1px solid #1a1a26" }}>

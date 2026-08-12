@@ -1134,3 +1134,41 @@ describe("offline queue persistence edge cases", () => {
     expect(c.getOfflineQueueSize()).toBe(1);
   });
 });
+
+describe("mission dashboard + heartbeats (fleet stats)", () => {
+  it("getMissionDashboard returns the mission payload", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({ revenueUsd: 1200, totalMonthlyTarget: 33000, byService: {}, opportunities: { total: 3, byStage: {} } })
+    );
+    const c = new DraymondOrchestratorClient("127.0.0.1", 8644, "tok");
+    const res = await c.getMissionDashboard();
+    expect(res.revenueUsd).toBe(1200);
+    expect(res.totalMonthlyTarget).toBe(33000);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:8644/api/mission/dashboard");
+    expect(init.headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("getMissionDashboard returns null on failure", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("boom"));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    expect(await c.getMissionDashboard()).toBeNull();
+  });
+
+  it("getHeartbeats returns the heartbeat map", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({ heartbeats: { "agent-a": { up: true }, "agent-b": { up: false } } })
+    );
+    const c = new DraymondOrchestratorClient("127.0.0.1", 8644, "tok");
+    const res = await c.getHeartbeats();
+    expect(res.heartbeats["agent-b"].up).toBe(false);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:8644/api/ops/heartbeats");
+  });
+
+  it("getHeartbeats returns null on failure", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("boom"));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    expect(await c.getHeartbeats()).toBeNull();
+  });
+});

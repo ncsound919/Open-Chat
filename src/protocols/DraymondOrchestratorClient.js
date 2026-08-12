@@ -665,6 +665,43 @@ export class DraymondOrchestratorClient {
     }
   }
 
+  /**
+   * Get the mission dashboard — settled revenue, monthly target, per-service
+   * won/paid, and opportunity velocity. (Revenue pulse for the Stats screen.)
+   * @returns {Promise<object|null>}
+   */
+  async getMissionDashboard() {
+    const url = `${this.baseUrl}/mission/dashboard`;
+    try {
+      const res = await fetch(url, {
+        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to get mission dashboard:", error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get latest recorded agent heartbeats (fleet triage for the Stats screen).
+   * @returns {Promise<{heartbeats: object}|null>}
+   */
+  async getHeartbeats() {
+    const url = `${this.baseUrl}/ops/heartbeats`;
+    try {
+      const res = await fetch(url, {
+        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to get heartbeats:", error.message);
+      return null;
+    }
+  }
+
   // ── Orchestrate with entity/chain routing ───────────────────────────────
 
   /**
