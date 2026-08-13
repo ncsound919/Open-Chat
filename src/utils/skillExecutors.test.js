@@ -91,4 +91,46 @@ describe("buildSkillExecutors", () => {
     expect(out.ok).toBe(true);
     expect(typeof out.result).toBe("string");
   });
+
+  it("uploads a capture to SMD via capture_to_smd", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, path: "C:/smd/images/capture.png", filename: "capture.png" }),
+    }));
+    global.fetch = fetchMock;
+    const handlers = buildSkillExecutors({ ...makeDeps(), draymondBaseUrl: "https://draymond.overlay365.com", token: "tok" });
+    const out = await handlers.capture_to_smd({ data: "aGVsbG8=", filename: "cap.png", tool: "capture_to_smd", pack: { name: "p" } });
+    expect(out.ok).toBe(true);
+    expect(out.smd_ref).toContain("capture.png");
+    const url = fetchMock.mock.calls[0][0];
+    expect(url).toContain("/api/v1/marketing/media");
+  });
+
+  it("fails capture_to_smd without data or connection", async () => {
+    const handlers = buildSkillExecutors(makeDeps());
+    const noData = await handlers.capture_to_smd({ tool: "capture_to_smd", pack: { name: "p" } });
+    expect(noData.ok).toBe(false);
+    const noUrl = await handlers.capture_to_smd({ data: "aGVsbG8=", tool: "capture_to_smd", pack: { name: "p" } });
+    expect(noUrl.ok).toBe(false);
+  });
+
+  it("reads the SMD publish queue via smd_queue", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, total: 2, queue: [{ id: "p1" }, { id: "p2" }] }),
+    }));
+    global.fetch = fetchMock;
+    const handlers = buildSkillExecutors({ ...makeDeps(), draymondBaseUrl: "https://draymond.overlay365.com", token: "tok" });
+    const out = await handlers.smd_queue({ tool: "smd_queue", pack: { name: "p" } });
+    expect(out.ok).toBe(true);
+    expect(out.total).toBe(2);
+    const url = fetchMock.mock.calls[0][0];
+    expect(url).toContain("/api/v1/marketing/queue");
+  });
+
+  it("fails smd_queue without a Draymond connection", async () => {
+    const handlers = buildSkillExecutors(makeDeps());
+    const out = await handlers.smd_queue({ tool: "smd_queue", pack: { name: "p" } });
+    expect(out.ok).toBe(false);
+  });
 });

@@ -180,8 +180,10 @@ export default function App() {
         return { text: r.text, provider: r.provider };
       },
       confirm: confirmPhoneAction,
+      draymondBaseUrl: draymondBot ? resolveWorkerBaseUrl(draymondBot) : "",
+      token: draymondBot?.token || "",
     }),
-    [confirmPhoneAction]
+    [confirmPhoneAction, draymondBot]
   );
 
   const handleWorkerTaskResult = useCallback((result) => {

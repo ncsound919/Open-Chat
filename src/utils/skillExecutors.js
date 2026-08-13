@@ -33,10 +33,63 @@ function toolArgs(ctx) {
  * @param {(prompt:string, opts?:object)=>Promise<{text:string,provider?:string}>} [deps.chat] - on-device chat
  * @param {(req:object)=>Promise<boolean>} [deps.confirm] - user confirmation gate
  *   for mutating phone tools (tap/type/open_app/swipe/press).
+ * @param {string} [deps.draymondBaseUrl] - Draymond base URL (no /api) for
+ *   capture-to-SMD uploads and queue review.
+ * @param {string} [deps.token] - Draymond Bearer token.
  * @returns {Record<string, (ctx:object)=>Promise<object>>}
  */
-export function buildSkillExecutors({ onSend, onNotify, chat, confirm } = {}) {
+export function buildSkillExecutors({ onSend, onNotify, chat, confirm, draymondBaseUrl = "", token = "" } = {}) {
   const phone = (name, ctx) => execPhoneTool(name, toolArgs(ctx), { ...ctx, confirm });
+
+  /** Upload a phone screenshot (base64) to the SMD media store via Draymond. */
+  const captureToSmd = async (ctx) => {
+    const args = toolArgs(ctx);
+    const b64 = args.data ?? args.base64 ?? "";
+    if (!b64 || !draymondBaseUrl) {
+      return { ok: false, error: "capture_to_smd requires screenshot data + a Draymond connection" };
+    }
+    try {
+      const res = await fetch(`${draymondBaseUrl.replace(/\/+$/, "")}/api/v1/marketing/media`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          filename: args.filename ?? `capture-${Date.now()}.png`,
+          data: b64,
+          mime: args.mime ?? "image/png",
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.ok !== true) {
+        return { ok: false, error: json.error ?? `HTTP ${res.status}` };
+      }
+      return { ok: true, smd_ref: json.path, filename: json.filename };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  /** Pull the SMD publish queue for human review. */
+  const smdQueue = async () => {
+    if (!draymondBaseUrl) {
+      return { ok: false, error: "smd_queue requires a Draymond connection" };
+    }
+    try {
+      const res = await fetch(`${draymondBaseUrl.replace(/\/+$/, "")}/api/v1/marketing/queue`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.ok !== true) {
+        return { ok: false, error: json.error ?? `HTTP ${res.status}` };
+      }
+      return { ok: true, total: json.total ?? 0, queue: json.queue ?? [] };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
 
   const textTool = async (ctx) => {
     const args = toolArgs(ctx);
@@ -112,6 +165,8 @@ export function buildSkillExecutors({ onSend, onNotify, chat, confirm } = {}) {
     capture,
     phone_control: phoneControl,
     ai_apps: aiApps,
+    capture_to_smd: captureToSmd,
+    smd_queue: smdQueue,
     outputs: async (ctx) => ({ ok: true, outputs: ctx?.pack?.outputs ?? [] }),
     text: textTool,
     llm: textTool,
