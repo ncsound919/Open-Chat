@@ -6,6 +6,7 @@ import { WorkScreen } from "./components/WorkScreen.jsx";
 import { StatsScreen } from "./components/StatsScreen.jsx";
 import { ApprovalsScreen } from "./components/ApprovalsScreen.jsx";
 import { HomeScreen } from "./components/HomeScreen.jsx";
+import { PhoneActionConfirm } from "./components/PhoneActionConfirm.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 import { Chat } from "./components/Chat.jsx";
 import { SearchResults } from "./components/SearchResults.jsx";
@@ -115,6 +116,33 @@ export default function App() {
 
   // Worker screen state (live Draymond worker loop — see useWorkerEngine below)
 
+  // Pending mutating phone action awaiting user approval (phoneTools/galaaxyAi gate).
+  const [pendingPhoneAction, setPendingPhoneAction] = useState(null);
+  const pendingPhoneActionResolve = useRef(null);
+
+  // Promise-based confirmation gate: resolves true (Allow) or false (Deny).
+  // Returns true when no mutating action is actually pending (fast path).
+  const confirmPhoneAction = useCallback(
+    (req) =>
+      new Promise((resolve) => {
+        const { description = "", name = "" } = req || {};
+        setPendingPhoneAction({
+          description,
+          toolName: name,
+          ...req,
+        });
+        pendingPhoneActionResolve.current = resolve;
+      }),
+    []
+  );
+
+  const resolvePendingPhoneAction = useCallback((approved) => {
+    const fn = pendingPhoneActionResolve.current;
+    pendingPhoneActionResolve.current = null;
+    setPendingPhoneAction(null);
+    fn?.(approved);
+  }, []);
+
   // Refs
   const clawRefs = useRef({}); // botId → OpenClawClient | UpliftBridgeClient
   const orchestratorRefs = useRef({}); // botId → DraymondOrchestratorClient
@@ -151,8 +179,9 @@ export default function App() {
         const r = await chatPrivate(prompt, opts);
         return { text: r.text, provider: r.provider };
       },
+      confirm: confirmPhoneAction,
     }),
-    []
+    [confirmPhoneAction]
   );
 
   const handleWorkerTaskResult = useCallback((result) => {
@@ -527,6 +556,7 @@ export default function App() {
       const client = new LocalModelClient(bot, {
         draymondTools: toolKit?.tools ?? [],
         draymondToolHandler: toolKit?.handler ?? null,
+        confirmAction: confirmPhoneAction,
         onToolCall: (call, resultValue) => {
           setToolLog((prev) =>
             [
@@ -566,7 +596,7 @@ export default function App() {
         setStatus(bot.id, "error");
       }
     },
-    [setStatus, workerDeps]
+    [setStatus, workerDeps, confirmPhoneAction]
   );
 
   // â”€â”€ Execute an ntfy action button (e.g. Draymond approve/reject) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1682,6 +1712,13 @@ export default function App() {
           onClose={() => setShowScheduler(false)}
         />
       )}
+
+      {/* Phone action confirmation gate (topmost overlay) */}
+      <PhoneActionConfirm
+        request={pendingPhoneAction}
+        onAllow={() => resolvePendingPhoneAction(true)}
+        onDeny={() => resolvePendingPhoneAction(false)}
+      />
     </div>
   );
 }

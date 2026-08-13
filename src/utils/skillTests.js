@@ -25,9 +25,12 @@ export const SKILL_TEST_CASES = [
  * @param {object} opts
  * @param {object} [opts.phoneControl] - preloaded PhoneControl plugin
  * @param {(line:string)=>void} [opts.onProgress]
+ * @param {(req:object)=>Promise<boolean>} [opts.confirm] - confirmation gate;
+ *   defaults to auto-approve because this is an explicit user-triggered
+ *   self-test of the accessibility bridge, not an autonomous agent path.
  * @returns {Promise<Array<{name,desc,kind,ok,ms,detail}>>}
  */
-export async function runSkillTests({ phoneControl, onProgress } = {}) {
+export async function runSkillTests({ phoneControl, onProgress, confirm = async () => true } = {}) {
   const report = (m) => typeof onProgress === "function" && onProgress(m);
   const phone = phoneControl ?? null;
   const results = [];
@@ -39,8 +42,8 @@ export async function runSkillTests({ phoneControl, onProgress } = {}) {
       continue;
     }
     const runner = test.kind === "galaxy"
-      ? () => execGalaxySkill(test.skill, test.args, { phoneControl: phone })
-      : () => execPhoneTool(test.skill, test.args, { phoneControl: phone });
+      ? () => execGalaxySkill(test.skill, test.args, { phoneControl: phone, confirm })
+      : () => execPhoneTool(test.skill, test.args, { phoneControl: phone, confirm });
     const t = await timeAsync(runner);
     const val = t.value;
     const ok = !t.error && val?.ok === true && !val?.needs_enablement;

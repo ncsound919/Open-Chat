@@ -41,6 +41,7 @@ export class LocalModelClient {
     this.onStatusChange = null;
     this.onToolCall = opts.onToolCall ?? null;
     this.onVerified = opts.onVerified ?? null;
+    this.confirmAction = opts.confirmAction ?? null;
     this._abort = null;
     this._appsCache = null;
     this._appsCacheAt = 0;
@@ -81,10 +82,11 @@ export class LocalModelClient {
    * Route a tool call to the right executor (phone tools vs Galaxy AI skills).
    */
   async _execTool(name, args) {
+    const confirm = this.confirmAction;
     if (this.galaxySkillsEnabled && isGalaxySkillName(name)) {
-      return execGalaxySkill(name, args);
+      return execGalaxySkill(name, args, { confirm });
     }
-    return execPhoneTool(name, args);
+    return execPhoneTool(name, args, { confirm });
   }
 
   /**
@@ -115,6 +117,8 @@ export class LocalModelClient {
     const systemPrompt = appSection ? `${this.systemPrompt}\n\n${appSection}` : this.systemPrompt;
 
     const draymondToolHandler = this.draymondToolHandler;
+    // DRAYMOND_TOOL_NAMES is exported as an array; wrap in a Set for O(1) .has().
+    const draymondToolNameSet = new Set(DRAYMOND_TOOL_NAMES);
     const result = await chatLocal({
       userMessage: text,
       systemPrompt,
@@ -122,7 +126,7 @@ export class LocalModelClient {
       provider: LOCAL_PROVIDER_HINTS[this.model],
       tools,
       toolHandler: async (name, args) => {
-        if (draymondToolHandler && DRAYMOND_TOOL_NAMES.has(name)) {
+        if (draymondToolHandler && draymondToolNameSet.has(name)) {
           return draymondToolHandler(name, args);
         }
         return this._execTool(name, args);

@@ -56,14 +56,14 @@ describe("execGalaxySkill", () => {
 
   it("opens a Samsung app", async () => {
     const plugin = mockPlugin();
-    const res = await execGalaxySkill("galaxy_open", { app: "notes" }, { phoneControl: plugin });
+    const res = await execGalaxySkill("galaxy_open", { app: "notes" }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(true);
     expect(plugin.openApp).toHaveBeenCalledWith({ packageName: "com.samsung.android.app.notes" });
   });
 
   it("rejects unknown Samsung apps", async () => {
     const plugin = mockPlugin();
-    const res = await execGalaxySkill("galaxy_open", { app: "camera" }, { phoneControl: plugin });
+    const res = await execGalaxySkill("galaxy_open", { app: "camera" }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(false);
   });
 
@@ -72,7 +72,7 @@ describe("execGalaxySkill", () => {
     const res = await execGalaxySkill(
       "galaxy_ai_action",
       { app: "notes", action: "summarize" },
-      { phoneControl: plugin }
+      { phoneControl: plugin, confirm: async () => true }
     );
     expect(res.ok).toBe(true);
     expect(res.action).toBe("summarize");
@@ -89,7 +89,7 @@ describe("execGalaxySkill", () => {
     const res = await execGalaxySkill(
       "galaxy_ai_action",
       { app: "notes", action: "summarize" },
-      { phoneControl: plugin }
+      { phoneControl: plugin, confirm: async () => true }
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/No Galaxy AI button/);
@@ -106,5 +106,26 @@ describe("execGalaxySkill", () => {
     const plugin = mockPlugin();
     const res = await execGalaxySkill("galaxy_fly", {}, { phoneControl: plugin });
     expect(res.ok).toBe(false);
+  });
+
+  it("fails closed for galaxy_open without a confirm callback", async () => {
+    const plugin = mockPlugin();
+    const res = await execGalaxySkill("galaxy_open", { app: "notes" }, { phoneControl: plugin });
+    expect(res.ok).toBe(false);
+    expect(res.declined).toBe(true);
+    expect(plugin.openApp).not.toHaveBeenCalled();
+  });
+
+  it("declines galaxy_ai_action when confirm resolves false", async () => {
+    const plugin = mockPlugin();
+    const confirm = vi.fn(async () => false);
+    const res = await execGalaxySkill(
+      "galaxy_ai_action",
+      { app: "notes", action: "summarize" },
+      { phoneControl: plugin, confirm }
+    );
+    expect(res.ok).toBe(false);
+    expect(res.declined).toBe(true);
+    expect(plugin.performTap).not.toHaveBeenCalled();
   });
 });

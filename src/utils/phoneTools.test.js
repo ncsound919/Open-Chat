@@ -2,7 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import {
   PHONE_TOOLS,
   isPhoneTool,
+  isMutatingPhoneTool,
   execPhoneTool,
+  describeAction,
 } from "./phoneTools.js";
 
 vi.mock("@open-chat/mediapipe-gemma", () => ({
@@ -54,6 +56,20 @@ describe("isPhoneTool", () => {
   });
 });
 
+describe("isMutatingPhoneTool", () => {
+  it("marks state-changing tools as mutating", () => {
+    for (const n of ["tap", "type", "open_app", "swipe", "press"]) {
+      expect(isMutatingPhoneTool(n)).toBe(true);
+    }
+  });
+
+  it("leaves read-only tools unmutated", () => {
+    for (const n of ["get_foreground", "read_screen", "capture_screenshot"]) {
+      expect(isMutatingPhoneTool(n)).toBe(false);
+    }
+  });
+});
+
 describe("PHONE_TOOLS", () => {
   it("exposes the expected tool set", () => {
     const names = PHONE_TOOLS.map((t) => t.name);
@@ -81,42 +97,42 @@ describe("execPhoneTool", () => {
 
   it("opens an app by package", async () => {
     const plugin = mockPlugin();
-    const res = await execPhoneTool("open_app", { package_name: "com.whatsapp" }, { phoneControl: plugin });
+    const res = await execPhoneTool("open_app", { package_name: "com.whatsapp" }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(true);
     expect(plugin.openApp).toHaveBeenCalledWith({ packageName: "com.whatsapp" });
   });
 
   it("taps by text lookup using element center", async () => {
     const plugin = mockPlugin();
-    const res = await execPhoneTool("tap", { text: "Send" }, { phoneControl: plugin });
+    const res = await execPhoneTool("tap", { text: "Send" }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(true);
     expect(plugin.performTap).toHaveBeenCalledWith({ x: 140, y: 220 });
   });
 
   it("taps by exact coordinates", async () => {
     const plugin = mockPlugin();
-    const res = await execPhoneTool("tap", { x: 50, y: 60 }, { phoneControl: plugin });
+    const res = await execPhoneTool("tap", { x: 50, y: 60 }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(true);
     expect(plugin.performTap).toHaveBeenCalledWith({ x: 50, y: 60 });
   });
 
   it("reports a missing element", async () => {
     const plugin = mockPlugin();
-    const res = await execPhoneTool("tap", { text: "Nope" }, { phoneControl: plugin });
+    const res = await execPhoneTool("tap", { text: "Nope" }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/Could not find/);
   });
 
   it("types text into the focused field", async () => {
     const plugin = mockPlugin();
-    const res = await execPhoneTool("type", { text: "hello" }, { phoneControl: plugin });
+    const res = await execPhoneTool("type", { text: "hello" }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(true);
     expect(plugin.inputText).toHaveBeenCalledWith({ text: "hello" });
   });
 
   it("presses a system key", async () => {
     const plugin = mockPlugin();
-    const res = await execPhoneTool("press", { key: "back" }, { phoneControl: plugin });
+    const res = await execPhoneTool("press", { key: "back" }, { phoneControl: plugin, confirm: async () => true });
     expect(res.ok).toBe(true);
     expect(plugin.performGlobalAction).toHaveBeenCalledWith({ action: "back" });
   });
@@ -126,7 +142,7 @@ describe("execPhoneTool", () => {
     const res = await execPhoneTool(
       "swipe",
       { from_x: 100, from_y: 2000, to_x: 100, to_y: 300 },
-      { phoneControl: plugin }
+      { phoneControl: plugin, confirm: async () => true }
     );
     expect(res.ok).toBe(true);
   });
@@ -136,6 +152,52 @@ describe("execPhoneTool", () => {
     const res = await execPhoneTool("teleport", {}, { phoneControl: plugin });
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/unknown phone tool/);
+  });
+});
+
+describe("confirmation gate", () => {
+  it("fails closed when a mutating tool has no confirm callback", async () => {
+    const plugin = mockPlugin();
+    const res = await execPhoneTool("tap", { x: 50, y: 60 }, { phoneControl: plugin });
+    expect(res.ok).toBe(false);
+    expect(res.declined).toBe(true);
+    expect(plugin.performTap).not.toHaveBeenCalled();
+  });
+
+  it("declines a mutating tool when confirm resolves false", async () => {
+    const plugin = mockPlugin();
+    const confirm = vi.fn(async () => false);
+    const res = await execPhoneTool("type", { text: "secret" }, { phoneControl: plugin, confirm });
+    expect(res.ok).toBe(false);
+    expect(res.declined).toBe(true);
+    expect(plugin.inputText).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ name: "type" }));
+  });
+
+  it("passes a human-readable description to confirm", async () => {
+    const plugin = mockPlugin();
+    const confirm = vi.fn(async () => true);
+    await execPhoneTool("tap", { text: "Send" }, { phoneControl: plugin, confirm });
+    const req = confirm.mock.calls[0][0];
+    expect(req.description).toContain("Send");
+  });
+
+  it("does not prompt for read-only tools", async () => {
+    const plugin = mockPlugin();
+    const confirm = vi.fn(async () => true);
+    await execPhoneTool("read_screen", {}, { phoneControl: plugin, confirm });
+    await execPhoneTool("get_foreground", {}, { phoneControl: plugin, confirm });
+    await execPhoneTool("capture_screenshot", {}, { phoneControl: plugin, confirm });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("describeAction", () => {
+  it("produces readable one-liners", () => {
+    expect(describeAction("tap", { text: "Send" })).toContain("Send");
+    expect(describeAction("type", { text: "hello" })).toContain("hello");
+    expect(describeAction("open_app", { package_name: "com.whatsapp" })).toContain("com.whatsapp");
+    expect(describeAction("press", { key: "home" })).toContain("home");
   });
 });
 

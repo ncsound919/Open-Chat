@@ -95,7 +95,7 @@ async function benchPhoneTools(phone) {
     ["read_screen", {}],
   ];
   for (const [name, args] of cases) {
-    const t = await timeAsync(() => execPhoneTool(name, args, { phoneControl: phone }));
+    const t = await timeAsync(() => execPhoneTool(name, args, { phoneControl: phone, confirm: async () => true }));
     out.push(
       result(`tool.${name}`, `Tool: ${name}`, {
         ms: t.ms,
@@ -116,7 +116,7 @@ async function benchGalaxySkills(phone) {
     ["galaxy_ai_action", { app: "notes", action: "summarize" }],
   ];
   for (const [name, args] of cases) {
-    const t = await timeAsync(() => execGalaxySkill(name, args, { phoneControl: phone }));
+    const t = await timeAsync(() => execGalaxySkill(name, args, { phoneControl: phone, confirm: async () => true }));
     const ok = !t.error && t.value?.ok === true;
     out.push(
       result(`galaxy.${name}`, `Galaxy AI: ${name}`, {

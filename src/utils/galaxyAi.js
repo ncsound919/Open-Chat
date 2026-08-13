@@ -9,6 +9,9 @@
  */
 
 
+import { loadPhoneControl } from "./modelRegistry.js";
+
+
 /** Samsung app package names. */
 export const SAMSUNG_APPS = {
   notes: "com.samsung.android.app.notes",
@@ -148,11 +151,14 @@ async function runGalaxyAiAction(phone, appKey, action, waitMs = 2500) {
  * Execute a Galaxy AI skill.
  * @param {string} name - skill name
  * @param {object} args - skill args
- * @param {object} [opts] - { phoneControl } preloaded plugin
+ * @param {object} [opts]
+ * @param {object} [opts.phoneControl] - preloaded plugin (loaded lazily if omitted)
+ * @param {Function} [opts.confirm] - async ({name,args,description}) => boolean;
+ *   required for mutating skills (galaxy_open, galaxy_ai_action).
  * @returns {Promise<object>}
  */
 export async function execGalaxySkill(name, args = {}, opts = {}) {
-  const phone = opts.phoneControl;
+  const phone = opts.phoneControl ?? (await loadPhoneControl());
   if (!phone) {
     return { ok: false, error: "PhoneControl plugin unavailable" };
   }
@@ -164,6 +170,21 @@ export async function execGalaxySkill(name, args = {}, opts = {}) {
         "Accessibility service is not enabled. Ask the user to enable 'Open Chat' in System Settings > Accessibility.",
       needs_enablement: true,
     };
+  }
+
+  // Confirmation gate: galaxy_open / galaxy_ai_action drive other apps.
+  if (name === "galaxy_open" || name === "galaxy_ai_action") {
+    if (typeof opts.confirm !== "function") {
+      return { ok: false, error: `${name} requires user confirmation`, declined: true };
+    }
+    const description =
+      name === "galaxy_open"
+        ? `Open ${args.app ?? "Samsung"} app for Galaxy AI`
+        : `Run Galaxy AI "${args.action ?? ""}" in ${args.app ?? "Samsung"}`;
+    const approved = await opts.confirm({ name, args, description });
+    if (!approved) {
+      return { ok: false, error: `action declined by user: ${description}`, declined: true };
+    }
   }
 
   switch (name) {

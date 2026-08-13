@@ -18,8 +18,12 @@ describe("modeConfig", () => {
       expect(isFieldVisible("protocol", "basic")).toBe(false);
       expect(isFieldVisible("host", "basic")).toBe(false);
       expect(isFieldVisible("port", "basic")).toBe(false);
-      expect(isFieldVisible("token", "basic")).toBe(false);
       expect(isFieldVisible("voiceEnabled", "basic")).toBe(false);
+    });
+
+    it("shows token + connection info in basic mode (needed to connect)", () => {
+      expect(isFieldVisible("token", "basic")).toBe(true);
+      expect(isFieldVisible("connectionInfo", "basic")).toBe(true);
     });
 
     it("shows dev-only fields in dev mode", () => {

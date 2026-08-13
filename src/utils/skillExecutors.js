@@ -31,10 +31,12 @@ function toolArgs(ctx) {
  * @param {(text:string)=>void} [deps.onSend] - post text into the active chat
  * @param {(title:string, body:string)=>Promise<unknown>} [deps.onNotify]
  * @param {(prompt:string, opts?:object)=>Promise<{text:string,provider?:string}>} [deps.chat] - on-device chat
+ * @param {(req:object)=>Promise<boolean>} [deps.confirm] - user confirmation gate
+ *   for mutating phone tools (tap/type/open_app/swipe/press).
  * @returns {Record<string, (ctx:object)=>Promise<object>>}
  */
-export function buildSkillExecutors({ onSend, onNotify, chat } = {}) {
-  const phone = (name, ctx) => execPhoneTool(name, toolArgs(ctx), ctx);
+export function buildSkillExecutors({ onSend, onNotify, chat, confirm } = {}) {
+  const phone = (name, ctx) => execPhoneTool(name, toolArgs(ctx), { ...ctx, confirm });
 
   const textTool = async (ctx) => {
     const args = toolArgs(ctx);

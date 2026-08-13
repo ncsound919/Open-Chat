@@ -75,9 +75,17 @@ export const PHONE_TOOLS = [
 
 const TOOL_NAMES = new Set(PHONE_TOOLS.map((t) => t.name));
 
+/** Tools that change other apps / send input — require user confirmation. */
+const MUTATING_PHONE_TOOLS = new Set(["tap", "type", "open_app", "swipe", "press"]);
+
 /** True if the name is one of the phone-control tools. */
 export function isPhoneTool(name) {
   return TOOL_NAMES.has(name);
+}
+
+/** True if the tool mutates other apps (requires a confirmation gate). */
+export function isMutatingPhoneTool(name) {
+  return MUTATING_PHONE_TOOLS.has(name);
 }
 
 /**
@@ -103,6 +111,9 @@ async function findNodeByText(phone, text) {
  * @param {object} args - tool args
  * @param {object} [opts]
  * @param {object} [opts.phoneControl] - preloaded plugin instance
+ * @param {Function} [opts.confirm] - async ({name,args,description}) => boolean;
+ *   required for mutating tools (tap/type/open_app/swipe/press). Returning
+ *   false declines the action before it touches the accessibility service.
  * @returns {Promise<object>} serializable result
  */
 export async function execPhoneTool(name, args = {}, opts = {}) {
@@ -118,6 +129,19 @@ export async function execPhoneTool(name, args = {}, opts = {}) {
         "Accessibility service is not enabled. Ask the user to enable 'Open Chat' in System Settings > Accessibility, then try again.",
       needs_enablement: true,
     };
+  }
+
+  // Confirmation gate: block mutating actions until the user explicitly
+  // approves (or the caller didn't wire a confirm — fail closed).
+  if (MUTATING_PHONE_TOOLS.has(name)) {
+    if (typeof opts.confirm !== "function") {
+      return { ok: false, error: `${name} requires user confirmation`, declined: true };
+    }
+    const description = describeAction(name, args);
+    const approved = await opts.confirm({ name, args, description });
+    if (!approved) {
+      return { ok: false, error: `action declined by user: ${description}`, declined: true };
+    }
   }
 
   switch (name) {
@@ -205,5 +229,25 @@ export async function execPhoneTool(name, args = {}, opts = {}) {
     }
     default:
       return { ok: false, error: `unknown phone tool: ${name}` };
+  }
+}
+
+/** Human-readable one-liner for a mutating phone action (shown in the confirm UI). */
+export function describeAction(name, args = {}) {
+  switch (name) {
+    case "tap":
+      if (args.text) return `Tap "${String(args.text).slice(0, 40)}"`;
+      if (args.x != null && args.y != null) return `Tap at (${Math.round(Number(args.x))}, ${Math.round(Number(args.y))})`;
+      return "Tap an element on screen";
+    case "type":
+      return `Type "${String(args.text ?? "").slice(0, 60)}"`;
+    case "open_app":
+      return `Open app "${String(args.package_name ?? "").slice(0, 40)}"`;
+    case "swipe":
+      return "Swipe on screen";
+    case "press":
+      return `Press ${String(args.key ?? "back")}`;
+    default:
+      return `${name} on this phone`;
   }
 }
