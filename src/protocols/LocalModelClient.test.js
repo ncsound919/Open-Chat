@@ -43,6 +43,18 @@ vi.mock("../utils/draymondTools.js", () => ({
   DRAYMOND_TOOL_NAMES: ["list_skills"],
 }));
 
+vi.mock("../utils/cloudIntegrations.js", () => ({
+  CLOUD_TOOLS: [{ name: "wikipedia_search", description: "d", parameters: {} }],
+  CLOUD_TOOL_NAMES: new Set(["wikipedia_search"]),
+  runCloudTool: vi.fn(async (name) => ({ ok: true, name })),
+}));
+
+vi.mock("../utils/appRecipes.js", () => ({
+  RECIPE_TOOLS: [{ name: "gmail_inbox", description: "d", parameters: {} }],
+  RECIPE_NAMES: new Set(["gmail_inbox"]),
+  runRecipe: vi.fn(async (name) => ({ ok: true, name })),
+}));
+
 vi.mock("../utils/modelRegistry.js", () => ({
   autoLoadMediaPipeModel: vi.fn(async () => null),
 }));
@@ -51,6 +63,8 @@ import { chatLocal } from "../utils/localChat.js";
 import { execPhoneTool } from "../utils/phoneTools.js";
 import { resolveProvider } from "../utils/localChat.js";
 import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
+import { runCloudTool } from "../utils/cloudIntegrations.js";
+import { runRecipe } from "../utils/appRecipes.js";
 
 describe("LocalModelClient", () => {
   beforeEach(() => {
@@ -117,5 +131,32 @@ describe("LocalModelClient", () => {
     const out = await client.send("list your skills", () => {});
     expect(out).toBe("skills");
     expect(draymondHandler).toHaveBeenCalledWith("list_skills", {});
+  });
+
+  it("registers cloud + recipe tools and routes them", async () => {
+    let capturedTools = [];
+    chatLocal.mockImplementation(async ({ tools, toolHandler }) => {
+      capturedTools = tools;
+      await toolHandler("wikipedia_search", { query: "x" });
+      await toolHandler("gmail_inbox", {});
+      return { text: "done", toolCalls: [], usedTools: [] };
+    });
+
+    const confirm = vi.fn(async () => true);
+    const client = new LocalModelClient(
+      { id: "local", model: "auto", phoneToolsEnabled: true, galaxySkillsEnabled: false },
+      { confirmAction: confirm }
+    );
+
+    await client.send("research and check my inbox", () => {});
+
+    expect(capturedTools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "wikipedia_search" }),
+        expect.objectContaining({ name: "gmail_inbox" }),
+      ])
+    );
+    expect(runCloudTool).toHaveBeenCalledWith("wikipedia_search", { query: "x" });
+    expect(runRecipe).toHaveBeenCalledWith("gmail_inbox", {}, expect.objectContaining({ confirm }));
   });
 });

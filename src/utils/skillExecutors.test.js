@@ -92,6 +92,29 @@ describe("buildSkillExecutors", () => {
     expect(typeof out.result).toBe("string");
   });
 
+  it("wires cloud and recipe tool handlers", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ query: { search: [] } }) });
+    const handlers = buildSkillExecutors(makeDeps());
+    const names = [
+      "wikipedia_search",
+      "wikipedia_summary",
+      "news_headlines",
+      "gmail_inbox",
+      "calendar_events",
+      "drive_browse",
+      "gemini_query",
+      "youtube_search",
+    ];
+    for (const n of names) {
+      expect(typeof handlers[n]).toBe("function");
+    }
+    const cloud = await handlers.wikipedia_search({ query: "x", tool: "wikipedia_search", pack: { name: "p" } });
+    expect(cloud.ok).toBe(true);
+    const recipe = await handlers.gmail_inbox({ tool: "gmail_inbox", pack: { name: "p" } });
+    expect(typeof recipe).toBe("object");
+    expect(recipe).toHaveProperty("ok");
+  });
+
   it("uploads a capture to SMD via capture_to_smd", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

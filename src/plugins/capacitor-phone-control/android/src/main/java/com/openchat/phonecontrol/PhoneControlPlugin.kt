@@ -21,7 +21,20 @@ class PhoneControlPlugin : Plugin() {
     @PluginMethod
     fun getStatus(call: PluginCall) {
         val ret = JSObject()
-        ret.put("enabled", PhoneControlAccessibilityService.instance != null)
+        var enabled = PhoneControlAccessibilityService.instance != null
+        if (!enabled) {
+            // Android 16+ restricts Settings.Secure for third-party apps, so
+            // fall back to the accessibility manager's enabled-service list.
+            val am = context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
+                    as? android.view.accessibility.AccessibilityManager
+            val services = am?.getEnabledAccessibilityServiceList(
+                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+            )
+            enabled = services?.any { info ->
+                info.resolveInfo?.serviceInfo?.packageName == context.packageName
+            } == true
+        }
+        ret.put("enabled", enabled)
         ret.put("available", true)
         call.resolve(ret)
     }

@@ -12,6 +12,16 @@ import { GALAXY_AI_SKILLS, execGalaxySkill } from "../utils/galaxyAi.js";
 import { DEFAULT_LOCAL_SYSTEM_PROMPT } from "../utils/galaxyPlanning.js";
 import { WEB_SEARCH_TOOL, webSearch } from "../utils/webSearch.js";
 import { IMAGE_GEN_TOOL, generateImage } from "../utils/imageGen.js";
+import {
+  CLOUD_TOOLS,
+  CLOUD_TOOL_NAMES,
+  runCloudTool,
+} from "../utils/cloudIntegrations.js";
+import {
+  RECIPE_TOOLS,
+  RECIPE_NAMES,
+  runRecipe,
+} from "../utils/appRecipes.js";
 import { verifyOutput } from "../utils/verification.js";
 import { discoverApps, buildAppContext } from "../utils/appRegistry.js";
 import { DRAYMOND_TOOL_NAMES } from "../utils/draymondTools.js";
@@ -23,6 +33,17 @@ export const LOCAL_PROVIDER_HINTS = {
   nano: PROVIDER.NANO,
   webllm: PROVIDER.WEBLLM,
 };
+
+/** System-prompt section telling the agent which integrations exist. */
+const INTEGRATIONS_CONTEXT = [
+  "INTEGRATIONS:",
+  "- wikipedia_search(query): look up facts/background on Wikipedia (cloud, fast).",
+  "- wikipedia_summary(title): get a short article intro.",
+  "- news_headlines(topic or query): get recent headlines.",
+  "- gmail_inbox / calendar_events / drive_browse: open the phone app and read the screen.",
+  "- gemini_query(query) / youtube_search(query): open the app, ask/search, and read the result.",
+  "- Prefer the wikipedia/news cloud tools for factual info; use the phone recipes to read the user's actual Gmail/Calendar/Drive/Gemini/YouTube.",
+].join("\n");
 
 /**
  * @param {object} bot - local bot config (model, systemPrompt, phoneToolsEnabled, verifyEnabled)
@@ -117,6 +138,8 @@ export class LocalModelClient {
     if (this.phoneToolsEnabled) tools.push(...PHONE_TOOLS);
     if (this.phoneToolsEnabled) tools.push(WEB_SEARCH_TOOL);
     if (this.phoneToolsEnabled) tools.push(IMAGE_GEN_TOOL);
+    if (this.phoneToolsEnabled) tools.push(...CLOUD_TOOLS);
+    if (this.phoneToolsEnabled) tools.push(...RECIPE_TOOLS);
     if (this.galaxySkillsEnabled) tools.push(...GALAXY_AI_SKILLS);
     if (this.draymondToolsEnabled && this.draymondTools.length > 0) {
       tools.push(...this.draymondTools);
@@ -125,7 +148,10 @@ export class LocalModelClient {
     // Append the discovered-app capability surface to the system prompt so
     // Gemma knows exactly what it can open and drive on this device.
     const appSection = this.phoneToolsEnabled ? await this._appContext() : "";
-    const systemPrompt = appSection ? `${this.systemPrompt}\n\n${appSection}` : this.systemPrompt;
+    const integrationSection = this.phoneToolsEnabled ? INTEGRATIONS_CONTEXT : "";
+    const systemPrompt = [this.systemPrompt, appSection, integrationSection]
+      .filter(Boolean)
+      .join("\n\n");
 
     const draymondToolHandler = this.draymondToolHandler;
     // DRAYMOND_TOOL_NAMES is exported as an array; wrap in a Set for O(1) .has().
@@ -142,6 +168,12 @@ export class LocalModelClient {
         }
         if (name === "image_gen") {
           return generateImage({ prompt: String(args?.prompt ?? "") });
+        }
+        if (CLOUD_TOOL_NAMES.has(name)) {
+          return runCloudTool(name, args);
+        }
+        if (RECIPE_NAMES.has(name)) {
+          return runRecipe(name, args, { confirm: this.confirmAction });
         }
         if (draymondToolHandler && draymondToolNameSet.has(name)) {
           return draymondToolHandler(name, args);

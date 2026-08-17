@@ -19,6 +19,8 @@ import { runSkill } from "./skillRegistry.js";
 import { discoverApps } from "./appRegistry.js";
 import { webSearch } from "./webSearch.js";
 import { generateImage } from "./imageGen.js";
+import { runCloudTool } from "./cloudIntegrations.js";
+import { runRecipe } from "./appRecipes.js";
 
 /** Strip the runtime-injected reserved keys from a tool call's args. */
 function toolArgs(ctx) {
@@ -208,6 +210,17 @@ export function buildSkillExecutors({ onSend, onNotify, chat, confirm, draymondB
       const args = toolArgs(ctx);
       return generateImage({ prompt: String(args.prompt ?? args.text ?? "") });
     },
+
+    // Third-party integrations (keyless cloud + phone recipes).
+    wikipedia_search: (ctx) => runCloudTool("wikipedia_search", toolArgs(ctx)),
+    wikipedia_summary: (ctx) => runCloudTool("wikipedia_summary", toolArgs(ctx)),
+    news_headlines: (ctx) => runCloudTool("news_headlines", toolArgs(ctx)),
+    gmail_inbox: (ctx) => runRecipe("gmail_inbox", toolArgs(ctx), { confirm }),
+    calendar_events: (ctx) => runRecipe("calendar_events", toolArgs(ctx), { confirm }),
+    drive_browse: (ctx) => runRecipe("drive_browse", toolArgs(ctx), { confirm }),
+    gemini_query: (ctx) => runRecipe("gemini_query", toolArgs(ctx), { confirm }),
+    youtube_search: (ctx) => runRecipe("youtube_search", toolArgs(ctx), { confirm }),
+
     registry: async () => ({ ok: false, error: "registry tool is not available on this device" }),
   };
 }
