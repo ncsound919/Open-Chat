@@ -516,7 +516,9 @@ export function Chat({
         style={{
           background: "#0e1117",
           borderTop: "1px solid rgba(34,211,238,0.14)",
-          padding: "8px 12px 20px",
+          paddingTop: 8,
+          paddingLeft: 12,
+          paddingRight: 12,
           display: "flex",
           flexDirection: "column",
           gap: 8,

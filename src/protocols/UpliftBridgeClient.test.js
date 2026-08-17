@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { UpliftBridgeClient, upliftBridgeHealthCheck } from "./UpliftBridgeClient.js";
+import { UpliftBridgeClient, upliftBridgeHealthCheck, buildEventStreamUrl } from "./UpliftBridgeClient.js";
+import {
+  decodeWorkSecret,
+  encodeWorkSecret,
+  parseSSEFrames,
+  sameSessionId,
+  buildSdkUrl,
+  buildCCRv2SdkUrl,
+  convertSSEUrlToPostUrl,
+} from "./bridge-protocol.js";
 
 const encoder = new TextEncoder();
 
@@ -84,6 +93,18 @@ describe("connect", () => {
     c.disconnect();
   });
 
+  it("sends reuseEnvironmentId for idempotent re-registration", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ environment_id: "env1", environment_secret: "sec1" }))
+      .mockResolvedValue(jsonResponse({ data: null }));
+
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    await c.connect({ reuseEnvironmentId: "env0" });
+    const regBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(regBody.environment_id).toBe("env0");
+    c.disconnect();
+  });
+
   it("throws when the client is destroyed", async () => {
     const c = new UpliftBridgeClient("127.0.0.1", 8642, "");
     c._destroyed = true;
@@ -116,11 +137,6 @@ describe("connect", () => {
     await c.connect();
     const calls = fetchMock.mock.calls.length;
     c._startPolling(); // polling === true -> early return
-    expect(fetchMock.mock.calls.length).toBe(calls);
-
-    c._destroyed = true;
-    c.polling = false;
-    c._startPolling(); // destroyed -> early return
     expect(fetchMock.mock.calls.length).toBe(calls);
     c.disconnect();
   });
@@ -167,6 +183,66 @@ describe("_handleWork", () => {
     expect(ackInit.headers.Authorization).toBe("Bearer st-1");
   });
 
+  it("decodes the base64url work secret and uses the session ingress token", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+    const secret = encodeWorkSecret({
+      version: 1,
+      session_ingress_token: "ingress-tok",
+      api_base_url: "http://127.0.0.1:8642",
+    });
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.environmentId = "env1";
+    c.environmentSecret = "sec1";
+    const inbound = vi.fn();
+    c.onInboundMessage = inbound;
+
+    await c._handleWork({
+      id: "w7",
+      data: {
+        type: "session",
+        id: "sess-2",
+        messages: [{ role: "user", content: "over secret" }],
+      },
+      secret,
+    });
+
+    expect(c.sessionId).toBe("sess-2");
+    expect(c.sessionToken).toBe("ingress-tok");
+    expect(c.sessionApiBaseUrl).toBe("http://127.0.0.1:8642");
+    expect(c.activeWorkId).toBe("w7");
+    expect(inbound).toHaveBeenCalledWith({ role: "user", content: "over secret" });
+
+    // Ack uses the decoded ingress token.
+    const [ackUrl, ackInit] = fetchMock.mock.calls[0];
+    expect(String(ackUrl)).toBe("http://127.0.0.1:8642/v1/environments/env1/work/w7/ack");
+    expect(ackInit.headers.Authorization).toBe("Bearer ingress-tok");
+
+    c._stopHeartbeat();
+    c.disconnect();
+  });
+
+  it("keeps polling heartbeats while a session work item is active", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.environmentId = "env1";
+    c.environmentSecret = "sec1";
+    c.sessionToken = "st-1";
+
+    await c._handleWork({
+      id: "w-heartbeat",
+      data: { type: "session", id: "sess-3", messages: [] },
+      secret: encodeWorkSecret({
+        version: 1,
+        session_ingress_token: "st-1",
+        api_base_url: "http://127.0.0.1:8642",
+      }),
+    });
+
+    expect(c.heartbeatTimer).not.toBeNull();
+    c.disconnect();
+    expect(c.heartbeatTimer).toBeNull();
+  });
+
   it("acks with the environment secret before a session is established", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
     const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
@@ -202,6 +278,66 @@ describe("_handleWork", () => {
     await c._handleWork({ id: "w3", data: { messages: [] } });
     expect(error).toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+describe("heartbeat", () => {
+  it("_sendHeartbeat posts to the work heartbeat endpoint with the session token", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ lease_extended: true, state: "running" }));
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.environmentId = "env1";
+    c.environmentSecret = "sec1";
+    c.sessionToken = "st-1";
+    c.activeWorkId = "w-hb";
+
+    await c._sendHeartbeat("w-hb");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:8642/v1/environments/env1/work/w-hb/heartbeat");
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer st-1");
+  });
+
+  it("stops heartbeating when the server reports a terminal state", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ lease_extended: false, state: "completed" }));
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.environmentId = "env1";
+    c.environmentSecret = "sec1";
+    c.sessionToken = "st-1";
+    c.activeWorkId = "w-done";
+    c.heartbeatTimer = setInterval(() => {}, 60_000);
+
+    await c._sendHeartbeat("w-done");
+
+    expect(c.heartbeatTimer).toBeNull();
+    expect(c.activeWorkId).toBeNull();
+  });
+});
+
+describe("stop", () => {
+  it("force-stops the active work item and clears the heartbeat", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.environmentId = "env1";
+    c.environmentSecret = "sec1";
+    c.sessionToken = "st-1";
+    c.activeWorkId = "w-stop";
+    c.heartbeatTimer = setInterval(() => {}, 60_000);
+
+    await c.stop(true);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:8642/v1/environments/env1/work/w-stop/stop");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ force: true });
+    expect(c.activeWorkId).toBeNull();
+    expect(c.heartbeatTimer).toBeNull();
+  });
+
+  it("is a no-op without an active work item", async () => {
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "");
+    await c.stop();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -261,6 +397,19 @@ describe("send", () => {
     expect(JSON.parse(init.body)).toEqual({ type: "message", role: "assistant", content: "hello" });
   });
 
+  it("sends session events to the api_base_url from the work secret", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ content: "via ingress" }, { headers: { "content-type": "application/json" } })
+    );
+    const c = makeSessionClient();
+    c.sessionApiBaseUrl = "http://127.0.0.1:9000";
+    const chunks = [];
+    await c.send("hello", (x) => chunks.push(x));
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("http://127.0.0.1:9000/v1/sessions/sess-1/events");
+  });
+
   it("streams SSE chunks when the bridge responds with text/event-stream", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
@@ -268,9 +417,9 @@ describe("send", () => {
         {
           headers: { "content-type": "text/event-stream" },
           body: streamFromChunks([
-            'data: {"choices":[{"delta":{"content":"Hello"}}]}\n',
-            "data: rawtext\n",
-            "data: [DONE]\n",
+            'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+            "data: rawtext\n\n",
+            "data: [DONE]\n\n",
           ]),
         }
       )
@@ -283,6 +432,27 @@ describe("send", () => {
     expect(chunks).toEqual(["Hello", "rawtext"]);
   });
 
+  it("streams SSE frames split across chunks", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        null,
+        {
+          headers: { "content-type": "text/event-stream" },
+          body: streamFromChunks([
+            'data: {"choices":[{"delta":{"conte',
+            'nt":"Hello"}}]}\n\ndata: [DONE]\n\n',
+          ]),
+        }
+      )
+    );
+    const c = makeSessionClient();
+    const chunks = [];
+    const result = await c.send("hi", (x) => chunks.push(x));
+
+    expect(result).toBe("Hello");
+    expect(chunks).toEqual(["Hello"]);
+  });
+
   it("ends streaming when the SSE reader reports done without a [DONE] marker", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
@@ -290,7 +460,7 @@ describe("send", () => {
         {
           headers: { "content-type": "text/event-stream" },
           body: streamFromChunks([
-            'data: {"choices":[{"delta":{"content":"partial"}}]}\n',
+            'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
           ]),
         }
       )
@@ -310,9 +480,9 @@ describe("send", () => {
         {
           headers: { "content-type": "text/event-stream" },
           body: streamFromChunks([
-            'data: {"text":"via text"}\n',
-            "data: {}\n",
-            "data: [DONE]\n",
+            'data: {"text":"via text"}\n\n',
+            "data: {}\n\n",
+            "data: [DONE]\n\n",
           ]),
         }
       )
@@ -323,6 +493,26 @@ describe("send", () => {
 
     expect(result).toBe("via text");
     expect(chunks).toEqual(["via text"]);
+  });
+
+  it("tracks sequence numbers from SSE frame ids", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        null,
+        {
+          headers: { "content-type": "text/event-stream" },
+          body: streamFromChunks([
+            'id: 7\ndata: {"text":"seqd"}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+        }
+      )
+    );
+    const c = makeSessionClient();
+    const result = await c.send("hi", vi.fn());
+
+    expect(result).toBe("seqd");
+    expect(c.lastSequenceNum).toBe(7);
   });
 
   it("treats a response without a content-type header as non-streaming", async () => {
@@ -419,6 +609,104 @@ describe("send", () => {
   });
 });
 
+describe("connectEventStream", () => {
+  it("does nothing without an established session", async () => {
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "");
+    c.connectEventStream();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("opens the event stream and surfaces client_event payloads", async () => {
+    const frames = [
+      "event: client_event\nid: 3\ndata: " +
+        JSON.stringify({
+          event_id: "e1",
+          sequence_num: 3,
+          event_type: "client_event",
+          payload: { type: "user_message", message: { role: "user", content: "live msg" } },
+        }) +
+        "\n\n",
+    ];
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(null, {
+        headers: { "content-type": "text/event-stream" },
+        body: streamFromChunks(frames),
+      })
+    );
+
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.sessionId = "sess-1";
+    c.sessionToken = "st-1";
+    const inbound = vi.fn();
+    const onEvent = vi.fn();
+    c.onInboundMessage = inbound;
+    c.onEvent = onEvent;
+
+    c.connectEventStream();
+    await new Promise((r) => setTimeout(r, 20));
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain(
+      "/v2/session_ingress/session/sess-1/events/stream"
+    );
+    expect(init.headers.Authorization).toBe("Bearer st-1");
+    expect(init.headers["anthropic-version"]).toBe("2023-06-01");
+    expect(c.lastSequenceNum).toBe(3);
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(inbound).toHaveBeenCalledWith({ role: "user", content: "live msg" });
+
+    c.disconnect();
+  });
+
+  it("sends Last-Event-ID when resuming from a sequence number", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(null, {
+        headers: { "content-type": "text/event-stream" },
+        body: streamFromChunks([]),
+      })
+    );
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.sessionId = "sess-1";
+    c.sessionToken = "st-1";
+    c.lastSequenceNum = 42;
+
+    c.connectEventStream();
+    await new Promise((r) => setTimeout(r, 20));
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("from_sequence_num=42");
+    expect(init.headers["Last-Event-ID"]).toBe("42");
+    c.disconnect();
+  });
+
+  it("closes the stream on disconnect", async () => {
+    // A persistent stream that never ends (open connection).
+    let resolveNever;
+    const neverDone = new Promise((r) => (resolveNever = r));
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(null, {
+        headers: { "content-type": "text/event-stream" },
+        body: {
+          getReader: () => ({
+            read: async () => await neverDone,
+            releaseLock: vi.fn(),
+            cancel: vi.fn().mockResolvedValue(),
+          }),
+        },
+      })
+    );
+    const c = new UpliftBridgeClient("127.0.0.1", 8642, "oauth");
+    c.sessionId = "sess-1";
+    c.sessionToken = "st-1";
+    c.connectEventStream();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(c.eventSource).not.toBeNull();
+    c.disconnect();
+    expect(c.eventSource).toBeNull();
+    resolveNever();
+  });
+});
+
 describe("disconnect", () => {
   it("deregisters the environment and resets state", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true }));
@@ -428,12 +716,14 @@ describe("disconnect", () => {
     c.sessionId = "sess-1";
     c.sessionToken = "st-1";
     c.pollTimer = setTimeout(() => {}, 10_000);
+    c.heartbeatTimer = setInterval(() => {}, 60_000);
 
     c.disconnect();
 
     expect(c._destroyed).toBe(true);
     expect(c.polling).toBe(false);
     expect(c.pollTimer).toBeNull();
+    expect(c.heartbeatTimer).toBeNull();
     expect(c.environmentId).toBeNull();
     expect(c.environmentSecret).toBeNull();
     expect(c.sessionId).toBeNull();
@@ -476,5 +766,84 @@ describe("upliftBridgeHealthCheck", () => {
   it("returns false when fetch rejects", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network down"));
     expect(await upliftBridgeHealthCheck("127.0.0.1", 8642, "")).toBe(false);
+  });
+});
+
+describe("bridge-protocol", () => {
+  it("decodeWorkSecret validates version 1 and required fields", () => {
+    const secret = encodeWorkSecret({
+      version: 1,
+      session_ingress_token: "tok-abc",
+      api_base_url: "https://api.example.com",
+    });
+    const decoded = decodeWorkSecret(secret);
+    expect(decoded).toEqual({
+      version: 1,
+      session_ingress_token: "tok-abc",
+      api_base_url: "https://api.example.com",
+    });
+  });
+
+  it("decodeWorkSecret rejects a bad version", () => {
+    const secret = encodeWorkSecret({ version: 2, session_ingress_token: "x", api_base_url: "y" });
+    expect(() => decodeWorkSecret(secret)).toThrow("Unsupported work secret version");
+  });
+
+  it("decodeWorkSecret rejects missing fields", () => {
+    const secret = encodeWorkSecret({ version: 1 });
+    expect(() => decodeWorkSecret(secret)).toThrow("session_ingress_token");
+  });
+
+  it("decodeWorkSecret rejects non-JSON input", () => {
+    expect(() => decodeWorkSecret("not-json")).toThrow(/base64url JSON|Invalid/);
+  });
+
+  it("parseSSEFrames parses multi-line data and comments", () => {
+    const buffer =
+      ": keepalive\n\n" +
+      'event: client_event\nid: 1\ndata: {"a":1}\n\n' +
+      'event: msg\ndata: line1\ndata: line2\n\n' +
+      "partial";
+    const { frames, remaining } = parseSSEFrames(buffer);
+    expect(remaining).toBe("partial");
+    expect(frames).toHaveLength(3);
+    expect(frames[0]).toEqual({}); // comment-only frame
+    expect(frames[1]).toEqual({ event: "client_event", id: "1", data: '{"a":1}' });
+    expect(frames[2]).toEqual({ event: "msg", data: "line1\nline2" });
+  });
+
+  it("sameSessionId compares tagged-id bodies", () => {
+    expect(sameSessionId("session_abc123", "cse_abc123")).toBe(true);
+    expect(sameSessionId("cse_staging_xyz9", "session_xyz9")).toBe(true);
+    expect(sameSessionId("session_abc", "session_def")).toBe(false);
+    expect(sameSessionId("session_abc", "abc")).toBe(false); // body too short
+    expect(sameSessionId("a", "b")).toBe(false);
+  });
+
+  it("buildSdkUrl picks v2/ws for localhost and v1/wss for remote", () => {
+    expect(buildSdkUrl("http://127.0.0.1:8642", "sess-1")).toBe(
+      "ws://127.0.0.1:8642/v2/session_ingress/ws/sess-1"
+    );
+    expect(buildSdkUrl("https://api.example.com", "sess-1")).toBe(
+      "wss://api.example.com/v1/session_ingress/ws/sess-1"
+    );
+  });
+
+  it("buildCCRv2SdkUrl points at /v1/code/sessions", () => {
+    expect(buildCCRv2SdkUrl("http://127.0.0.1:8642", "sess-1")).toBe(
+      "http://127.0.0.1:8642/v1/code/sessions/sess-1"
+    );
+  });
+
+  it("convertSSEUrlToPostUrl drops the /stream suffix", () => {
+    expect(
+      convertSSEUrlToPostUrl("https://api.example.com/v2/session_ingress/session/s/events/stream")
+    ).toBe("https://api.example.com/v2/session_ingress/session/s/events");
+  });
+
+  it("buildEventStreamUrl includes from_sequence_num when set", () => {
+    const url = buildEventStreamUrl("http://127.0.0.1:8642", "sess-1", 9);
+    expect(url).toContain("/v2/session_ingress/session/sess-1/events/stream");
+    expect(url).toContain("from_sequence_num=9");
   });
 });

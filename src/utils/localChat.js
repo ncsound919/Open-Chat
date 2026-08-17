@@ -55,10 +55,11 @@ export function buildGemmaPrompt(systemPrompt, messages, { includeModelTurn = tr
   return parts.join("\n");
 }
 
-/** Strip any leading model turn from a generated reply. */
+/** Strip leading/trailing model-turn markers from a generated reply. */
 export function cleanReply(reply) {
   let text = String(reply ?? "");
-  text = text.replace(new RegExp(`^${TURN_END}`), "").trim();
+  const re = new RegExp(`(?:^${TURN_END}\\s*|\\s*${TURN_END}$)`, "g");
+  text = text.replace(re, "").trim();
   return text;
 }
 
@@ -129,9 +130,10 @@ export function buildToolSchema(tools) {
 
 /**
  * One generation pass against the selected provider.
+ * @param {boolean} [opts.session] - MEDIAPIPE: append to the persistent session
  * @returns {Promise<string>} full text
  */
-async function generateOnce(provider, prompt, onChunk, { signal } = {}) {
+async function generateOnce(provider, prompt, onChunk, { signal, session = false } = {}) {
   if (provider === PROVIDER.MEDIAPIPE) {
     const mp = await loadMediaPipe();
     if (!mp?.generate) throw new Error("MediaPipe runtime unavailable");
@@ -152,7 +154,10 @@ async function generateOnce(provider, prompt, onChunk, { signal } = {}) {
       mp.cancel?.().catch?.(() => {});
     };
     try {
-      const res = await mp.generate({ prompt, sessionId });
+      const call = session ? { prompt, sessionId } : { prompt, sessionId };
+      const res = await (session
+        ? mp.generateSession(call)
+        : mp.generate(call));
       const text = res?.text || full;
       onChunk?.(text.slice(full.length)); // flush any remainder
       return text;
@@ -212,6 +217,99 @@ export async function resolveProvider() {
 }
 
 /**
+ * Generic tool-calling loop (NANO / WEBLLM / fallback). Rebuilds the full
+ * prompt each round — used only when persistent sessions aren't available.
+ */
+async function genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider }) {
+  const toolCalls = [];
+  let transcript = [...history];
+  for (let round = 0; round < maxRounds; round++) {
+    const prompt = buildGemmaPrompt(baseSystem, transcript, { includeModelTurn: true });
+    const reply = cleanReply(await generateOnce(provider, prompt, onChunk, { signal }));
+    if (reply === "") return { text: "", provider, toolCalls };
+
+    const toolCall = parseToolCall(reply);
+    if (toolCall && typeof toolHandler === "function") {
+      const result = await toolHandler(toolCall.name, toolCall.args).catch((err) => ({
+        error: err instanceof Error ? err.message : String(err),
+      }));
+      toolCalls.push({ ...toolCall, result });
+      onToolCall?.(toolCall, result);
+      transcript = [
+        ...transcript,
+        { role: "assistant", content: reply },
+        { role: "user", content: `Tool result: ${JSON.stringify(result)}` },
+      ];
+      continue;
+    }
+
+    return { text: reply, provider, toolCalls };
+  }
+  return { text: "", provider, toolCalls };
+}
+
+/**
+ * Persistent-session tool loop (MEDIAPIPE). Seeds the system prompt (and any
+ * prior history) ONCE into a MediaPipe LlmInferenceSession, then feeds only
+ * the incremental user turns each round. The model's own tool-call replies
+ * stay in the session KV-cache, so the big system prompt is never reprocessed.
+ */
+async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds }) {
+  const provider = PROVIDER.MEDIAPIPE;
+  const mp = await loadMediaPipe();
+  const toolCalls = [];
+
+  // Fall back to the generic full-prompt loop if the session API is missing.
+  if (!mp?.beginSession || !mp?.generateSession) {
+    return genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider });
+  }
+
+  // Seed system prompt + prior turns once; they live in the KV cache after this.
+  const seedPrompt = buildGemmaPrompt(baseSystem, history.slice(0, -1), { includeModelTurn: false });
+  try {
+    await mp.beginSession({ systemPrompt: seedPrompt });
+  } catch (e) {
+    throw new Error(`Session init failed: ${e.message}`);
+  }
+
+  const feedUserTurn = (content) => `\n${TURN_USER}\n${content}${TURN_END}\n${TURN_MODEL}\n`;
+  let lastToolResult = null;
+  let priorReply = null;
+
+  for (let round = 0; round < maxRounds; round++) {
+    const incremental = priorReply === null
+      ? feedUserTurn(history[history.length - 1].content)
+      : feedUserTurn(`Tool result: ${JSON.stringify(lastToolResult)}`);
+    let reply;
+    try {
+      reply = cleanReply(await generateOnce(provider, incremental, onChunk, { signal, session: true }));
+    } catch (e) {
+      // The persistent session's context window filled (OUT_OF_RANGE) or the
+      // runtime errored. Reset the session and degrade to the full-prompt loop
+      // for the rest of this conversation so the task still completes.
+      try { await mp.resetSession?.().catch?.(() => {}); } catch { /* ignore */ }
+      return genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider });
+    }
+    if (reply === "") return { text: "", provider, toolCalls };
+
+    const toolCall = parseToolCall(reply);
+    if (toolCall && typeof toolHandler === "function") {
+      const result = await toolHandler(toolCall.name, toolCall.args).catch((err) => ({
+        error: err instanceof Error ? err.message : String(err),
+      }));
+      toolCalls.push({ ...toolCall, result });
+      onToolCall?.(toolCall, result);
+      lastToolResult = result;
+      priorReply = reply;
+      continue;
+    }
+
+    return { text: reply, provider, toolCalls };
+  }
+  return { text: "", provider, toolCalls };
+}
+
+/**
  * Private local chat with optional tool calling.
  *
  * @param {object} options
@@ -250,33 +348,28 @@ export async function chatLocal(options) {
   const baseSystem = systemPrompt ? `${systemPrompt}${toolSchema}` : toolSchema;
   const history = [...messages, { role: "user", content: userMessage }];
 
-  const toolCalls = [];
-  let transcript = [...history];
-
-  for (let round = 0; round < maxRounds; round++) {
-    const prompt = buildGemmaPrompt(baseSystem, transcript, { includeModelTurn: true });
-    const reply = cleanReply(await generateOnce(effectiveProvider, prompt, onChunk, { signal }));
-    if (reply === "") return { text: "", provider: effectiveProvider, toolCalls };
-
-    const toolCall = parseToolCall(reply);
-    if (toolCall && typeof toolHandler === "function") {
-      const result = await toolHandler(toolCall.name, toolCall.args).catch((err) => ({
-        error: err instanceof Error ? err.message : String(err),
-      }));
-      toolCalls.push({ ...toolCall, result });
-      onToolCall?.(toolCall, result);
-      transcript = [
-        ...transcript,
-        { role: "assistant", content: reply },
-        { role: "user", content: `Tool result: ${JSON.stringify(result)}` },
-      ];
-      continue;
-    }
-
-    return { text: reply, provider: effectiveProvider, toolCalls };
+  if (effectiveProvider === PROVIDER.MEDIAPIPE) {
+    return mediaPipeChatLoop({
+      baseSystem,
+      history,
+      onChunk,
+      onToolCall,
+      toolHandler,
+      signal,
+      maxRounds,
+    });
   }
 
-  return { text: "", provider: effectiveProvider, toolCalls };
+  return genericChatLoop({
+    baseSystem,
+    history,
+    onChunk,
+    onToolCall,
+    toolHandler,
+    signal,
+    maxRounds,
+    provider: effectiveProvider,
+  });
 }
 
 /** Convenience: plain private chat (no tools). */

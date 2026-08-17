@@ -9,10 +9,10 @@
 
 Open-Chat is a clean, local-first messaging app designed to replace Telegram/Slack/Discord as the control surface for autonomous agents. Chat directly with your AI agents through a beautiful, responsive interface — no third-party platforms required.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Build](https://img.shields.io/github/actions/workflow/status/ncsound919/Open-Chat/ci.yml?label=CI)](https://github.com/ncsound919/Open-Chat/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-695%20passing-brightgreen)](https://github.com/ncsound919/Open-Chat/actions)
+[![Tests](https://img.shields.io/badge/tests-1071%20passing-brightgreen)](https://github.com/ncsound919/Open-Chat/actions)
 ![Coverage](https://img.shields.io/badge/coverage-98.6%25%20lines-brightgreen)
 
 </div>
@@ -28,6 +28,8 @@ Pre-built Android APKs are published on the
   and the Capacitor native shell.
 - See **Setup** and **Testing** sections below for agent configuration and how to
   verify the app.
+- 📘 **For end-user guidance**, see the **[User Manual](./docs/USER_MANUAL.md)** and
+  the **[Changelog](./CHANGELOG.md)**.
 
 ## Why Open Chat?
 

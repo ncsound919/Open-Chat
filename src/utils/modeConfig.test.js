@@ -70,7 +70,7 @@ describe("modeConfig", () => {
       expect(getAvailableProtocols(MODES.BASIC)).toEqual(["hermes"]);
     });
 
-    it("returns all seven protocols in dev mode", () => {
+    it("returns all nine protocols in dev mode", () => {
       expect(getAvailableProtocols(MODES.DEV)).toEqual([
         "hermes",
         "openclaw",
@@ -79,6 +79,8 @@ describe("modeConfig", () => {
         "draymond",
         "ntfy",
         "local",
+        "a2a",
+        "mcp",
       ]);
     });
   });

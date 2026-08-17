@@ -1,11 +1,13 @@
-import { describe, it, expect, vi } from "vitest";
+﻿import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   mediaPipeBundleToEntry,
   formatBytes,
   detectLocalModels,
   detectMediaPipeBundles,
+  autoLoadMediaPipeModel,
   MODEL_STATE,
 } from "./modelRegistry.js";
+import gemma from "@open-chat/mediapipe-gemma";
 
 vi.mock("./localModels.js", () => ({
   scanLocalModels: vi.fn(async () => [
@@ -76,6 +78,47 @@ describe("detectLocalModels", () => {
     expect(servers).toBeDefined();
     expect(servers.models[0].name).toBe("llama3.2");
     expect(servers.models[0].kind).toBe("server");
+  });
+});
+
+describe("autoLoadMediaPipeModel", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns null when no bundle exists", async () => {
+    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
+    gemma.listModels.mockResolvedValue({ models: [] });
+    expect(await autoLoadMediaPipeModel()).toBeNull();
+  });
+
+  it("returns the loaded path when a model is already loaded", async () => {
+    gemma.getStatus.mockResolvedValue({ modelLoaded: true, modelPath: "/m/gemma.task" });
+    expect(await autoLoadMediaPipeModel()).toBe("/m/gemma.task");
+    expect(gemma.loadModel).not.toHaveBeenCalled();
+  });
+
+  it("loads the first bundle when none is loaded", async () => {
+    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
+    gemma.listModels.mockResolvedValue({ models: [{ fileName: "gemma.task" }] });
+    gemma.loadModel.mockResolvedValue({ ok: true, modelPath: "/m/loaded" });
+    expect(await autoLoadMediaPipeModel()).toBe("/m/loaded");
+    expect(gemma.loadModel).toHaveBeenCalledWith(
+      expect.objectContaining({ fileName: "gemma.task", backend: "auto" })
+    );
+  });
+
+  it("returns null when loadModel fails", async () => {
+    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
+    gemma.listModels.mockResolvedValue({ models: [{ fileName: "gemma.task" }] });
+    gemma.loadModel.mockResolvedValue({ ok: false });
+    expect(await autoLoadMediaPipeModel()).toBeNull();
+  });
+
+  it("returns null when listModels throws", async () => {
+    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
+    gemma.listModels.mockRejectedValue(new Error("boom"));
+    expect(await autoLoadMediaPipeModel()).toBeNull();
   });
 });
 

@@ -6,6 +6,8 @@ directories:
 files:
   - dist/**/*
   - electron/**/*
+  - src/a2a/**/*
+  - src/utils/helpers.js
   - package.json
 win:
   target: nsis

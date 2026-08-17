@@ -90,7 +90,8 @@ describe("storage load/save round-trip", () => {
 
   it("returns DEFAULT_BOTS when no bot config stored", () => {
     expect(storageModule.loadBots().length).toBeGreaterThan(0);
-    expect(storageModule.loadBots()[0].id).toBe("openclaw");
+    expect(storageModule.loadBots()[0].id).toBe("hermes");
+    expect(storageModule.DEFAULT_BOTS.some((b) => b.id === "openclaw")).toBe(false);
   });
 
   it("saves and loads workflows", () => {

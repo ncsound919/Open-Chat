@@ -1,5 +1,9 @@
-const { app, BrowserWindow, session } = require('electron');
-const path = require('path');
+import { app, BrowserWindow, session } from 'electron';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startA2AServer, DEFAULT_A2A_PORT } from './a2aServer.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Mirrors the CSP injected into production index.html (see vite.config.js).
 const CSP = [
@@ -15,6 +19,7 @@ const CSP = [
 ].join('; ');
 
 let mainWindow;
+let a2aServer;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -49,6 +54,52 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (mainWindow === null) createWindow(); });
+async function startA2AHub() {
+  const port = Number(process.env.OPENCHAT_A2A_PORT) || DEFAULT_A2A_PORT;
+  try {
+    a2aServer = await startA2AServer({
+      name: 'Open Chat Hub',
+      description:
+        'Open-Chat local agent hub — discoverable over the A2A (Agent2Agent) protocol.',
+      baseUrl: `http://127.0.0.1:${port}`,
+      port,
+      skills: [
+        {
+          id: 'chat',
+          name: 'Chat',
+          description: 'Send a message to the local Open-Chat agent hub.',
+          inputModes: ['text/plain'],
+          outputModes: ['text/plain'],
+        },
+      ],
+      executor: async ({ text }) =>
+        `Open-Chat Hub received your message (${text.length} chars).`,
+    });
+    console.log(`[OpenChat] A2A hub listening on http://127.0.0.1:${port}`);
+    console.log(
+      `[OpenChat] Agent Card: http://127.0.0.1:${port}/.well-known/agent-card.json`
+    );
+  } catch (err) {
+    console.error('[OpenChat] Failed to start A2A hub:', err?.message || err);
+  }
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  startA2AHub();
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+  if (mainWindow === null) createWindow();
+});
+
+app.on('will-quit', () => {
+  if (a2aServer) {
+    a2aServer.close();
+    a2aServer = null;
+  }
+});

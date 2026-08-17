@@ -11,6 +11,7 @@ import { Sidebar } from "./components/Sidebar.jsx";
 import { Chat } from "./components/Chat.jsx";
 import { SearchResults } from "./components/SearchResults.jsx";
 import { Settings } from "./components/Settings.jsx";
+import { GeneralSettings, buildServerBot } from "./components/GeneralSettings.jsx";
 import { AuditLog } from "./components/AuditLog.jsx";
 import { ToolExecutionConsole } from "./components/ToolExecutionConsole.jsx";
 import { DeveloperPanel } from "./components/DeveloperPanel.jsx";
@@ -23,11 +24,14 @@ import { subTeamStream, subTeamHealthCheck } from "./protocols/SubTeamClient.js"
 import { DraymondOrchestratorClient } from "./protocols/DraymondOrchestratorClient.js";
 import { LocalModelClient } from "./protocols/LocalModelClient.js";
 import { NtfyClient } from "./protocols/NtfyClient.js";
+import { A2AClient } from "./protocols/A2AClient.js";
+import { MCPHostClient } from "./protocols/MCPHostClient.js";
 import { syncMessagesToDraymond, lastLocalExchange } from "./utils/draymondSync.js";
 import { syncBenchmarksViaDraymond } from "./utils/benchmarks.js";
 import { chatPrivate } from "./utils/localChat.js";
 import { buildDraymondTools } from "./utils/draymondTools.js";
 import { useWorkerEngine, createPreferencesStore } from "./hooks/useWorkerEngine.js";
+import { parseMcpServers, summarizeMcpTools } from "./utils/mcpConfig.js";
 import { resolveWorkerBaseUrl } from "./utils/workerEngine.js";
 import {
   loadHist,
@@ -88,7 +92,7 @@ export default function App() {
     } catch {
       return "home";
     }
-  }); // home | chats | agents | models | work | stats | approvals
+  }); // home | chats | agents | models | work | stats | approvals | settings
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Remember the last visited screen across launches.
@@ -148,6 +152,8 @@ export default function App() {
   const orchestratorRefs = useRef({}); // botId → DraymondOrchestratorClient
   const ntfyRefs = useRef({}); // botId → NtfyClient
   const localRefs = useRef({}); // botId → LocalModelClient
+  const a2aRefs = useRef({}); // botId → A2AClient
+  const mcpRefs = useRef({}); // botId → MCPHostClient
   const seenNtfyIds = useRef(new Set()); // ntfy message ids already rendered
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
@@ -533,6 +539,76 @@ export default function App() {
   );
 
   // â”€â”€ Local on-device chat connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const connectA2A = useCallback(
+    async (bot) => {
+      if (a2aRefs.current[bot.id]) {
+        a2aRefs.current[bot.id].disconnect();
+        delete a2aRefs.current[bot.id];
+      }
+
+      const client = new A2AClient(
+        bot.agentCardUrl || bot.host,
+        bot.token
+      );
+      client.onStatusChange = (status) => setStatus(bot.id, status);
+      client.onAgentDiscovered = (card) => {
+        setAgentRegistry((prev) => ({
+          ...prev,
+          [`a2a-${card.name}`]: {
+            id: `a2a-${card.name}`,
+            name: card.name,
+            capabilities: (Array.isArray(card.skills) ? card.skills : []).map(
+              (s) => s.name
+            ),
+            status: "online",
+          },
+        }));
+      };
+      client.onTaskUpdate = (task) => {
+        setDraymondNotifications((prev) =>
+          [...prev, { type: "a2a.task", task, receivedAt: Date.now() }].slice(-200)
+        );
+      };
+      a2aRefs.current[bot.id] = client;
+
+      setStatus(bot.id, "connecting");
+      try {
+        await client.connect();
+        setBots((prev) =>
+          prev.map((b) =>
+            b.id === bot.id ? { ...b, skills: client.getSkills() } : b
+          )
+        );
+      } catch (e) {
+        console.error(`Failed to connect A2A agent ${bot.name}:`, e);
+        setStatus(bot.id, "error");
+      }
+    },
+    [setStatus]
+  );
+
+  const connectMCP = useCallback(
+    async (bot) => {
+      if (mcpRefs.current[bot.id]) {
+        mcpRefs.current[bot.id].disconnect();
+        delete mcpRefs.current[bot.id];
+      }
+
+      const client = new MCPHostClient(parseMcpServers(bot.mcpServers));
+      client.onStatusChange = (status) => setStatus(bot.id, status);
+      mcpRefs.current[bot.id] = client;
+
+      setStatus(bot.id, "connecting");
+      try {
+        await client.connect();
+      } catch (e) {
+        console.error(`Failed to connect MCP for ${bot.name}:`, e);
+        setStatus(bot.id, "error");
+      }
+    },
+    [setStatus]
+  );
+
   const connectLocal = useCallback(
     async (bot) => {
       if (localRefs.current[bot.id]) {
@@ -675,11 +751,29 @@ export default function App() {
         }
       });
 
+    // Connect A2A (Agent2Agent) agents
+    bots
+      .filter((b) => b.protocol === "a2a")
+      .forEach((b) => {
+        if (!a2aRefs.current[b.id]) {
+          connectA2A(b);
+        }
+      });
+
+    // Connect MCP host bots
+    bots
+      .filter((b) => b.protocol === "mcp")
+      .forEach((b) => {
+        if (!mcpRefs.current[b.id]) {
+          connectMCP(b);
+        }
+      });
+
     // Native notification permission (approval alerts on the phone).
     if (isNative) {
       requestNotificationPermission().catch(() => {});
     }
-  }, [bots, connectClaw, connectUpliftBridge, connectDraymond, connectNtfy, connectLocal, setStatus]);
+  }, [bots, connectClaw, connectUpliftBridge, connectDraymond, connectNtfy, connectLocal, connectA2A, connectMCP, setStatus]);
 
   // â”€â”€ Disconnect all clients on unmount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -697,6 +791,10 @@ export default function App() {
       Object.values(ntfyRefs.current).forEach((client) => client.disconnect());
       // eslint-disable-next-line react-hooks/exhaustive-deps
       Object.values(localRefs.current).forEach((client) => client.disconnect());
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      Object.values(a2aRefs.current).forEach((client) => client.disconnect());
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      Object.values(mcpRefs.current).forEach((client) => client.disconnect());
     };
   }, []);
 
@@ -1063,6 +1161,62 @@ export default function App() {
             m.id === userMsg.id ? { ...m, read: true } : m
           ),
         }));
+      } else if (bot.protocol === "a2a") {
+        // A2A (Agent2Agent) remote agent — delegate a task via Agent Card discovery
+        let client = a2aRefs.current[bot.id];
+        if (!client) {
+          await connectA2A(bot);
+          client = a2aRefs.current[bot.id];
+        }
+        if (!client || client.status !== "connected") {
+          throw new Error("A2A agent not connected — check Settings");
+        }
+
+        abortRef.current = new AbortController();
+
+        const finalText = await client.send(
+          text,
+          (delta) => {
+            streamBuf.current += delta;
+            updateLastMessage(bot.id, {
+              text: streamBuf.current,
+              streaming: true,
+            });
+          },
+          { signal: abortRef.current.signal }
+        );
+
+        updateLastMessage(bot.id, {
+          text: streamBuf.current || finalText || "✓",
+          streaming: false,
+        });
+
+        // Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
+      } else if (bot.protocol === "mcp") {
+        // MCP host — report the aggregated tool surface available to agents.
+        const client = mcpRefs.current[bot.id];
+        if (!client || !client.isConnected()) {
+          throw new Error("MCP host not connected — check Settings");
+        }
+        const byServer = client.getToolsByServer();
+        updateLastMessage(bot.id, {
+          text: `Connected MCP tools: ${summarizeMcpTools(byServer)}`,
+          streaming: false,
+        });
+
+        // Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
       } else if (bot.protocol === "local") {
         // Private on-device chat (Gemma / Nano / WebLLM) + phone control
         let client = localRefs.current[bot.id];
@@ -1183,13 +1337,9 @@ export default function App() {
   const localModelStatus =
     statuses["local"] === "connected" ? "Gemma ready" : "No model loaded";
 
-  /** Navigate via the sidebar. 'settings'/'local' are actions, not screens. */
+  /** Navigate via the sidebar. 'local' is an action, not a screen. */
   function navigate(id, chatId) {
     setSidebarOpen(false);
-    if (id === "settings") {
-      if (bots[0]) openSettings(bots[0]);
-      return;
-    }
     if (id === "local") {
       openChat("local");
       return;
@@ -1197,6 +1347,12 @@ export default function App() {
     setScreen(id);
     if (chatId) openChat(chatId);
   }
+
+  /** Add a detected OpenAI-compatible server model as a chat bot. */
+  const handleAddServerBot = useCallback((entry, baseUrl) => {
+    const bot = buildServerBot(entry, baseUrl);
+    setBots((prev) => (prev.some((b) => b.id === bot.id) ? prev : [...prev, bot]));
+  }, []);
 
   /** Push benchmark rows into the connected Draymond orchestrator. */
   async function handleSyncBenchmarks(rows) {
@@ -1283,6 +1439,14 @@ export default function App() {
       localRefs.current[botId].disconnect();
       delete localRefs.current[botId];
     }
+    if (a2aRefs.current[botId]) {
+      a2aRefs.current[botId].disconnect();
+      delete a2aRefs.current[botId];
+    }
+    if (mcpRefs.current[botId]) {
+      mcpRefs.current[botId].disconnect();
+      delete mcpRefs.current[botId];
+    }
   }
 
   // (Re)connect the client for a bot based on its current protocol config.
@@ -1297,6 +1461,10 @@ export default function App() {
       connectNtfy(updated);
     } else if (updated.protocol === "local") {
       connectLocal(updated);
+    } else if (updated.protocol === "a2a") {
+      connectA2A(updated);
+    } else if (updated.protocol === "mcp") {
+      connectMCP(updated);
     } else if (updated.protocol === "subteam") {
       setStatus(updated.id, "connecting");
       subTeamHealthCheck(updated.host, updated.port, updated.token)
@@ -1521,6 +1689,15 @@ export default function App() {
               bots={bots}
               history={history}
               onExecute={handleNtfyAction}
+            />
+          )}
+          {screen === "settings" && (
+            <GeneralSettings
+              onBack={() => setScreen("home")}
+              onOpenMenu={() => setSidebarOpen(true)}
+              onChatLocal={() => openChat("local")}
+              onSelectLocalModel={handleSelectLocalModel}
+              onAddServerBot={handleAddServerBot}
             />
           )}
 

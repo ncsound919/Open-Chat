@@ -79,7 +79,7 @@ export function getAvailableProtocols(mode) {
   if (mode === MODES.BASIC) {
     return ['hermes']; // Basic mode only supports Hermes
   }
-  return ['hermes', 'openclaw', 'uplift-bridge', 'subteam', 'draymond', 'ntfy', 'local'];
+  return ['hermes', 'openclaw', 'uplift-bridge', 'subteam', 'draymond', 'ntfy', 'local', 'a2a', 'mcp'];
 }
 
 /**

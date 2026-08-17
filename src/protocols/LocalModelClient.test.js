@@ -43,8 +43,14 @@ vi.mock("../utils/draymondTools.js", () => ({
   DRAYMOND_TOOL_NAMES: ["list_skills"],
 }));
 
+vi.mock("../utils/modelRegistry.js", () => ({
+  autoLoadMediaPipeModel: vi.fn(async () => null),
+}));
+
 import { chatLocal } from "../utils/localChat.js";
 import { execPhoneTool } from "../utils/phoneTools.js";
+import { resolveProvider } from "../utils/localChat.js";
+import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
 
 describe("LocalModelClient", () => {
   beforeEach(() => {
@@ -53,7 +59,7 @@ describe("LocalModelClient", () => {
 
   it("threads confirmAction into phone tool execution", async () => {
     chatLocal.mockImplementation(async ({ toolHandler }) => {
-      const result = await toolHandler("tap", { text: "Send" });
+      await toolHandler("tap", { text: "Send" });
       return { text: "done", toolCalls: [], usedTools: [] };
     });
 
@@ -72,10 +78,33 @@ describe("LocalModelClient", () => {
     );
   });
 
+  it("auto-loads a mediapipe model and connects when no provider is ready", async () => {
+    resolveProvider.mockResolvedValueOnce("none").mockResolvedValueOnce("mediapipe");
+    autoLoadMediaPipeModel.mockResolvedValue("/m/loaded");
+
+    const statuses = [];
+    const client = new LocalModelClient({ id: "local", model: "auto" });
+    client.onStatusChange = (s) => statuses.push(s);
+
+    const status = await client.connect();
+    expect(autoLoadMediaPipeModel).toHaveBeenCalled();
+    expect(status).toBe("connected");
+    expect(statuses).toEqual(["connected"]);
+  });
+
+  it("stays no-model when auto-load finds nothing", async () => {
+    resolveProvider.mockResolvedValue("none");
+    autoLoadMediaPipeModel.mockResolvedValue(null);
+
+    const client = new LocalModelClient({ id: "local", model: "auto" });
+    const status = await client.connect();
+    expect(status).toBe("no-model");
+  });
+
   it("handles draymond tool names as a set (no .has() crash)", async () => {
     chatLocal.mockImplementation(async ({ toolHandler }) => {
       // DRAYMOND_TOOL_NAMES is mocked as an array; the client wraps it in a Set.
-      const result = await toolHandler("list_skills", {});
+      await toolHandler("list_skills", {});
       return { text: "skills", toolCalls: [], usedTools: [] };
     });
 

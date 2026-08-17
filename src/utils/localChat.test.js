@@ -35,6 +35,10 @@ describe("cleanReply", () => {
   it("strips a trailing end-of-turn marker and whitespace", () => {
     expect(cleanReply("<end_of_turn>\n  hello ")).toBe("hello");
   });
+
+  it("strips a trailing end-of-turn marker from a session reply", () => {
+    expect(cleanReply("Zed.\n<end_of_turn>")).toBe("Zed.");
+  });
 });
 
 describe("parseToolCall", () => {
@@ -155,6 +159,118 @@ describe("chatLocal", () => {
     });
     expect(res.toolCalls.length).toBe(2);
     expect(res.text).toBe("");
+  });
+
+  it("uses the persistent session for MEDIAPIPE and feeds incremental turns", async () => {
+    let genCalls = 0;
+    const generateSession = vi.fn(async () => {
+      genCalls += 1;
+      if (genCalls === 1) return { text: '{"tool":"read_screen","args":{}}<end_of_turn>', ok: true };
+      return { text: "final answer<end_of_turn>", ok: true };
+    });
+    const beginSession = vi.fn(async () => ({ ok: true }));
+    const mpMock = {
+      generate: vi.fn(),
+      beginSession,
+      generateSession,
+      addListener: vi.fn(async () => ({ remove: vi.fn() })),
+      cancel: vi.fn(async () => ({})),
+    };
+    vi.doMock("./modelRegistry.js", () => ({
+      loadMediaPipe: vi.fn(async () => mpMock),
+    }));
+    vi.doMock("./OnDeviceAI.js", () => ({
+      isAvailable: vi.fn(async () => false),
+      webllmAvailable: vi.fn(async () => false),
+      generateStream: vi.fn(),
+      chatWebLlm: vi.fn(),
+    }));
+    const { chatLocal: cl, PROVIDER: P } = await import("./localChat.js");
+    const toolHandler = vi.fn(async () => ({ ok: true, elements: [] }));
+    const res = await cl({
+      userMessage: "read my screen",
+      provider: P.MEDIAPIPE,
+      systemPrompt: "SYSTEM PROMPT",
+      tools: [{ name: "read_screen", description: "Read screen", parameters: {} }],
+      toolHandler,
+      maxRounds: 3,
+    });
+    // System seeded once, not reprocessed
+    expect(beginSession).toHaveBeenCalledTimes(1);
+    expect(beginSession.mock.calls[0][0].systemPrompt).toContain("SYSTEM PROMPT");
+    // Two generation passes: tool call round + final answer round
+    expect(generateSession).toHaveBeenCalledTimes(2);
+    const firstPrompt = generateSession.mock.calls[0][0].prompt;
+    const secondPrompt = generateSession.mock.calls[1][0].prompt;
+    // First incremental feed is the user message; second is the tool result (not the full prompt)
+    expect(firstPrompt).toContain("read my screen");
+    expect(firstPrompt).not.toContain("SYSTEM PROMPT");
+    expect(secondPrompt).toContain("Tool result");
+    expect(res.text).toBe("final answer");
+    expect(res.provider).toBe(P.MEDIAPIPE);
+    expect(res.toolCalls.length).toBe(1);
+    expect(toolHandler).toHaveBeenCalledWith("read_screen", {});
+  });
+
+  it("resets and falls back to the generic loop when the session overflows", async () => {
+    const generateSession = vi.fn(async () => {
+      throw new Error("OUT_OF_RANGE: Calculator::Process failed");
+    });
+    const beginSession = vi.fn(async () => ({ ok: true }));
+    const resetSession = vi.fn(async () => ({ ok: true }));
+    // Generic fallback uses `generate`
+    const generate = vi.fn(async () => ({ text: "fallback answer", ok: true }));
+    const mpMock = {
+      generate,
+      beginSession,
+      generateSession,
+      resetSession,
+      addListener: vi.fn(async () => ({ remove: vi.fn() })),
+      cancel: vi.fn(async () => ({})),
+    };
+    vi.doMock("./modelRegistry.js", () => ({
+      loadMediaPipe: vi.fn(async () => mpMock),
+    }));
+    vi.doMock("./OnDeviceAI.js", () => ({
+      isAvailable: vi.fn(async () => false),
+      webllmAvailable: vi.fn(async () => false),
+      generateStream: vi.fn(),
+      chatWebLlm: vi.fn(),
+    }));
+    const { chatLocal: cl, PROVIDER: P } = await import("./localChat.js");
+    const res = await cl({ userMessage: "hi", provider: P.MEDIAPIPE, maxRounds: 2 });
+    expect(beginSession).toHaveBeenCalled();
+    expect(generateSession).toHaveBeenCalled();
+    expect(resetSession).toHaveBeenCalled();
+    expect(generate).toHaveBeenCalled(); // fell back to full-prompt loop
+    expect(res.text).toBe("fallback answer");
+  });
+
+  it("falls back to the generic loop when the session API is missing", async () => {
+    const generate = vi.fn(async () => ({ text: '{"tool":"tap","args":{"x":1,"y":2}}', ok: true }));
+    const mpMock = {
+      generate,
+      addListener: vi.fn(async () => ({ remove: vi.fn() })),
+      cancel: vi.fn(async () => ({})),
+    };
+    vi.doMock("./modelRegistry.js", () => ({
+      loadMediaPipe: vi.fn(async () => mpMock),
+    }));
+    vi.doMock("./OnDeviceAI.js", () => ({
+      isAvailable: vi.fn(async () => false),
+      webllmAvailable: vi.fn(async () => false),
+    }));
+    const { chatLocal: cl, PROVIDER: P } = await import("./localChat.js");
+    const res = await cl({
+      userMessage: "tap",
+      provider: P.MEDIAPIPE,
+      tools: [{ name: "tap", description: "Tap", parameters: {} }],
+      toolHandler: vi.fn(async () => ({ ok: true })),
+      maxRounds: 1,
+    });
+    // Without beginSession/generateSession it uses the full-prompt `generate` path
+    expect(generate).toHaveBeenCalled();
+    expect(res.toolCalls.length).toBe(1);
   });
 
   it("handles tool handler rejection gracefully", async () => {

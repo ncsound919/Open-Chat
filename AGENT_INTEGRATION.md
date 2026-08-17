@@ -1,36 +1,58 @@
 # Agent Protocol Integration Guide
 
-Open-Chat now supports **five protocols** for connecting to AI agents:
+Open-Chat now supports **seven protocols** for connecting to AI agents, plus it
+can **expose itself** as an A2A (Agent2Agent) server from the Electron main process:
 
 ## 📋 Supported Protocols
 
-### 1. **Hermes (HTTP / OpenAI-compatible)**
+### 0. **A2A Server (Agent2Agent exposure)** 🆕
+- **Type**: A2A over HTTP (JSON-RPC + SSE)
+- **Default Port**: 18644 (override with `OPENCHAT_A2A_PORT`)
+- **Role**: Open-Chat exposes its local hub so *other* agents can discover it
+- **Endpoint** (Electron main process):
+  - `GET  http://127.0.0.1:18644/.well-known/agent-card.json`
+  - `POST http://127.0.0.1:18644/a2a/jsonrpc`
+- **Use Case**: Make Open-Chat discoverable/delegatable by any A2A-compliant agent
+  (LangGraph, CrewAI, Semantic Kernel, Google ADK, another Open-Chat, ...)
+
+### 1. **A2A Client (Agent2Agent)** 🆕
+- **Type**: A2A over HTTP (JSON-RPC + SSE streaming)
+- **Use Case**: Connect to any A2A-compliant remote agent by its **Agent Card URL**
+- **Discovery**: Fetch `/.well-known/agent-card.json` → skills, capabilities, interfaces
+
+### 2. **MCP Host (Model Context Protocol)** 🆕
+- **Type**: JSON-RPC over HTTP
+- **Use Case**: Open-Chat acts as an MCP host, aggregating tools from one or more
+  MCP servers for its agents and the tool console
+- **Config**: JSON array of `{name, url, token}` servers (e.g. `[{"name":"local","url":"http://127.0.0.1:8000"}]`)
+
+### 3. **Hermes (HTTP / OpenAI-compatible)**
 - **Type**: HTTP with Server-Sent Events (SSE)
 - **Default Port**: 8642
 - **Use Case**: Standard OpenAI-compatible agents
 - **Endpoint**: `http://127.0.0.1:8642/v1/chat/completions`
 
-### 2. **OpenClaw (WebSocket)**
+### 4. **OpenClaw (WebSocket)**
 - **Type**: JSON-RPC over WebSocket
 - **Default Port**: 18789
 - **Use Case**: Low-latency persistent connections
 - **Endpoint**: `ws://127.0.0.1:18789`
 
-### 3. **Uplift Bridge (Uplift Agent)** 🆕
+### 5. **Uplift Bridge (Uplift Agent)** 🆕
 - **Type**: HTTP REST API with polling
 - **Default Port**: Custom (set by your Uplift instance)
 - **Use Case**: Connecting to Uplift Agent remote sessions
 - **Architecture**: Bridge-based with environment registration
 - **Endpoint**: `http://127.0.0.1:<port>/v1/environments/bridge`
 
-### 4. **SubTeam (CPU Design / Draymond)** 🆕
+### 6. **SubTeam (CPU Design / Draymond)** 🆕
 - **Type**: HTTP with SSE (Hermes-compatible)
 - **Default Port**: Custom (set by your wrapper server)
 - **Use Case**: CPU design automation via Sub-Team agent
 - **Draymond Integration**: Registered in Draymond orchestrator
 - **Endpoint**: `http://127.0.0.1:<port>/v1/chat/completions`
 
-### 5. **Draymond Orchestrator (Multi-Agent)** 🆕
+### 7. **Draymond Orchestrator (Multi-Agent)** 🆕
 - **Type**: HTTP with SSE + Real-time event stream
 - **Default Port**: 8644
 - **Use Case**: Multi-agent coordination and workflow orchestration

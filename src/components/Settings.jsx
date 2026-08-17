@@ -158,10 +158,10 @@ export function Settings({
     setScanError(null);
     setScanResults([]);
     try {
-      const results = await scanLocalModels({ extraHost: lanHost });
+      const results = await detectLocalModels({ extraHost: lanHost });
       setScanResults(results);
       if (results.length === 0) {
-        setScanError("No local model servers found. Start Ollama, LM Studio, or another OpenAI-compatible server, then scan again.");
+        setScanError("No local models found. Open the Chat screen on your phone or enable experimental scans in Draymond settings, then scan again.");
       }
     } catch (err) {
       setScanError(`Scan failed: ${err?.message || err}`);
@@ -332,6 +332,10 @@ export function Settings({
               ? "ntfy (push)"
               : form.protocol === "local"
               ? "Private Local · On-device"
+              : form.protocol === "a2a"
+              ? "A2A · Agent2Agent"
+              : form.protocol === "mcp"
+              ? "MCP Host"
               : "Unknown Protocol"}
           </div>
         </div>
@@ -412,6 +416,12 @@ export function Settings({
                   {availableProtocols.includes("local") && (
                     <option value="local">Private Local (On-device)</option>
                   )}
+                  {availableProtocols.includes("a2a") && (
+                    <option value="a2a">A2A (Agent2Agent)</option>
+                  )}
+                  {availableProtocols.includes("mcp") && (
+                    <option value="mcp">MCP Host (Tools)</option>
+                  )}
                 </select>
               </div>
             )}
@@ -427,7 +437,7 @@ export function Settings({
           </>
         )}
 
-        {form.protocol !== "local" && isFieldVisible("host", mode) && (
+        {form.protocol !== "local" && form.protocol !== "a2a" && form.protocol !== "mcp" && isFieldVisible("host", mode) && (
           <div>
             <span style={labelStyle}>
               {form.protocol === "draymond" ? "Host / Tunnel URL" : form.protocol === "ntfy" ? "ntfy Server" : "Host"}
@@ -483,7 +493,7 @@ export function Settings({
           </div>
         )}
 
-        {form.protocol !== "local" && isFieldVisible("port", mode) && (
+        {form.protocol !== "local" && form.protocol !== "a2a" && form.protocol !== "mcp" && isFieldVisible("port", mode) && (
           <div>
             <span style={labelStyle}>Port</span>
             <input
@@ -495,7 +505,7 @@ export function Settings({
           </div>
         )}
 
-        {form.protocol !== "local" && isFieldVisible("token", mode) && (
+        {form.protocol !== "local" && form.protocol !== "mcp" && isFieldVisible("token", mode) && (
           <div>
           <span style={labelStyle}>
             {form.protocol === "openclaw"
@@ -504,6 +514,8 @@ export function Settings({
               ? "UPLIFT_OAUTH_TOKEN"
               : form.protocol === "ntfy"
               ? "NTFY_ACCESS_TOKEN (optional)"
+              : form.protocol === "a2a"
+              ? "API Key (optional)"
               : "API_SERVER_KEY"}
           </span>
           <input
@@ -526,6 +538,68 @@ export function Settings({
             </div>
           )}
         </div>
+        )}
+
+        {/* A2A (Agent2Agent) Agent Card URL */}
+        {form.protocol === "a2a" && (
+          <div>
+            <span style={labelStyle}>Agent Card URL</span>
+            <input
+              style={inputStyle}
+              value={form.agentCardUrl || ""}
+              onChange={updateField("agentCardUrl")}
+              placeholder="https://agent.example.com"
+            />
+            <div
+              style={{
+                marginTop: 6,
+                padding: "6px 10px",
+                background: "#0a1f1a",
+                border: "1px solid #12715a",
+                borderRadius: 6,
+                fontSize: 11,
+                color: "#34d399",
+                lineHeight: 1.5,
+              }}
+            >
+              A2A discovers remote agents via their Agent Card (skills,
+              capabilities, interfaces). Open-Chat then delegates tasks and
+              streams responses.
+            </div>
+          </div>
+        )}
+
+        {/* MCP Host server list */}
+        {form.protocol === "mcp" && (
+          <div>
+            <span style={labelStyle}>MCP Servers (JSON array)</span>
+            <textarea
+              style={{
+                ...inputStyle,
+                minHeight: 80,
+                fontFamily: "monospace",
+                fontSize: 12,
+              }}
+              value={form.mcpServers || ""}
+              onChange={updateField("mcpServers")}
+              placeholder='[{"name":"local","url":"http://127.0.0.1:8000"}]'
+            />
+            <div
+              style={{
+                marginTop: 6,
+                padding: "6px 10px",
+                background: "#0a1f1a",
+                border: "1px solid #12715a",
+                borderRadius: 6,
+                fontSize: 11,
+                color: "#34d399",
+                lineHeight: 1.5,
+              }}
+            >
+              Open-Chat acts as an MCP host, aggregating tools from these
+              servers for its agents and the tool console.
+            </div>
+          </div>
         )}
 
         {/* Private Local model config */}

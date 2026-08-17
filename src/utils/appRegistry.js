@@ -72,9 +72,9 @@ export async function discoverApps({ phoneControl } = {}) {
 }
 
 /** Build a concise "APPS ON THIS PHONE" prompt section for the agent. */
-export function buildAppContext(apps, { maxPerCategory = 12 } = {}) {
+export function buildAppContext(apps, { maxPerCategory = 8 } = {}) {
   if (!apps?.length) return "";
-  const lines = ["APPS ON THIS PHONE — you can open these and read/tap/type inside them via open_app (use the exact package_name):"];
+  const lines = ["APPS ON THIS PHONE (open via open_app with exact package_name):"];
   for (const cat of APP_CATEGORIES) {
     const list = (apps.filter((a) => a.category === cat.key) || []).slice(0, maxPerCategory);
     if (!list.length) continue;
@@ -83,7 +83,7 @@ export function buildAppContext(apps, { maxPerCategory = 12 } = {}) {
       (apps.filter((a) => a.category === cat.key).length > maxPerCategory ? " …" : "")
     );
   }
-  lines.push("Rules: finance apps are READ-ONLY unless the user explicitly confirms a payment. Never post or send without confirmation.");
+  lines.push("Finance apps are READ-ONLY unless the user confirms. Never send/post without confirmation.");
   return lines.join("\n");
 }
 

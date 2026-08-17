@@ -70,6 +70,9 @@ const MEDIAPIPE_METHODS = [
   "downloadModel",
   "loadModel",
   "generate",
+  "beginSession",
+  "generateSession",
+  "resetSession",
   "cancel",
   "unloadModel",
   "deleteModel",
@@ -170,6 +173,37 @@ export async function detectMediaPipeBundles() {
     return models.map(mediaPipeBundleToEntry);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Ensure an on-device MediaPipe bundle is loaded, loading the most recently
+ * added bundle if none is currently loaded. This makes the "private local"
+ * bot (and the on-device engine) usable without a manual load step.
+ * @returns {Promise<string|null>} the loaded model path, or null
+ */
+export async function autoLoadMediaPipeModel() {
+  const mp = await loadMediaPipe();
+  if (!mp?.listModels || !mp?.loadModel) return null;
+  try {
+    const status = await mp.getStatus();
+    if (status?.modelLoaded) return status.modelPath || null;
+  } catch {
+    /* fall through to (re)load */
+  }
+  try {
+    const { models = [] } = await mp.listModels();
+    if (models.length === 0) return null;
+    const bundle = models[0]; // native plugin sorts newest-first
+    const res = await mp.loadModel({
+      fileName: bundle.fileName,
+      maxTokens: 4096,
+      topK: 40,
+      backend: "auto",
+    });
+    return res?.ok ? (res.modelPath || bundle.fileName) : null;
+  } catch {
+    return null;
   }
 }
 

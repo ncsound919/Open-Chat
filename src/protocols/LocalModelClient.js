@@ -6,6 +6,7 @@
  */
 
 import { chatLocal, resolveProvider, PROVIDER } from "../utils/localChat.js";
+import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
 import { PHONE_TOOLS, execPhoneTool } from "../utils/phoneTools.js";
 import { GALAXY_AI_SKILLS, execGalaxySkill } from "../utils/galaxyAi.js";
 import { DEFAULT_LOCAL_SYSTEM_PROMPT } from "../utils/galaxyPlanning.js";
@@ -61,9 +62,15 @@ export class LocalModelClient {
   }
 
   async connect() {
-    // Health check: is a model actually usable?
+    // Health check: is a model actually usable? If a MediaPipe bundle is
+    // downloaded but not yet loaded, load it automatically so the "private
+    // local" bot works out of the box.
     try {
-      const provider = await resolveProvider();
+      let provider = await resolveProvider();
+      if (provider === PROVIDER.NONE) {
+        const loaded = await autoLoadMediaPipeModel();
+        if (loaded) provider = await resolveProvider();
+      }
       this.status = provider === PROVIDER.NONE ? "no-model" : "connected";
     } catch {
       this.status = "error";

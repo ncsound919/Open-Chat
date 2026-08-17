@@ -44,7 +44,14 @@ export function buildSkillExecutors({ onSend, onNotify, chat, confirm, draymondB
   /** Upload a phone screenshot (base64) to the SMD media store via Draymond. */
   const captureToSmd = async (ctx) => {
     const args = toolArgs(ctx);
-    const b64 = args.data ?? args.base64 ?? "";
+    // The pack may run capture_to_smd right after capture — if no data was
+    // passed in args, pull the screenshot from the prior capture output in the
+    // pack execution context (ctx.output.capture.screenshot).
+    const priorCapture = ctx?.output?.capture ?? ctx?.output?.capture_screenshot ?? null;
+    const b64 =
+      args.data ??
+      args.base64 ??
+      (typeof priorCapture?.screenshot === "string" ? priorCapture.screenshot : "");
     if (!b64 || !draymondBaseUrl) {
       return { ok: false, error: "capture_to_smd requires screenshot data + a Draymond connection" };
     }
@@ -58,7 +65,7 @@ export function buildSkillExecutors({ onSend, onNotify, chat, confirm, draymondB
         body: JSON.stringify({
           filename: args.filename ?? `capture-${Date.now()}.png`,
           data: b64,
-          mime: args.mime ?? "image/png",
+          mime: args.mime ?? priorCapture?.mime ?? "image/png",
         }),
       });
       const json = await res.json().catch(() => ({}));

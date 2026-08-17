@@ -114,7 +114,7 @@ export function Sidebar({ open, onClose, onNavigate, unread = 0, agentCount = 0,
             SHORTCUTS
           </div>
           <button
-            onClick={() => onNavigate("chats")}
+            onClick={() => onNavigate("local")}
             style={shortcutStyle}
           >
             <span style={{ fontSize: 18 }}>🔒</span>

@@ -55,7 +55,9 @@ export class SkillPackRuntime {
         continue;
       }
       try {
-        output[tool] = await withTimeout(fn({ ...context, pack, tool }), this.timeoutMs, tool);
+        // Handlers receive the running `output` map so a later tool can consume
+        // an earlier tool's result (e.g. capture_to_smd reads capture.screenshot).
+        output[tool] = await withTimeout(fn({ ...context, pack, tool, output }), this.timeoutMs, tool);
       } catch (error) {
         const msg = normalizeError(error);
         failed.push({ tool, error: msg });

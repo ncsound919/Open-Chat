@@ -113,17 +113,6 @@ const AGENT_STORAGE_FIELDS = ["id", "name", "capabilities", "status", "lastHeart
 
 export const DEFAULT_BOTS = [
   {
-    id: "openclaw",
-    name: "OpenClaw",
-    avatar: "🦞",
-    color: "#34d399",
-    tagline: "Personal AI · Always on",
-    protocol: "openclaw",
-    host: "127.0.0.1",
-    port: 18789,
-    token: "",
-  },
-  {
     id: "hermes",
     name: "Hermes",
     avatar: "☿",
@@ -168,6 +157,42 @@ export const DEFAULT_BOTS = [
     model: "auto",
     phoneToolsEnabled: true,
     voiceCallEnabled: false,
+  },
+  {
+    id: "fleet-alerts",
+    name: "Fleet Alerts",
+    avatar: "📟",
+    color: "#f43f5e",
+    tagline: "Jobs · Monitors · Kairos",
+    protocol: "ntfy",
+    host: "https://ntfy.sh",
+    port: 443,
+    token: "",
+    topic: "ov365-mucwehxf720s",
+  },
+  {
+    id: "fleet-approvals",
+    name: "Fleet Approvals",
+    avatar: "✅",
+    color: "#f59e0b",
+    tagline: "Human-in-the-loop · Approve/Reject",
+    protocol: "ntfy",
+    host: "https://ntfy.sh",
+    port: 443,
+    token: "",
+    topic: "ov365-yo1b73aleprc",
+  },
+  {
+    id: "fleet-recaps",
+    name: "Fleet Recaps",
+    avatar: "📊",
+    color: "#8b5cf6",
+    tagline: "Morning brief · Daily digest",
+    protocol: "ntfy",
+    host: "https://ntfy.sh",
+    port: 443,
+    token: "",
+    topic: "ov365-fjuytxa530ml",
   },
 ];
 
@@ -259,6 +284,14 @@ export function loadBots() {
     if (!parsed.some((b) => b.id === "local")) {
       const localDefault = DEFAULT_BOTS.find((b) => b.id === "local");
       if (localDefault) parsed.push(localDefault);
+    }
+    // Ensure the fleet ntfy bots (alerts/approvals/recaps) exist so a config
+    // persisted before they were added still receives fleet pushes.
+    for (const id of ["fleet-alerts", "fleet-approvals", "fleet-recaps"]) {
+      if (!parsed.some((b) => b.id === id)) {
+        const ntfyDefault = DEFAULT_BOTS.find((b) => b.id === id);
+        if (ntfyDefault) parsed.push(ntfyDefault);
+      }
     }
     return parsed;
   } catch {

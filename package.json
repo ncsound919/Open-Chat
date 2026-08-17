@@ -1,7 +1,7 @@
 {
   "name": "open-chat",
   "main": "electron/main.js",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Private, local-first chat app for autonomous agents (OpenClaw, Hermes, Draymond Orchestrator, SubTeam, Uplift Bridge, ntfy)",
   "type": "module",
   "engines": {

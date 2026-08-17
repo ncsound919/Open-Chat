@@ -11,6 +11,7 @@ import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import com.google.mediapipe.tasks.genai.llminference.ProgressListener
 import java.io.File
 import java.io.FileOutputStream
@@ -37,6 +38,7 @@ class MediaPipeGemmaPlugin : Plugin() {
 
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var llm: LlmInference? = null
+    private var persistentSession: LlmInferenceSession? = null
     private var loadedFileName: String? = null
     private var loadedBackend: String? = null
     private val cancelled = AtomicBoolean(false)
@@ -162,6 +164,11 @@ class MediaPipeGemmaPlugin : Plugin() {
             } catch (_: Exception) {
             }
             try {
+                persistentSession?.close()
+            } catch (_: Exception) {
+            }
+            persistentSession = null
+            try {
                 val builder = LlmInference.LlmInferenceOptions.builder()
                     .setModelPath(file.absolutePath)
                     .setMaxTokens(maxTokens)
@@ -184,6 +191,118 @@ class MediaPipeGemmaPlugin : Plugin() {
                 Log.e(TAG, "loadModel failed", e)
                 call.reject("model load failed: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * Begin (or reset) a persistent conversation session. Optionally seeds the
+     * system prompt once so it is NOT re-processed on every generation turn.
+     * Without an active session the per-turn `generateSession` calls reject.
+     */
+    @PluginMethod
+    fun beginSession(call: PluginCall) {
+        val systemPrompt = call.getString("systemPrompt") ?: ""
+        val llm = this.llm
+        if (llm == null) {
+            call.reject("no model loaded")
+            return
+        }
+        ioExecutor.execute {
+            try {
+                persistentSession?.close()
+            } catch (_: Exception) {
+            }
+            try {
+                val newSession = LlmInferenceSession.createFromOptions(
+                    llm,
+                    LlmInferenceSession.LlmInferenceSessionOptions.builder().build()
+                )
+                persistentSession = newSession
+                if (systemPrompt.isNotEmpty()) {
+                    newSession.addQueryChunk(systemPrompt)
+                }
+                call.resolve(JSObject().put("ok", true))
+            } catch (e: Exception) {
+                Log.e(TAG, "beginSession failed", e)
+                call.reject("beginSession failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Generate against the persistent session, appending `prompt` to the
+     * ongoing context (KV cache) instead of reprocessing the full prompt.
+     */
+    @PluginMethod
+    fun generateSession(call: PluginCall) {
+        val prompt = call.getString("prompt")?.takeIf { it.isNotEmpty() } ?: run {
+            call.reject("prompt required"); return
+        }
+        val sessionId = call.getString("sessionId") ?: "default"
+        val session = persistentSession ?: run {
+            call.reject("no active session — call beginSession first"); return
+        }
+        cancelled.set(false)
+        ioExecutor.execute {
+            try {
+                session.addQueryChunk(prompt)
+                val sb = StringBuilder()
+                val future = session.generateResponseAsync(
+                    object : ProgressListener<String> {
+                        override fun run(partial: String, done: Boolean) {
+                            if (partial.isNotEmpty()) {
+                                sb.append(partial)
+                                val ev = JSObject()
+                                ev.put("sessionId", sessionId)
+                                ev.put("text", partial)
+                                ev.put("done", done)
+                                notifyListeners("generate:progress", ev, false)
+                            }
+                            if (done) {
+                                val doneEv = JSObject()
+                                doneEv.put("sessionId", sessionId)
+                                doneEv.put("text", "")
+                                doneEv.put("done", true)
+                                notifyListeners("generate:progress", doneEv, false)
+                            }
+                        }
+                    }
+                )
+                Futures.addCallback(future, object : FutureCallback<String> {
+                    override fun onSuccess(result: String) {
+                        if (cancelled.get()) {
+                            call.reject("cancelled")
+                            return
+                        }
+                        val ret = JSObject()
+                        ret.put("text", result ?: sb.toString())
+                        ret.put("ok", true)
+                        call.resolve(ret)
+                    }
+
+                    override fun onFailure(t: Throwable) {
+                        Log.e(TAG, "generateSession failed", t)
+                        if (cancelled.get()) call.reject("cancelled")
+                        else call.reject("generateSession failed: ${t.message}")
+                    }
+                }, MoreExecutors.directExecutor())
+            } catch (e: Exception) {
+                Log.e(TAG, "generateSession call failed", e)
+                call.reject("generateSession failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Drop the persistent session context (start a fresh conversation). */
+    @PluginMethod
+    fun resetSession(call: PluginCall) {
+        ioExecutor.execute {
+            try {
+                persistentSession?.close()
+            } catch (_: Exception) {
+            }
+            persistentSession = null
+            call.resolve(JSObject().put("ok", true))
         }
     }
 
@@ -262,7 +381,12 @@ class MediaPipeGemmaPlugin : Plugin() {
                 llm?.close()
             } catch (_: Exception) {
             }
+            try {
+                persistentSession?.close()
+            } catch (_: Exception) {
+            }
             llm = null
+            persistentSession = null
             loadedFileName = null
             loadedBackend = null
             call.resolve(JSObject().put("ok", true))
@@ -285,7 +409,12 @@ class MediaPipeGemmaPlugin : Plugin() {
                     llm?.close()
                 } catch (_: Exception) {
                 }
+                try {
+                    persistentSession?.close()
+                } catch (_: Exception) {
+                }
                 llm = null
+                persistentSession = null
                 loadedFileName = null
                 if (file.delete()) call.resolve(JSObject().put("ok", true))
                 else call.reject("delete failed")
@@ -302,7 +431,12 @@ class MediaPipeGemmaPlugin : Plugin() {
             llm?.close()
         } catch (_: Exception) {
         }
+        try {
+            persistentSession?.close()
+        } catch (_: Exception) {
+        }
         llm = null
+        persistentSession = null
         loadedFileName = null
         loadedBackend = null
         super.handleOnDestroy()

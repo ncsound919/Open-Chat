@@ -48,3 +48,8 @@ lerna-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# Local backups & logs (never commit)
+.env.local.bak
+openchat.err.log
+openchat.out.log

@@ -25,6 +25,13 @@ describe("Sidebar", () => {
     expect(onNavigate).toHaveBeenCalledWith("work");
   });
 
+  it("opens the Private Local chat from the shortcut", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar open onClose={() => {}} onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByText("Private Local"));
+    expect(onNavigate).toHaveBeenCalledWith("local");
+  });
+
   it("closes on backdrop click", () => {
     const onClose = vi.fn();
     render(<Sidebar open onClose={onClose} onNavigate={() => {}} />);

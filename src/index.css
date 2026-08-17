@@ -40,9 +40,11 @@ body.native #root {
 }
 
 /* Bottom-anchored bars add safe-area padding so the system navigation
-   bar never overlaps app content. */
+   bar never overlaps app content. Uses the Capacitor-injected
+   --safe-area-inset-* variable when available (more reliable than env() on
+   Android 16+ edge-to-edge WebViews) with a 20px floor as a fallback. */
 .safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 20px);
 }
 
 /* Android-specific: extra top padding when StatusBar overlays web view */

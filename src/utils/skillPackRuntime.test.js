@@ -49,6 +49,20 @@ describe("SkillPackRuntime", () => {
     );
   });
 
+  it("passes the running output map so later tools can consume earlier results", async () => {
+    const seen = [];
+    const handlers = {
+      capture: vi.fn(async () => ({ ok: true, screenshot: "BASE64DATA" })),
+      capture_to_smd: vi.fn(async (ctx) => {
+        seen.push(ctx.output.capture?.screenshot);
+        return { ok: true, smd_ref: "C:/smd/x.png" };
+      }),
+    };
+    const runtime = new SkillPackRuntime(handlers);
+    await runtime.execute({ name: "marketing_capture", tools: ["capture", "capture_to_smd"] }, {});
+    expect(seen).toEqual(["BASE64DATA"]);
+  });
+
   it("fails a step gracefully and returns partial output", async () => {
     const handlers = makeHandlers();
     handlers.capture.mockRejectedValueOnce(new Error("no cam"));

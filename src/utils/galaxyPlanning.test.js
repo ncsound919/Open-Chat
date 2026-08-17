@@ -6,7 +6,7 @@ describe("buildAgentSystemPrompt", () => {
     const p = buildAgentSystemPrompt();
     expect(p).toContain("private on-device assistant");
     expect(p).toContain("GALAXY AI");
-    expect(p).toContain("WORKFLOW — plan before you act");
+    expect(p).toContain("WORKFLOW — plan before acting");
   });
 
   it("includes phone tool descriptions", () => {
