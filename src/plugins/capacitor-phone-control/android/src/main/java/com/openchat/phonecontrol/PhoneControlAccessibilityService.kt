@@ -198,6 +198,37 @@ class PhoneControlAccessibilityService : AccessibilityService() {
         return null
     }
 
+    /**
+     * Submit the focused editable field by firing its IME "search/go/enter"
+     * action (ACTION_IME_ENTER, API 30+). This is how you reliably press Enter
+     * in a search box (e.g. Chrome's address bar) via the accessibility bridge.
+     * Falls back to clicking the focused node if the IME action isn't available.
+     */
+    fun submitText(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findEditable(root)
+        if (focused == null) {
+            root.recycle()
+            return false
+        }
+        var ok = false
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                focused.actionList.contains(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER)
+            ) {
+                ok = focused.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            }
+            if (!ok && focused.isClickable) {
+                ok = focused.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        } catch (_: Exception) {
+            ok = false
+        }
+        focused.recycle()
+        root.recycle()
+        return ok
+    }
+
     // ── Gestures ─────────────────────────────────────────────────────────────
 
     fun gestureSwipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long, onResult: (Boolean) -> Unit) {

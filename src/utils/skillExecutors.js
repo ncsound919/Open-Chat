@@ -17,6 +17,7 @@
 import { PHONE_TOOLS, execPhoneTool } from "./phoneTools.js";
 import { runSkill } from "./skillRegistry.js";
 import { discoverApps } from "./appRegistry.js";
+import { webSearch } from "./webSearch.js";
 
 /** Strip the runtime-injected reserved keys from a tool call's args. */
 function toolArgs(ctx) {
@@ -197,7 +198,11 @@ export function buildSkillExecutors({ onSend, onNotify, chat, confirm, draymondB
 
     // Explicitly unavailable tools → clear soft failures (worker reports them).
     email: async () => ({ ok: false, error: "email tool is not available on this device" }),
-    web: async () => ({ ok: false, error: "web research tool is not available on this device" }),
+    web: async (ctx) => {
+      const args = toolArgs(ctx);
+      const query = args.query ?? args.q ?? args.text ?? "";
+      return webSearch({ query: String(query), confirm });
+    },
     registry: async () => ({ ok: false, error: "registry tool is not available on this device" }),
   };
 }

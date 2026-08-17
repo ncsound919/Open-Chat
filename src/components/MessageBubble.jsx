@@ -361,7 +361,9 @@ export const MessageBubble = memo(function MessageBubble({
 
         {msg.streaming && <TypingDots color={isUser ? "#8b8b9e" : color} />}
 
-        {Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0 && (
+        {/* Tool-call cards — hidden for private local chat (kept ChatGPT-clean).
+            The raw tool calls are still recorded in the audit/tools log. */}
+        {Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0 && bot?.protocol !== "local" && (
           <div style={{ marginTop: 4 }}>
             {msg.toolCalls.map((call, i) => (
               <ToolCallCard key={`${call?.name}-${i}`} call={call} accent={color} />

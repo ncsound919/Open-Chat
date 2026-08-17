@@ -10,6 +10,7 @@ import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
 import { PHONE_TOOLS, execPhoneTool } from "../utils/phoneTools.js";
 import { GALAXY_AI_SKILLS, execGalaxySkill } from "../utils/galaxyAi.js";
 import { DEFAULT_LOCAL_SYSTEM_PROMPT } from "../utils/galaxyPlanning.js";
+import { WEB_SEARCH_TOOL, webSearch } from "../utils/webSearch.js";
 import { verifyOutput } from "../utils/verification.js";
 import { discoverApps, buildAppContext } from "../utils/appRegistry.js";
 import { DRAYMOND_TOOL_NAMES } from "../utils/draymondTools.js";
@@ -113,6 +114,7 @@ export class LocalModelClient {
 
     const tools = [];
     if (this.phoneToolsEnabled) tools.push(...PHONE_TOOLS);
+    if (this.phoneToolsEnabled) tools.push(WEB_SEARCH_TOOL);
     if (this.galaxySkillsEnabled) tools.push(...GALAXY_AI_SKILLS);
     if (this.draymondToolsEnabled && this.draymondTools.length > 0) {
       tools.push(...this.draymondTools);
@@ -133,6 +135,9 @@ export class LocalModelClient {
       provider: LOCAL_PROVIDER_HINTS[this.model],
       tools,
       toolHandler: async (name, args) => {
+        if (name === "web_search") {
+          return webSearch({ query: String(args?.query ?? args?.q ?? ""), confirm: this.confirmAction });
+        }
         if (draymondToolHandler && draymondToolNameSet.has(name)) {
           return draymondToolHandler(name, args);
         }

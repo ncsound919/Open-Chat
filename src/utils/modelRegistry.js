@@ -87,6 +87,7 @@ const PHONE_CONTROL_METHODS = [
   "readScreen",
   "performTap",
   "inputText",
+  "submitText",
   "performGlobalAction",
   "openApp",
   "swipe",

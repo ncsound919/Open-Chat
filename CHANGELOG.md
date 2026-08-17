@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **New screens** — Agents, Models, Home, Work, Stats, and Approvals.
 - **Worker engine** — asynchronous task execution, skill pack runtime, and a local versioned skill library.
 - **Phone-control tooling** — capture screenshot, AI app-control recipes, and a confirmation gate for mutating phone tools.
+- **Web search** — the on-device agent can research live questions by driving Chrome (via accessibility): open the browser, type the query, submit with the IME search action, read the results, then return to Open-Chat to answer.
 - **Draymond integration hardening** — chain/schedule management, notification history, agent roster, and benchmark results sync.
 
 ### Changed

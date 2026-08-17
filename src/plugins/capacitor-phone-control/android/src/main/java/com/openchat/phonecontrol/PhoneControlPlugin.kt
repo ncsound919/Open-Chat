@@ -117,6 +117,18 @@ class PhoneControlPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun submitText(call: PluginCall) {
+        val svc = PhoneControlAccessibilityService.instance
+        if (svc == null) {
+            call.reject("Accessibility service not enabled")
+            return
+        }
+        val ok = svc.submitText()
+        if (ok) call.resolve(JSObject().put("ok", true))
+        else call.reject("no focused editable field to submit")
+    }
+
+    @PluginMethod
     fun performGlobalAction(call: PluginCall) {
         val action = call.getString("action") ?: "back"
         val svc = PhoneControlAccessibilityService.instance

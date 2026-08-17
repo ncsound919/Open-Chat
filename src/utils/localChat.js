@@ -225,7 +225,8 @@ async function genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolH
   let transcript = [...history];
   for (let round = 0; round < maxRounds; round++) {
     const prompt = buildGemmaPrompt(baseSystem, transcript, { includeModelTurn: true });
-    const reply = cleanReply(await generateOnce(provider, prompt, onChunk, { signal }));
+    // Buffer each round's stream so tool-call JSON never leaks into the visible chat.
+    const reply = cleanReply(await generateOnce(provider, prompt, null, { signal }));
     if (reply === "") return { text: "", provider, toolCalls };
 
     const toolCall = parseToolCall(reply);
@@ -243,6 +244,8 @@ async function genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolH
       continue;
     }
 
+    // Only the final, plain-text answer is shown.
+    if (onChunk && reply) onChunk(reply);
     return { text: reply, provider, toolCalls };
   }
   return { text: "", provider, toolCalls };
@@ -282,7 +285,8 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
       : feedUserTurn(`Tool result: ${JSON.stringify(lastToolResult)}`);
     let reply;
     try {
-      reply = cleanReply(await generateOnce(provider, incremental, onChunk, { signal, session: true }));
+      // Buffer the round so tool-call JSON never leaks into the visible chat.
+      reply = cleanReply(await generateOnce(provider, incremental, null, { signal, session: true }));
     } catch (e) {
       // The persistent session's context window filled (OUT_OF_RANGE) or the
       // runtime errored. Reset the session and degrade to the full-prompt loop
@@ -304,6 +308,8 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
       continue;
     }
 
+    // Only the final, plain-text answer is shown.
+    if (onChunk && reply) onChunk(reply);
     return { text: reply, provider, toolCalls };
   }
   return { text: "", provider, toolCalls };

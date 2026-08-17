@@ -110,12 +110,11 @@ describe("chatLocal", () => {
 
   it("executes tools and streams the final answer (loop)", async () => {
     let calls = 0;
-    const generateStream = vi.fn(async (prompt, onChunk) => {
+    const generateStream = vi.fn(async () => {
       calls += 1;
       if (calls === 1) {
         return '{"tool":"read_screen","args":{}}';
       }
-      onChunk("final");
       return "final answer";
     });
     vi.doMock("./OnDeviceAI.js", () => ({
@@ -138,7 +137,9 @@ describe("chatLocal", () => {
     expect(toolHandler).toHaveBeenCalledWith("read_screen", {});
     expect(res.text).toBe("final answer");
     expect(res.toolCalls.length).toBe(1);
-    expect(chunks.join("")).toBe("final");
+    // Only the final plain-text answer is surfaced — not the raw tool JSON.
+    expect(chunks.join("")).toBe("final answer");
+    expect(chunks.join("")).not.toContain('"tool"');
   });
 
   it("stops the loop when maxRounds is exhausted", async () => {
