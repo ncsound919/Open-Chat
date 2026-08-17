@@ -4,7 +4,7 @@ import { BackIcon } from "./icons/Icons.jsx";
 import { BotAvatar } from "./BotAvatar.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
 import { isFieldVisible, getAvailableProtocols, getModeDefaults, MODES } from "../utils/modeConfig.js";
-import { scanLocalModels, modelServerToBot } from "../utils/localModels.js";
+import { modelServerToBot } from "../utils/localModels.js";
 import * as secureStore from "../utils/secureStore.js";
 
 const PROTOCOL_DEFAULT_PORTS = {
