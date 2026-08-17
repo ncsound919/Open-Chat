@@ -18,6 +18,7 @@ import { PHONE_TOOLS, execPhoneTool } from "./phoneTools.js";
 import { runSkill } from "./skillRegistry.js";
 import { discoverApps } from "./appRegistry.js";
 import { webSearch } from "./webSearch.js";
+import { generateImage } from "./imageGen.js";
 
 /** Strip the runtime-injected reserved keys from a tool call's args. */
 function toolArgs(ctx) {
@@ -202,6 +203,10 @@ export function buildSkillExecutors({ onSend, onNotify, chat, confirm, draymondB
       const args = toolArgs(ctx);
       const query = args.query ?? args.q ?? args.text ?? "";
       return webSearch({ query: String(query), confirm });
+    },
+    image_gen: async (ctx) => {
+      const args = toolArgs(ctx);
+      return generateImage({ prompt: String(args.prompt ?? args.text ?? "") });
     },
     registry: async () => ({ ok: false, error: "registry tool is not available on this device" }),
   };

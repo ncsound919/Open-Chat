@@ -1,0 +1,26 @@
+{
+  "name": "@open-chat/onnx-imagegen",
+  "version": "1.0.0",
+  "description": "Open-Chat native on-device Stable Diffusion via Microsoft ONNX Runtime.",
+  "type": "module",
+  "main": "web/index.js",
+  "module": "web/index.js",
+  "types": "web/index.d.ts",
+  "files": [
+    "android",
+    "web"
+  ],
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "onnx",
+    "stable-diffusion",
+    "image",
+    "on-device"
+  ],
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}

@@ -11,6 +11,7 @@ import { PHONE_TOOLS, execPhoneTool } from "../utils/phoneTools.js";
 import { GALAXY_AI_SKILLS, execGalaxySkill } from "../utils/galaxyAi.js";
 import { DEFAULT_LOCAL_SYSTEM_PROMPT } from "../utils/galaxyPlanning.js";
 import { WEB_SEARCH_TOOL, webSearch } from "../utils/webSearch.js";
+import { IMAGE_GEN_TOOL, generateImage } from "../utils/imageGen.js";
 import { verifyOutput } from "../utils/verification.js";
 import { discoverApps, buildAppContext } from "../utils/appRegistry.js";
 import { DRAYMOND_TOOL_NAMES } from "../utils/draymondTools.js";
@@ -115,6 +116,7 @@ export class LocalModelClient {
     const tools = [];
     if (this.phoneToolsEnabled) tools.push(...PHONE_TOOLS);
     if (this.phoneToolsEnabled) tools.push(WEB_SEARCH_TOOL);
+    if (this.phoneToolsEnabled) tools.push(IMAGE_GEN_TOOL);
     if (this.galaxySkillsEnabled) tools.push(...GALAXY_AI_SKILLS);
     if (this.draymondToolsEnabled && this.draymondTools.length > 0) {
       tools.push(...this.draymondTools);
@@ -137,6 +139,9 @@ export class LocalModelClient {
       toolHandler: async (name, args) => {
         if (name === "web_search") {
           return webSearch({ query: String(args?.query ?? args?.q ?? ""), confirm: this.confirmAction });
+        }
+        if (name === "image_gen") {
+          return generateImage({ prompt: String(args?.prompt ?? "") });
         }
         if (draymondToolHandler && draymondToolNameSet.has(name)) {
           return draymondToolHandler(name, args);

@@ -94,16 +94,16 @@ const PHONE_CONTROL_METHODS = [
   "screenshot",
 ];
 
-/**
- * Wrap a Capacitor plugin proxy in a PLAIN object so async functions can
- * return it safely. The raw proxy is a thenable (its `.get` trap answers for
- * "then"), which makes the promise-resolution procedure call `.then()` on it
- * and throw "…plugin.then() is not implemented" — breaking every `await`.
- * @param {object} raw - Capacitor plugin proxy
- * @param {string[]} methodNames - method names to expose
- * @returns {object} plain adapter
- */
 function adapter(raw, methodNames) {
+  /**
+   * Wrap a Capacitor plugin proxy in a PLAIN object so async functions can
+   * return it safely. The raw proxy is a thenable (its `.get` trap answers for
+   * "then"), which makes the promise-resolution procedure call `.then()` on it
+   * and throw "…plugin.then() is not implemented" — breaking every `await`.
+   * @param {object} raw - Capacitor plugin proxy
+   * @param {string[]} methodNames - method names to expose
+   * @returns {object} plain adapter
+   */
   const api = {};
   for (const name of methodNames) {
     const fn = raw?.[name];
