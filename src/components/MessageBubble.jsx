@@ -361,6 +361,23 @@ export const MessageBubble = memo(function MessageBubble({
 
         {msg.streaming && <TypingDots color={isUser ? "#8b8b9e" : color} />}
 
+        {/* Generated image (e.g. on-device Stable Diffusion) */}
+        {!isUser && msg.image && !msg.streaming && (
+          <div style={{ marginTop: 8 }}>
+            <img
+              src={msg.image}
+              alt="Generated image"
+              style={{
+                display: "block",
+                width: "100%",
+                maxWidth: 320,
+                borderRadius: 12,
+                border: "1px solid rgba(34,211,238,0.2)",
+              }}
+            />
+          </div>
+        )}
+
         {/* Tool-call cards — hidden for private local chat (kept ChatGPT-clean).
             The raw tool calls are still recorded in the audit/tools log. */}
         {Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0 && bot?.protocol !== "local" && (

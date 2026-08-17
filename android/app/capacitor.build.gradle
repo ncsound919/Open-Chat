@@ -10,6 +10,7 @@ android {
 apply from: "../capacitor-cordova-android-plugins/cordova.variables.gradle"
 dependencies {
     implementation project(':open-chat-mediapipe-gemma')
+    implementation project(':open-chat-onnx-imagegen')
     implementation project(':open-chat-phone-control')
     implementation project(':capacitor-app')
     implementation project(':capacitor-haptics')

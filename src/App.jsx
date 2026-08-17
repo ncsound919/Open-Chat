@@ -159,6 +159,7 @@ export default function App() {
   const streamBuf = useRef("");
   const streamMsgIdRef = useRef(null); // id of the streaming placeholder message
   const streamToolCallsRef = useRef([]); // tool calls accumulated during a local stream
+  const streamImageRef = useRef(null); // generated image data URI for the current local turn
   const draymondBotRef = useRef(null); // latest connected Draymond bot (for closures)
 
   const bot = bots.find((b) => b.id === activeId);
@@ -661,6 +662,11 @@ export default function App() {
             },
           ];
           updateLastMessage(bot.id, { toolCalls: [...streamToolCallsRef.current] });
+          // Capture a generated image (e.g. on-device Stable Diffusion) so the
+          // bot message can render it after the tool call completes.
+          if (call.name === "image_gen" && resultValue?.dataUri) {
+            streamImageRef.current = resultValue.dataUri;
+          }
         },
       });
       client.onStatusChange = (status) => setStatus(bot.id, status);
@@ -1187,9 +1193,11 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "✓",
+          text: streamBuf.current || finalText || "âœ“",
           streaming: false,
+          ...(streamImageRef.current ? { image: streamImageRef.current } : {}),
         });
+        streamImageRef.current = null;
 
         // Mark user message as read
         setHistory((prev) => ({

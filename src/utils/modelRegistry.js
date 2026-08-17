@@ -94,6 +94,17 @@ const PHONE_CONTROL_METHODS = [
   "screenshot",
 ];
 
+const ONNX_IMAGE_GEN_METHODS = [
+  "getStatus",
+  "listModels",
+  "downloadModel",
+  "loadModel",
+  "generate",
+  "unloadModel",
+  "deleteModel",
+  "addListener",
+];
+
 function adapter(raw, methodNames) {
   /**
    * Wrap a Capacitor plugin proxy in a PLAIN object so async functions can
@@ -155,6 +166,29 @@ export async function loadPhoneControl() {
     const mod = await import("@open-chat/phone-control");
     const raw = mod?.default ?? mod?.PhoneControl ?? null;
     const api = raw ? adapter(raw, PHONE_CONTROL_METHODS) : null;
+    if (api && typeof api.getStatus === "function") return api;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load the native OnnxImageGen plugin safely (returns null off-device).
+ */
+export async function loadOnnxImageGen() {
+  try {
+    const cap = typeof window !== "undefined" ? window.Capacitor : null;
+    const raw = cap?.Plugins?.OnnxImageGen;
+    const api = raw ? adapter(raw, ONNX_IMAGE_GEN_METHODS) : null;
+    if (api && typeof api.getStatus === "function") return api;
+  } catch {
+    /* fall through to module import */
+  }
+  try {
+    const mod = await import("@open-chat/onnx-imagegen");
+    const raw = mod?.default ?? mod?.OnnxImageGen ?? null;
+    const api = raw ? adapter(raw, ONNX_IMAGE_GEN_METHODS) : null;
     if (api && typeof api.getStatus === "function") return api;
     return null;
   } catch {

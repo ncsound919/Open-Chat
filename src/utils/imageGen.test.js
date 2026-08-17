@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { generateImage, IMAGE_GEN_TOOL } from "./imageGen.js";
 
+vi.mock("./modelRegistry.js", () => ({
+  loadOnnxImageGen: vi.fn(async () => null),
+  loadPhoneControl: vi.fn(async () => null),
+}));
+
 describe("IMAGE_GEN_TOOL", () => {
   it("has the expected schema", () => {
     expect(IMAGE_GEN_TOOL.name).toBe("image_gen");
@@ -24,14 +29,14 @@ describe("generateImage", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("opens Off Grid when phone control is enabled", async () => {
+  it("opens Off Grid when phone control is enabled (no native model)", async () => {
     const phone = {
       getStatus: vi.fn(async () => ({ enabled: true })),
       openApp: vi.fn(async () => ({ ok: true })),
     };
     const res = await generateImage({ prompt: "a cute robot", phoneControl: phone });
     expect(res.ok).toBe(true);
-    expect(res.opened).toBe(true);
+    expect(res.openedOffGrid).toBe(true);
     expect(phone.openApp).toHaveBeenCalledWith({ packageName: "ai.offgridmobile" });
   });
 

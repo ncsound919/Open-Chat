@@ -9,12 +9,10 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import java.io.File
-import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.zip.ZipInputStream
 
 /**
  * OnnxImageGen — on-device Stable Diffusion 1.5 via ONNX Runtime.
@@ -75,71 +73,76 @@ class OnnxImageGenPlugin : Plugin() {
 
     @PluginMethod
     fun downloadModel(call: PluginCall) {
-        val urlStr = call.getString("url") ?: run { call.reject("url required"); return }
         val name = call.getString("name")?.trim()?.takeIf { it.isNotEmpty() } ?: run {
             call.reject("name required"); return
         }
+        // files: [{ url, path }] — each is downloaded into <modelsDir>/<name>/<path>
+        val filesArr = call.getArray("files")
+        val files = mutableListOf<Pair<String, String>>()
+        for (i in 0 until filesArr.length()) {
+            val o = filesArr.get(i) as? JSObject ?: continue
+            val url = o.getString("url")?.takeIf { it.isNotEmpty() } ?: continue
+            val path = o.getString("path")?.takeIf { it.isNotEmpty() } ?: continue
+            files.add(url to path)
+        }
+        if (files.isEmpty()) {
+            call.reject("files required: [{url, path}]")
+            return
+        }
         val targetDir = File(modelsDir(), name)
-        val tmpZip = File(modelsDir(), "$name.zip.part")
 
         ioExecutor.execute {
+            var totalDone = 0L
+            val totalBytes = files.size.toLong() * 1024L * 1024L // coarse fallback
             try {
-                val conn = URL(urlStr).openConnection() as HttpURLConnection
-                conn.instanceFollowRedirects = true
-                conn.connectTimeout = 20_000
-                conn.readTimeout = 30_000
-                conn.connect()
-                if (conn.responseCode !in 200..299) {
-                    call.reject("download failed HTTP ${conn.responseCode}")
-                    return@execute
-                }
-                val total = conn.contentLengthLong
-                var received = 0L
-                val input = conn.inputStream
-                val output = FileOutputStream(tmpZip)
-                val buf = ByteArray(64 * 1024)
-                var lastPct = -1
-                while (true) {
-                    val read = input.read(buf)
-                    if (read < 0) break
-                    output.write(buf, 0, read)
-                    received += read
-                    val pct = if (total > 0) ((received * 100) / total).toInt() else 0
-                    if (pct != lastPct && pct % 5 == 0) {
-                        lastPct = pct
+                for ((index, pair) in files.withIndex()) {
+                    val (urlStr, relPath) = pair
+                    val target = File(targetDir, relPath)
+                    target.parentFile?.mkdirs()
+                    downloadFile(urlStr, target) { received, total ->
+                        // aggregate progress across files
+                        totalDone += received
+                        val pct = if (totalBytes > 0) ((totalDone * 100) / totalBytes).toInt() else 0
                         val ev = JSObject()
                         ev.put("name", name)
-                        ev.put("progress", pct)
+                        ev.put("file", relPath)
+                        ev.put("progress", pct.coerceIn(0, 100))
                         notifyListeners("model:progress", ev, false)
                     }
+                    Log.d(TAG, "downloaded $relPath -> ${target.length()}")
                 }
-                output.close()
-                input.close()
-
-                targetDir.deleteRecursively()
-                targetDir.mkdirs()
-                ZipInputStream(tmpZip.inputStream().buffered()).use { zip ->
-                    var entry = zip.nextEntry
-                    while (entry != null) {
-                        val target = File(targetDir, entry.name)
-                        if (entry.isDirectory) {
-                            target.mkdirs()
-                        } else {
-                            target.parentFile?.mkdirs()
-                            target.outputStream().use { out -> zip.copyTo(out) }
-                        }
-                        zip.closeEntry()
-                        entry = zip.nextEntry
-                    }
-                }
-                tmpZip.delete()
                 call.resolve(JSObject().put("name", name).put("ok", true))
             } catch (e: Exception) {
-                tmpZip.delete()
                 Log.e(TAG, "download failed", e)
                 call.reject("download failed: ${e.message}")
             }
         }
+    }
+
+    private fun downloadFile(urlStr: String, target: File, onProgress: (Long, Long) -> Unit) {
+        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        conn.instanceFollowRedirects = true
+        conn.connectTimeout = 20_000
+        conn.readTimeout = 30_000
+        conn.connect()
+        if (conn.responseCode !in 200..299) {
+            throw RuntimeException("HTTP ${conn.responseCode} for $urlStr")
+        }
+        val total = conn.contentLengthLong
+        var received = 0L
+        val input = conn.inputStream
+        target.outputStream().use { output ->
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buf)
+                if (read < 0) break
+                output.write(buf, 0, read)
+                received += read
+                onProgress(received, total)
+            }
+        }
+        input.close()
+        conn.disconnect()
     }
 
     @PluginMethod
