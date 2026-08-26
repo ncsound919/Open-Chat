@@ -70,7 +70,7 @@ describe("modeConfig", () => {
       expect(getAvailableProtocols(MODES.BASIC)).toEqual(["hermes"]);
     });
 
-    it("returns all nine protocols in dev mode", () => {
+    it("returns all ten protocols in dev mode", () => {
       expect(getAvailableProtocols(MODES.DEV)).toEqual([
         "hermes",
         "openclaw",
@@ -81,6 +81,7 @@ describe("modeConfig", () => {
         "local",
         "a2a",
         "mcp",
+        "gemini-notebook",
       ]);
     });
   });

@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Inbox } from "./components/Inbox.jsx";
 import { AgentsScreen } from "./components/AgentsScreen.jsx";
 import { ModelsScreen } from "./components/ModelsScreen.jsx";
@@ -26,6 +26,7 @@ import { LocalModelClient } from "./protocols/LocalModelClient.js";
 import { NtfyClient } from "./protocols/NtfyClient.js";
 import { A2AClient } from "./protocols/A2AClient.js";
 import { MCPHostClient } from "./protocols/MCPHostClient.js";
+import { notebookRequest } from "./protocols/GeminiNotebookClient.js";
 import { syncMessagesToDraymond, lastLocalExchange } from "./utils/draymondSync.js";
 import { syncBenchmarksViaDraymond } from "./utils/benchmarks.js";
 import { chatPrivate } from "./utils/localChat.js";
@@ -683,12 +684,19 @@ export default function App() {
     [setStatus, workerDeps, confirmPhoneAction]
   );
 
-  // â”€â”€ Execute an ntfy action button (e.g. Draymond approve/reject) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Execute an action button (ntfy, Draymond diagnose/repair, approval) ──
   const handleNtfyAction = useCallback(async (botId, action) => {
     const client = ntfyRefs.current[botId];
-    if (!client) return { ok: false, error: "ntfy not connected" };
-    return client.executeAction(action);
-  }, []);
+    if (client && typeof client.executeAction === "function") {
+      return client.executeAction(action);
+    }
+    // Fallback: execute standalone action using bot's host/port or default local host
+    const targetBot = bots.find((b) => b.id === botId);
+    const host = targetBot?.host || "127.0.0.1";
+    const port = targetBot?.port || 8644;
+    const fallbackClient = new NtfyClient(host, port, targetBot?.token || "", "alerts");
+    return fallbackClient.executeAction(action);
+  }, [bots]);
 
   // â”€â”€ Auto-connect bots on mount and when bots list changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -1005,6 +1013,38 @@ export default function App() {
           text: streamBuf.current,
           streaming: false,
         });
+
+// Mark user message as read
+        setHistory((prev) => ({
+          ...prev,
+          [bot.id]: (prev[bot.id] || []).map((m) =>
+            m.id === userMsg.id ? { ...m, read: true } : m
+          ),
+        }));
+      } else if (bot.protocol === "gemini-notebook") {
+        // Gemini Notebook Bridge (AgentBrowser) — JSON request/response
+        const isCommand = text.startsWith("/");
+        const action = isCommand ? text.slice(1) : "notebook.query";
+        const reply = await notebookRequest({
+          host: bot.host,
+          port: bot.port,
+          token: bot.token,
+          action,
+          body: isCommand
+            ? {}
+            : { question: text, account: bot.account || undefined },
+        });
+        let replyText;
+        if (reply.needsLogin) {
+          replyText = "🔐 Google session expired. Refresh the Comet profile (AGENTBROWSER_PROFILE_REFRESH=1), re-login, then retry.";
+        } else if (reply.ok) {
+          const data = reply.data || {};
+          const summary = JSON.stringify(data).slice(0, 4000);
+          replyText = `[${action}] ok\n${summary}`;
+        } else {
+          replyText = `[${action}] error: ${reply.error}`;
+        }
+        updateLastMessage(bot.id, { text: replyText, streaming: false });
 
         // Mark user message as read
         setHistory((prev) => ({
@@ -1650,9 +1690,13 @@ export default function App() {
             <AgentsScreen
               agents={agentRegistry}
               bots={bots}
+              history={history}
+              activeId={activeId}
+              pinnedIds={bots.filter((b) => b.pinned).map((b) => b.id)}
               onOpenChat={openChat}
               onOpenSettings={openSettings}
               onOpenMenu={() => setSidebarOpen(true)}
+              draymondOrigin={draymondBot ? resolveWorkerBaseUrl(draymondBot).replace(/\/+$/, "") : ""}
             />
           )}
           {screen === "models" && (
@@ -1756,11 +1800,7 @@ export default function App() {
             onOpenSettings={() => openSettings(bot)}
             onDeleteMessage={(msgId) => deleteMessage(bot.id, msgId)}
             onClearChat={() => clearChat(bot.id)}
-            onNtfyAction={
-              bot.protocol === "ntfy"
-                ? (action) => handleNtfyAction(bot.id, action)
-                : null
-            }
+            onNtfyAction={(action) => handleNtfyAction(bot.id, action)}
             unreadNotifications={bot.protocol === "draymond" ? unreadNotifications : 0}
             draymondChains={bot.protocol === "draymond" ? draymondChains : []}
             onClearUnread={clearUnreadNotifications}

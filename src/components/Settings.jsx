@@ -13,8 +13,19 @@ const PROTOCOL_DEFAULT_PORTS = {
   "uplift-bridge": "8642",
   draymond: "3444",
   ntfy: "80",
+  "gemini-notebook": "3700",
   // subteam omitted intentionally — port is deployment-specific
 };
+
+/** Sort rank for the agent roster: active/online first, then by health. */
+function rosterRank(status) {
+  const s = String(status ?? "unknown").toLowerCase();
+  if (s === "online" || s === "active" || s === "connected") return 0;
+  if (s === "degraded" || s === "idle") return 1;
+  if (s === "busy" || s === "working" || s === "running") return 2;
+  if (s === "offline") return 3;
+  return 4;
+}
 
 /**
  * Settings panel for bot configuration
@@ -421,6 +432,9 @@ export function Settings({
                   )}
                   {availableProtocols.includes("mcp") && (
                     <option value="mcp">MCP Host (Tools)</option>
+                  )}
+                  {availableProtocols.includes("gemini-notebook") && (
+                    <option value="gemini-notebook">Gemini Notebook (AgentBrowser Bridge)</option>
                   )}
                 </select>
               </div>
@@ -973,12 +987,17 @@ export function Settings({
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#f6f7f9", marginBottom: 8 }}>
                   Agent Roster ({Object.keys(draymondAgents).length})
                 </div>
-                {Object.values(draymondAgents).map((agent) => {
+                {Object.values(draymondAgents)
+                  .map((a) => ({ a, r: rosterRank(a?.status) }))
+                  .sort((x, y) => x.r - y.r || (x.a?.name ?? "").localeCompare(y.a?.name ?? ""))
+                  .map(({ a: agent }) => {
+                  const origin = getDraymondOrigin(draymondClient);
                   const avatarUrl =
-                    agent.avatarUrl &&
-                    (agent.avatarUrl.startsWith("http")
-                      ? agent.avatarUrl
-                      : `${getDraymondOrigin(draymondClient)}${agent.avatarUrl}`);
+                    agent.avatarUrl
+                      ? (agent.avatarUrl.startsWith("http")
+                          ? agent.avatarUrl
+                          : `${origin}${agent.avatarUrl}`)
+                      : `${origin}/avatars/${agent.id ?? agent.slug}.png`;
                   return (
                     <div
                       key={agent.id}

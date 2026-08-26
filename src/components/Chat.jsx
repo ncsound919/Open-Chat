@@ -472,6 +472,11 @@ export function Chat({
               if (bot.protocol === "subteam") {
                 return `Connects to SubTeam agent at\nhttp://${bot.host}:${bot.port}`;
               }
+              if (bot.protocol === "gemini-notebook") {
+                const host = String(bot.host || "").trim();
+                const url = /^https?:\/\//i.test(host) ? host : `http://${host}:${bot.port || 3700}`;
+                return `Connects to Gemini Notebook Bridge at\n${url}`;
+              }
               // Hermes — host may be a full https://URL (tunnel) or host:port.
               const hermesHost = String(bot.host || "").trim();
               const hermesUrl = /^https?:\/\//i.test(hermesHost)
@@ -567,11 +572,19 @@ export function Chat({
               type="button"
               onClick={onToggleSpeak}
               aria-label={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
-              title={voiceEnabled ? "Auto-speak on" : "Auto-speak off"}
+              title={voiceEnabled ? "Read replies aloud (On)" : "Read replies aloud (Off)"}
               style={{
-                background: "none", border: "none", cursor: "pointer",
-                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                background: voiceEnabled ? "#22d3ee20" : "none",
+                border: voiceEnabled ? "1px solid #22d3ee40" : "none",
+                borderRadius: 8,
+                cursor: "pointer",
+                width: 40,
+                height: 40,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 color: voiceEnabled ? "#22d3ee" : "#9ca3af",
+                transition: "all .15s",
               }}
             >
               <SpeakerIcon />
@@ -582,10 +595,17 @@ export function Chat({
               type="button"
               onClick={onCopyLastReply}
               aria-label="Copy last reply"
-              title="Copy last reply"
+              title="Copy last reply to clipboard"
               style={{
-                background: "none", border: "none", cursor: "pointer",
-                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                background: "none",
+                border: "none",
+                borderRadius: 8,
+                cursor: "pointer",
+                width: 40,
+                height: 40,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 color: "#9ca3af",
               }}
             >
@@ -597,10 +617,17 @@ export function Chat({
               type="button"
               onClick={onTogglePin}
               aria-label={pinned ? "Unpin bot" : "Pin bot"}
-              title={pinned ? "Unpin bot" : "Pin bot"}
+              title={pinned ? "Pinned to top" : "Pin bot to top"}
               style={{
-                background: "none", border: "none", cursor: "pointer",
-                width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center",
+                background: pinned ? "#f5c45120" : "none",
+                border: pinned ? "1px solid #f5c45140" : "none",
+                borderRadius: 8,
+                cursor: "pointer",
+                width: 40,
+                height: 40,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
                 color: pinned ? "#f5c451" : "#9ca3af",
               }}
             >
