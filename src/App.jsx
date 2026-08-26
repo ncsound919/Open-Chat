@@ -1023,6 +1023,7 @@ export default function App() {
         }));
       } else if (bot.protocol === "gemini-notebook") {
         // Gemini Notebook Bridge (AgentBrowser) — JSON request/response
+        abortRef.current = new AbortController();
         const isCommand = text.startsWith("/");
         const action = isCommand ? text.slice(1) : "notebook.query";
         const reply = await notebookRequest({
@@ -1030,6 +1031,7 @@ export default function App() {
           port: bot.port,
           token: bot.token,
           action,
+          signal: abortRef.current.signal,
           body: isCommand
             ? {}
             : { question: text, account: bot.account || undefined },
