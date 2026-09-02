@@ -48,7 +48,16 @@ export function HomeScreen({
           return { bot: b, last, unreadCount };
         })
         .filter((r) => r.last)
-        .sort((a, b) => (b.last.time > a.last.time ? 1 : -1))
+        .sort((a, b) => {
+          // Newest activity first. Compare numerically when both are numbers,
+          // otherwise fall back to lexical compare (defensive for stub data).
+          const at = a.last.time;
+          const bt = b.last.time;
+          if (typeof at === "number" && typeof bt === "number") return bt - at;
+          if (at > bt) return -1;
+          if (at < bt) return 1;
+          return 0;
+        })
         .slice(0, 4),
     [bots, history]
   );

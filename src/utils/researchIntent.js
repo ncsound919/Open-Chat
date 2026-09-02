@@ -14,8 +14,15 @@
  * Deliberately conservative-positive: for a local model, grounded context
  * is cheap and hallucination is expensive.
  *
+ * Returns null when the message is not research, otherwise
+ * `{ research: true, query, kind: "stable" | "fresh" }` where
+ *   - "stable"  → encyclopedia/lookup is fine (Wikipedia summaries are reliable)
+ *   - "fresh"   → time-sensitive; only the live web has current data
+ *                 (Wikipedia/DDG-instant have no current news, weather, prices,
+ *                 or scores — feeding them in causes hallucinated answers)
+ *
  * @param {string} text - user message
- * @returns {{ research: boolean, query: string } | null} null when not research
+ * @returns {{ research: true, query: string, kind: "stable" | "fresh" } | null}
  */
 export function detectResearchIntent(text) {
   const t = String(text ?? "").trim();
@@ -31,22 +38,26 @@ export function detectResearchIntent(text) {
     /\bmy\s+(meeting|meetings|calendar|schedule|appointments?|reminders?|messages?|inbox|day)\b/i;
   if (command.test(t) || personal.test(t)) return null;
 
+  // Current-events phrasing needs live data by definition. Wikipedia and
+  // DDG-instant-answer have NO current data — if we ask them about
+  // "breaking news" they return unrelated stubs that the model stitches
+  // into nonsense. Route these straight to live web search.
+  const current =
+    /\b(latest|newest|today|yesterday|this week|this month|right now|current(ly)?|recent|breaking|news|price of|stock|weather|score|happening|just\s+now|update on|updates on|as of)\b/i;
+  if (current.test(t)) return { research: true, query: t, kind: "fresh" };
+
   // Explicit research verbs win immediately.
   const explicit =
     /\b(research|look\s?up|look\s?it\s?up|search(ing)?( for| the web| online)?|google|fact[\s-]?check)\b/i;
-  if (explicit.test(t)) return { research: true, query: t };
+  if (explicit.test(t)) return { research: true, query: t, kind: "fresh" };
 
-  // Current-events phrasing needs live data by definition.
-  const current =
-    /\b(latest|newest|today|yesterday|this week|this month|right now|current(ly)?|recent|breaking|news|price of|stock|weather|score)\b/i;
-  if (current.test(t)) return { research: true, query: t };
-
-  // Factual question patterns about topics/entities.
+  // Factual question patterns about topics/entities → encyclopedia-grade
+  // sources are fine for these ("who invented X", "history of Y").
   const factual = /^\s*(who|what|when|where|which|why|how)\b/i;
   const knownEntity =
     /\b(according to|sources?|cite|citation|wikipedia|history of|definition of|meaning of)\b/i;
   if ((factual.test(t) || knownEntity.test(t)) && t.split(/\s+/).length >= 4) {
-    return { research: true, query: t };
+    return { research: true, query: t, kind: "stable" };
   }
 
   return null;

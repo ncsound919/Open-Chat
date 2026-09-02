@@ -168,14 +168,17 @@ function sentences(text) {
  * Run a multi-source research pass on a query.
  *
  * Sources consulted (each degrades gracefully if unreachable):
- *   1. Wikipedia opensearch titles → REST summaries (top articles)
- *   2. Wikipedia full-text search snippets
- *   3. DuckDuckGo instant answer + related topics
- *   4. Live Chrome web_search via the accessibility bridge (optional)
+ *   - "stable" kind: Wikipedia opensearch titles → REST summaries, Wikipedia
+ *     full-text search snippets, DuckDuckGo instant answer + related topics,
+ *     then optional live Chrome web_search (for freshness).
+ *   - "fresh" kind: live Chrome web_search ONLY. Wikipedia and DDG-instant
+ *     have no current news, weather, prices, or scores — feeding them in
+ *     produces hallucinated answers from unrelated stubs.
  *
  * @param {object} opts
  * @param {string} opts.query - research question/topic
  * @param {number} [opts.max_sources=6] - approximate source cap
+ * @param {"stable"|"fresh"} [opts.kind="stable"] - "fresh" skips Wikipedia/DDG-instant
  * @param {boolean} [opts.liveWeb=true] - include a Chrome web_search leg
  * @param {Function} [opts.confirm] - confirm callback forwarded to web_search
  * @param {object} [opts.phoneControl] - preloaded PhoneControl plugin
@@ -184,6 +187,7 @@ function sentences(text) {
 export async function deepResearch({
   query,
   max_sources = 6,
+  kind = "stable",
   liveWeb = true,
   confirm,
   phoneControl,
@@ -193,19 +197,30 @@ export async function deepResearch({
 
   const cap = Math.max(2, Math.min(Number(max_sources) || 6, 12));
   const terms = queryTerms(q);
+  const isFresh = kind === "fresh";
 
-  // Fan out across cloud sources concurrently; each failure degrades quietly.
-  const [titles, searchSnippets, ddg] = await Promise.all([
-    wikiTitles(q, Math.min(cap, 5)),
-    wikiSearch(q, Math.min(cap, 5)),
-    duckDuckGo(q),
-  ]);
-  const summaries = await wikiSummaries(titles);
+  let findings = [];
 
-  let findings = [...summaries, ...searchSnippets, ...ddg].slice(0, cap + 2);
+  if (isFresh) {
+    // Time-sensitive query → ONLY trust live sources. Cloud encyclopedias
+    // and DDG-instant-answer have no current data on breaking news, prices,
+    // weather, or scores; running them pollutes the digest with unrelated
+    // stubs that the model stitches into fabricated answers.
+  } else {
+    // Fan out across cloud sources concurrently; each failure degrades quietly.
+    const [titles, searchSnippets, ddg] = await Promise.all([
+      wikiTitles(q, Math.min(cap, 5)),
+      wikiSearch(q, Math.min(cap, 5)),
+      duckDuckGo(q),
+    ]);
+    const summaries = await wikiSummaries(titles);
 
-  // Optional live leg: one real Chrome search for freshness.
-  if (liveWeb) {
+    findings = [...summaries, ...searchSnippets, ...ddg].slice(0, cap + 2);
+  }
+
+  // Live leg: real Chrome search via the accessibility bridge. Always run
+  // for "fresh" (the only source of truth), optional otherwise.
+  if (liveWeb || isFresh) {
     try {
       const live = await webSearch({ query: q, confirm, phoneControl });
       if (live?.ok && Array.isArray(live.results) && live.results.length) {
@@ -213,11 +228,29 @@ export async function deepResearch({
           source: `chrome-live (${live.provider})`,
           title: q,
           text: live.results.join(" · "),
-          url: "",
+          url: live.pageUrl || "",
         });
+      } else if (isFresh && live && !live.ok) {
+        // Surface why the live leg failed for fresh queries.
+        return {
+          ok: false,
+          query: q,
+          error: `live web search unavailable: ${live.error || "no results"}`,
+          sourcesUsed: [],
+          findingsCount: 0,
+        };
       }
-    } catch {
-      /* live web is optional */
+    } catch (e) {
+      if (isFresh) {
+        return {
+          ok: false,
+          query: q,
+          error: `live web search failed: ${e?.message || "unknown error"}`,
+          sourcesUsed: [],
+          findingsCount: 0,
+        };
+      }
+      /* live web is optional for stable queries */
     }
   }
 

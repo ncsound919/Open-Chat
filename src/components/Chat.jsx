@@ -79,6 +79,7 @@ export function Chat({
   onCopyLastReply = null,
   draymondUrl = "",
   onSyncToDraymond = null,
+  onReconnect = null,
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [showChainStrip, setShowChainStrip] = useState(false);
@@ -150,6 +151,37 @@ export function Chat({
             {STATUS_LABEL[status] || "…"}
           </div>
         </div>
+
+        {/* Reconnect button (Draymond only — shown when not connected) */}
+        {isDraymond && onReconnect && status !== "connected" && status !== "connecting" && status !== "disconnecting" && (
+          <button
+            onClick={() => onReconnect()}
+            aria-label="Reconnect to Draymond"
+            title="Retry connection to Draymond"
+            data-testid="draymond-reconnect"
+            style={{
+              background: "none",
+              border: "1px solid #2c2c38",
+              color: "#22d3ee",
+              fontSize: 11,
+              fontWeight: 600,
+              padding: "4px 10px",
+              borderRadius: 8,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+              <polyline points="3 21 3 16 8 16"/>
+              <polyline points="21 3 21 8 16 8"/>
+            </svg>
+            Reconnect
+          </button>
+        )}
 
         {/* Notification badge (Draymond only) */}
         {isDraymond && unreadNotifications > 0 && (
@@ -779,4 +811,5 @@ Chat.propTypes = {
   pinned: PropTypes.bool,
   onTogglePin: PropTypes.func,
   onCopyLastReply: PropTypes.func,
+  onReconnect: PropTypes.func,
 };

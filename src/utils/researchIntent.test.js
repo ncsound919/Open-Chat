@@ -14,18 +14,28 @@ describe("detectResearchIntent", () => {
       "google the latest on deepseek",
       "fact check this claim",
     ]) {
-      expect(detectResearchIntent(t)).not.toBeNull();
+      const r = detectResearchIntent(t);
+      expect(r).not.toBeNull();
+      expect(r.kind).toBe("fresh");
     }
   });
 
-  it("fires on current-events phrasing", () => {
-    expect(detectResearchIntent("what is the price of bitcoin right now")).not.toBeNull();
-    expect(detectResearchIntent("any breaking news about the merger")).not.toBeNull();
+  it("fires on current-events phrasing with kind=fresh", () => {
+    const r1 = detectResearchIntent("what is the price of bitcoin right now");
+    expect(r1).not.toBeNull();
+    expect(r1.kind).toBe("fresh");
+    const r2 = detectResearchIntent("any breaking news about the merger");
+    expect(r2).not.toBeNull();
+    expect(r2.kind).toBe("fresh");
   });
 
-  it("fires on factual questions with enough substance", () => {
-    expect(detectResearchIntent("who invented the transistor radio")).not.toBeNull();
-    expect(detectResearchIntent("what is the history of the ottoman empire")).not.toBeNull();
+  it("fires on factual questions with kind=stable", () => {
+    const r1 = detectResearchIntent("who invented the transistor radio");
+    expect(r1).not.toBeNull();
+    expect(r1.kind).toBe("stable");
+    const r2 = detectResearchIntent("what is the history of the ottoman empire");
+    expect(r2).not.toBeNull();
+    expect(r2.kind).toBe("stable");
   });
 
   it("does NOT fire on chat, commands, or device control", () => {

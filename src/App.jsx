@@ -849,10 +849,37 @@ export default function App() {
     }
   }, [bots, connectClaw, connectUpliftBridge, connectDraymond, connectNtfy, connectLocal, connectA2A, connectMCP, setStatus]);
 
-  // â”€â”€ Disconnect all clients on unmount â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Auto-retry Draymond orchestrator on disconnect
+  useEffect(() => {
+    const draymondBots = bots.filter(
+      (b) => b.protocol === "draymond" && !b.manualConnect
+    );
+    if (!draymondBots.length) return;
+
+    const poll = () => {
+      for (const b of draymondBots) {
+        const status = statuses[b.id];
+        if (
+          (status === "error" || status === "disconnected") &&
+          !orchestratorRefs.current[b.id]
+        ) {
+          connectDraymond(b);
+        }
+      }
+    };
+
+    const firstTimer = setTimeout(poll, 5000);
+    const intervalId = setInterval(poll, 30000);
+    return () => {
+      clearTimeout(firstTimer);
+      clearInterval(intervalId);
+    };
+  }, [bots, statuses, connectDraymond, setStatus]);
+
+  // Disconnect all clients on unmount
   useEffect(() => {
     return () => {
-      // Empty deps [] is intentional â€” this cleanup runs only when the component
+      // Empty deps [] is intentional — this cleanup runs only when the component
       // unmounts. clawRefs.current is read at that point to reach every client
       // registered during the component's lifetime, including those added after mount.
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1905,6 +1932,11 @@ export default function App() {
             }}
             onSyncToDraymond={
               bot.protocol === "local" ? handleSyncLocalToDraymond : undefined
+            }
+            onReconnect={
+              bot.protocol === "draymond"
+                ? () => connectDraymond(bot)
+                : undefined
             }
           />
           {micError && (

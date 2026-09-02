@@ -170,6 +170,48 @@ describe("deepResearch", () => {
     expect(res.ok).toBe(true);
     expect(res.sourcesUsed.some((s) => s.startsWith("chrome-live"))).toBe(true);
   });
+
+  it("kind=fresh skips Wikipedia/DDG-instant and returns live results only", async () => {
+    global.fetch = vi.fn(async (url) => {
+      // If the fresh path accidentally hit the cloud APIs, the test catches it.
+      const u = String(url);
+      if (u.includes("wikipedia.org") || u.includes("duckduckgo.com")) {
+        throw new Error("fresh path must NOT call cloud APIs; got " + u);
+      }
+      throw new Error("offline");
+    });
+    const res = await deepResearch({
+      query: "bitcoin price today",
+      kind: "fresh",
+      phoneControl: {},
+    });
+    // The top-of-file mock makes webSearch return ok:true with a result.
+    expect(res.ok).toBe(true);
+    expect(res.sourcesUsed).toContain("chrome-live (chrome)");
+    // And no Wikipedia/DDG findings leaked into the digest.
+    expect(res.sourcesUsed).not.toContain("wikipedia");
+    expect(res.sourcesUsed).not.toContain("wikipedia-search");
+    expect(res.sourcesUsed).not.toContain("duckduckgo");
+  });
+
+  it("kind=fresh returns ok:false with error when live web fails", async () => {
+    global.fetch = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    const { webSearch } = await import("./webSearch.js");
+    vi.mocked(webSearch).mockResolvedValueOnce({
+      ok: false,
+      error: "accessibility service disabled",
+      results: [],
+    });
+    const res = await deepResearch({
+      query: "breaking news",
+      kind: "fresh",
+      phoneControl: {},
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/live web|unavailable/i);
+  });
 });
 
 describe("execResearchTool", () => {

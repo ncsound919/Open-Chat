@@ -203,6 +203,7 @@ export class LocalModelClient {
         );
         const dr = await deepResearch({
           query: intent.query,
+          kind: intent.kind || "stable",
           confirm: this.confirmAction,
         }).catch(() => null);
         grounding = dr?.ok
