@@ -212,6 +212,76 @@ describe("deepResearch", () => {
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/live web|unavailable/i);
   });
+
+  it("kind=news calls the news-worker and returns real headlines with sources", async () => {
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("news-worker") || u.includes("news.overlay365")) {
+        return {
+          ok: true,
+          json: async () => ({
+            query: "ukraine",
+            fetchedAt: "2026-09-02T10:00:00Z",
+            articles: [
+              {
+                title: "Zelensky visits Brussels — Reuters",
+                source: "Reuters",
+                url: "https://www.reuters.com/world/europe/zelensky-2026-09-02",
+                publishedAt: "2026-09-02T08:00:00Z",
+                summary: "Volodymyr Zelensky met with EU leaders in Brussels on Tuesday.",
+              },
+              {
+                title: "NATO summit announces new aid package — BBC World",
+                source: "BBC World",
+                url: "https://www.bbc.com/news/world-europe-12345",
+                publishedAt: "2026-09-02T07:00:00Z",
+                summary: "NATO members agreed to a multi-billion dollar aid package.",
+              },
+            ],
+            total: 2,
+            sources: ["Google News", "BBC", "AP", "NPR", "Hacker News"],
+          }),
+        };
+      }
+      throw new Error("news path should not call wikipedia/DDG; got " + u);
+    });
+    const res = await deepResearch({ query: "ukraine", kind: "news" });
+    expect(res.ok).toBe(true);
+    expect(res.sourcesUsed).toContain("Reuters");
+    expect(res.sourcesUsed).toContain("BBC World");
+    expect(res.summary).toContain("Reuters");
+    expect(res.summary).toContain("BBC World");
+    expect(res.summary).toMatch(/reuters\.com/);
+    // No encyclopedias on the news path
+    expect(res.sourcesUsed).not.toContain("wikipedia");
+    expect(res.sourcesUsed).not.toContain("duckduckgo");
+  });
+
+  it("kind=news returns ok:false when worker is unreachable", async () => {
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("news-worker") || u.includes("news.overlay365")) {
+        throw new Error("NetworkError: fetch failed");
+      }
+      throw new Error("unexpected: " + u);
+    });
+    const res = await deepResearch({ query: "ukraine", kind: "news" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/news-worker/i);
+  });
+
+  it("kind=news returns ok:false when worker returns empty", async () => {
+    global.fetch = vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("news-worker") || u.includes("news.overlay365")) {
+        return { ok: true, json: async () => ({ articles: [], total: 0 }) };
+      }
+      throw new Error("unexpected: " + u);
+    });
+    const res = await deepResearch({ query: "xyzzy-fictional-topic-2026", kind: "news" });
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/no articles/i);
+  });
 });
 
 describe("execResearchTool", () => {

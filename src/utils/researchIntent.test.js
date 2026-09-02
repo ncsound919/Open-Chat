@@ -24,7 +24,7 @@ describe("detectResearchIntent", () => {
     const r1 = detectResearchIntent("what is the price of bitcoin right now");
     expect(r1).not.toBeNull();
     expect(r1.kind).toBe("fresh");
-    const r2 = detectResearchIntent("any breaking news about the merger");
+    const r2 = detectResearchIntent("what happened in ukraine today");
     expect(r2).not.toBeNull();
     expect(r2.kind).toBe("fresh");
   });
@@ -51,17 +51,35 @@ describe("detectResearchIntent", () => {
     }
   });
 
-  it("classifies time-sensitive phrasings as kind=fresh", () => {
-    for (const t of [
-      "what is happening right now",
-      "updates on the merger",
-      "weather in tokyo today",
-      "stock price of apple",
-      "breaking news about the merger",
+  it("classifies time-sensitive phrasings as kind=fresh or news", () => {
+    for (const [t, kind] of [
+      ["what is happening right now", "fresh"],
+      ["updates on the merger", "fresh"],
+      ["weather in tokyo today", "fresh"],
+      ["stock price of apple", "fresh"],
+      ["breaking news about the merger", "news"],
+      ["latest headlines from reuters", "news"],
     ]) {
       const r = detectResearchIntent(t);
       expect(r).not.toBeNull();
-      expect(r.kind).toBe("fresh");
+      expect(r.kind).toBe(kind, `expected "${t}" → kind=${kind}, got kind=${r?.kind}`);
+    }
+  });
+
+  it("classifies news source names as kind=news", () => {
+    for (const [t, kind] of [
+      ["bbc coverage of ukraine", "news"],
+      ["reuters latest on the fed", "news"],
+      ["ap news about elon musk", "news"],
+      ["npr headlines about the election", "news"],
+      ["what is happening in ukraine", "news"],
+      ["hacker news about llm reasoning", "news"],
+      ["headlines about the silicon valley layoffs", "news"],
+      ["the guardian on housing crisis", "news"],
+    ]) {
+      const r = detectResearchIntent(t);
+      expect(r).not.toBeNull();
+      expect(r.kind).toBe(kind, `expected "${t}" → kind=${kind}, got kind=${r?.kind}`);
     }
   });
 

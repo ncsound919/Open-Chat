@@ -69,6 +69,11 @@ export async function stopSpeaking() {
   return { ok: true };
 }
 
+/** Web fallback: no native STT on web — return unavailable error. */
+export async function startSpeechRecognition({ language, prompt } = {}) {
+  return { ok: false, error: "speech recognition requires the native Android plugin" };
+}
+
 const PhoneControlWeb = {
   getStatus,
   listApps,
@@ -83,6 +88,7 @@ const PhoneControlWeb = {
   screenshot,
   speak,
   stopSpeaking,
+  startSpeechRecognition,
 };
 
 export default PhoneControlWeb;

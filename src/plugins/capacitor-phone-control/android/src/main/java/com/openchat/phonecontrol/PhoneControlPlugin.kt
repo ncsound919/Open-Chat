@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.provider.Settings
+import androidx.activity.result.ActivityResult
 import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -257,6 +258,69 @@ class PhoneControlPlugin : Plugin() {
     fun stopSpeaking(call: PluginCall) {
         tts?.stop()
         call.resolve(JSObject().put("ok", true))
+    }
+
+    // ── Speech-to-text (Android SpeechRecognizer Intent) ───────────────────
+    // Launches the system speech recognition Activity; the result text is
+    // delivered back to the WebView through Capacitor's @ActivityCallback
+    // bridge. This is offline-capable when the device has a local pack
+    // installed (e.g. Pixel, Samsung) and falls back to Google's server
+    // recognizer otherwise. No model is bundled in the APK.
+
+    @PluginMethod
+    fun startSpeechRecognition(call: PluginCall) {
+        val language = call.getString("language") ?: java.util.Locale.getDefault().toLanguageTag()
+        val prompt = call.getString("prompt") ?: "Speak now"
+        val intent = android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH.let { action ->
+            Intent(action).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, language)
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language)
+                putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(android.speech.RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, prompt)
+            }
+        }
+        // Verify the device has a speech recognition engine before launching.
+        val pm = context.packageManager
+        val activities = pm.queryIntentActivities(intent, 0)
+        if (activities.isEmpty()) {
+            call.reject("no speech recognition engine on this device")
+            return
+        }
+        try {
+            startActivityForResult(call, intent, "onSpeechResult")
+        } catch (e: Exception) {
+            call.reject("failed to launch speech recognition: ${e.message}")
+        }
+    }
+
+    @com.getcapacitor.annotation.ActivityCallback
+    fun onSpeechResult(call: PluginCall?, result: ActivityResult) {
+        val pluginCall = call ?: return
+        val ret = JSObject()
+        val activityResultCode = result.resultCode
+        val activityData = result.data
+        when {
+            activityResultCode == android.app.Activity.RESULT_OK && activityData != null -> {
+                @Suppress("UNCHECKED_CAST")
+                val matches = activityData.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+                val text = matches?.firstOrNull().orEmpty()
+                ret.put("ok", true)
+                ret.put("text", text)
+            }
+            activityResultCode == android.app.Activity.RESULT_CANCELED -> {
+                ret.put("ok", false)
+                ret.put("error", "cancelled")
+            }
+            else -> {
+                ret.put("ok", false)
+                ret.put("error", "no result")
+            }
+        }
+        pluginCall.resolve(ret)
     }
 
     override fun handleOnDestroy() {

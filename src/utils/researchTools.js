@@ -133,6 +133,29 @@ const STOPWORDS = new Set([
   "it","its","this","that","as","at","by","from","about","into","over","vs",
 ]);
 
+/** Cloudflare Worker URL. Configurable via VITE_NEWS_WORKER_URL; falls back to dev default. */
+const NEWS_WORKER_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_NEWS_WORKER_URL) ||
+  "https://news-worker.overlay365.workers.dev";
+
+/**
+ * Fetch real news headlines from the news-worker Cloudflare Worker.
+ * Returns verified 2026 headlines with source URLs (not Wikipedia stubs).
+ * Each failure mode degrades quietly — caller decides what to do with empty results.
+ */
+async function fetchNews(query, limit = 25) {
+  const url = `${NEWS_WORKER_URL}?q=${encodeURIComponent(query)}&limit=${limit}`;
+  const data = await fetchJson(url, 8000);
+  if (!data || !Array.isArray(data.articles)) return [];
+  return data.articles.map((a) => ({
+    source: a.source || "news",
+    title: a.title || "",
+    text: [a.title, a.summary].filter(Boolean).join(" — "),
+    url: a.url || "",
+    publishedAt: a.publishedAt || "",
+  }));
+}
+
 /** Query terms used for evidence scoring. */
 export function queryTerms(query) {
   return String(query || "")
@@ -174,11 +197,14 @@ function sentences(text) {
  *   - "fresh" kind: live Chrome web_search ONLY. Wikipedia and DDG-instant
  *     have no current news, weather, prices, or scores — feeding them in
  *     produces hallucinated answers from unrelated stubs.
+ *   - "news" kind: real headlines from the news-worker Cloudflare Worker
+ *     (Google News RSS + BBC + AP + NPR + Hacker News). Returns verified
+ *     live headlines with source URLs, bypassing encyclopedias entirely.
  *
  * @param {object} opts
  * @param {string} opts.query - research question/topic
  * @param {number} [opts.max_sources=6] - approximate source cap
- * @param {"stable"|"fresh"} [opts.kind="stable"] - "fresh" skips Wikipedia/DDG-instant
+ * @param {"stable"|"fresh"|"news"} [opts.kind="stable"] - routing kind
  * @param {boolean} [opts.liveWeb=true] - include a Chrome web_search leg
  * @param {Function} [opts.confirm] - confirm callback forwarded to web_search
  * @param {object} [opts.phoneControl] - preloaded PhoneControl plugin
@@ -198,10 +224,41 @@ export async function deepResearch({
   const cap = Math.max(2, Math.min(Number(max_sources) || 6, 12));
   const terms = queryTerms(q);
   const isFresh = kind === "fresh";
+  const isNews = kind === "news";
 
   let findings = [];
 
-  if (isFresh) {
+  if (isNews) {
+    // News queries: real headlines from the news-worker (Google News RSS +
+    // BBC + AP + NPR + Hacker News). Wikipedia and DDG have no current news.
+    try {
+      const articles = await fetchNews(q, cap + 2);
+      if (articles.length) {
+        findings = articles.map((a) => ({
+          source: a.source,
+          title: a.title,
+          text: a.text,
+          url: a.url,
+        }));
+      } else {
+        return {
+          ok: false,
+          query: q,
+          error: "news-worker returned no articles for this query",
+          sourcesUsed: [],
+          findingsCount: 0,
+        };
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        query: q,
+        error: `news-worker unreachable: ${e?.message || "unknown error"}`,
+        sourcesUsed: [],
+        findingsCount: 0,
+      };
+    }
+  } else if (isFresh) {
     // Time-sensitive query → ONLY trust live sources. Cloud encyclopedias
     // and DDG-instant-answer have no current data on breaking news, prices,
     // weather, or scores; running them pollutes the digest with unrelated
@@ -219,8 +276,9 @@ export async function deepResearch({
   }
 
   // Live leg: real Chrome search via the accessibility bridge. Always run
-  // for "fresh" (the only source of truth), optional otherwise.
-  if (liveWeb || isFresh) {
+  // for "fresh" (the only source of truth). News kind already has live headlines
+  // from the worker — skip the extra round-trip.
+  if (!isNews && (liveWeb || isFresh)) {
     try {
       const live = await webSearch({ query: q, confirm, phoneControl });
       if (live?.ok && Array.isArray(live.results) && live.results.length) {

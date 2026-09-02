@@ -4,6 +4,8 @@
  * int16 PCM, mono, 16 kHz. `pcmToBytes` handles resample + downmix + encode.
  */
 
+import { loadPhoneControl } from "./modelRegistry.js";
+
 const AETHERDESK_BASE = "http://127.0.0.1:8000/api/v1";
 const DRAYMOND_VOICE_PORT = Number(import.meta.env.VITE_DRAYMOND_VOICE_PORT) || 8648;
 
@@ -191,6 +193,25 @@ export async function resolveCapture(cap) {
   cap.stop();
   return await cap.done;
 }
+
+/**
+ * Launch the Android SpeechRecognizer Intent via the native PhoneControl plugin.
+ * Falls back to the getUserMedia + HTTP transcription path if native STT is
+ * unavailable. Returns the transcribed text or throws.
+ */
+export async function transcribeNativeSTT({ language = "en-US", prompt = "Speak now" } = {}) {
+  const pc = await loadPhoneControl();
+  if (!pc?.startSpeechRecognition) {
+    throw new Error("native-speech-recognition unavailable");
+  }
+  const ret = await pc.startSpeechRecognition({ language, prompt });
+  if (!ret?.ok) {
+    throw new Error(ret?.error || "speech recognition failed");
+  }
+  return ret.text || "";
+}
+
+export { loadPhoneControl };
 
 /** True when getUserMedia requires a secure context (HTTPS or localhost). */
 export function hasMediaDevices() {

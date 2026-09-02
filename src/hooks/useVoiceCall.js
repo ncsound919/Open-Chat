@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { localChatWithTools, isAvailable, webllmAvailable, ggufAvailable } from "../utils/OnDeviceAI.js";
 import { skillList, runSkill } from "../utils/skillRegistry.js";
+import { transcribeNativeSTT } from "../utils/voice.js";
+import { isNative } from "../utils/platform.js";
 
 /**
  * Hands-free voice call — listen → local model → speak, in a loop.
@@ -121,30 +123,44 @@ export function useVoiceCall({ systemPrompt, draymondUrl, apiKey, chatSend, chat
 
   const runOnce = useCallback(async () => {
     if (!activeRef.current) return;
-    const rec = getRecognition();
-    if (!rec) {
-      setError("Speech recognition not supported on this device.");
-      activeRef.current = false;
-      setCalling(false);
-      return;
-    }
-    rec.lang = "en-US";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
 
-    const transcript = await new Promise((resolve) => {
-      let done = false;
-      const finish = (v) => { if (!done) { done = true; resolve(v); } };
-      rec.onresult = (e) => finish(e.results?.[0]?.[0]?.transcript ?? "");
-      rec.onerror = () => finish("");
-      rec.onend = () => finish("");
+    // On Android native, prefer the SpeechRecognizer Intent (system prompt
+    // with offline pack if available). Falls through to Web Speech API on web.
+    let transcript = "";
+    if (isNative()) {
       try {
-        rec.start();
-      } catch {
-        finish(""); // mic busy/blocked — treat as no transcript, keep looping
+        transcript = await transcribeNativeSTT({ language: "en-US", prompt: "Speak your message" });
+      } catch (err) {
+        setError(err.message || "Speech recognition failed");
+        setListening(false);
+        return;
       }
-      setTimeout(() => finish(""), 15000);
-    });
+    } else {
+      const rec = getRecognition();
+      if (!rec) {
+        setError("Speech recognition not supported on this device.");
+        activeRef.current = false;
+        setCalling(false);
+        return;
+      }
+      rec.lang = "en-US";
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+
+      transcript = await new Promise((resolve) => {
+        let done = false;
+        const finish = (v) => { if (!done) { done = true; resolve(v); } };
+        rec.onresult = (e) => finish(e.results?.[0]?.[0]?.transcript ?? "");
+        rec.onerror = () => finish("");
+        rec.onend = () => finish("");
+        try {
+          rec.start();
+        } catch {
+          finish(""); // mic busy/blocked — treat as no transcript, keep looping
+        }
+        setTimeout(() => finish(""), 15000);
+      });
+    }
 
     if (!activeRef.current) return;
     setListening(false);

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   captureAudio,
   transcribeAudio,
+  transcribeNativeSTT,
   synthesizeAndPlay,
   resolveCapture,
   classifyMicError,
 } from "../utils/voice.js";
 import { loadPhoneControl } from "../utils/modelRegistry.js";
+import { isNative } from "../utils/platform.js";
 
 /**
  * Push-to-talk + auto-speak voice for a chat bot.
@@ -39,6 +41,19 @@ export function useVoice(bot) {
     return capture;
   }, []);
 
+  /**
+   * Start Android native speech recognition (SpeechRecognizer Intent).
+   * On native: launches the system prompt and returns true immediately — the
+   * caller should call stopAndTranscribeNative() after the user stops speaking.
+   * On web: returns false (no-op).
+   */
+  const startListeningNative = useCallback(async () => {
+    if (!enabled || !isNative()) return false;
+    setMicError(null);
+    setMicActive(true);
+    return true;
+  }, [enabled]);
+
   const startListening = useCallback(async () => {
     if (!enabled) return null;
     setMicError(null);
@@ -55,6 +70,19 @@ export function useVoice(bot) {
       return null;
     }
   }, [enabled]);
+
+  /** Stop native STT and return the transcribed text. Throws on failure. */
+  const stopAndTranscribeNative = useCallback(async ({ language, prompt } = {}) => {
+    setMicActive(false);
+    try {
+      return await transcribeNativeSTT({ language, prompt });
+    } catch (err) {
+      setMicError(err.message || "Transcription failed.");
+      return "";
+    }
+  }, []);
+
+  /** Stop listening, transcribe, and return the text (caller puts it in input). */
 
   /** Stop listening, transcribe, and return the text (caller puts it in input). */
   const stopAndTranscribe = useCallback(async () => {
@@ -176,7 +204,9 @@ export function useVoice(bot) {
     micError,
     setSpeakEnabled,
     startListening,
+    startListeningNative,
     stopAndTranscribe,
+    stopAndTranscribeNative,
     cancelListening,
     speak,
   };

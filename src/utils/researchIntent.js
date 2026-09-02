@@ -20,9 +20,12 @@
  *   - "fresh"   → time-sensitive; only the live web has current data
  *                 (Wikipedia/DDG-instant have no current news, weather, prices,
  *                 or scores — feeding them in causes hallucinated answers)
+ *   - "news"    → news/research queries; real headlines from RSS feeds via
+ *                 the news-worker Cloudflare Worker (Google News + BBC + AP + NPR).
+ *                 Wikipedia and DDG have no current news.
  *
  * @param {string} text - user message
- * @returns {{ research: true, query: string, kind: "stable" | "fresh" } | null}
+ * @returns {{ research: true, query: string, kind: "stable" | "fresh" | "news" } | null}
  */
 export function detectResearchIntent(text) {
   const t = String(text ?? "").trim();
@@ -37,6 +40,12 @@ export function detectResearchIntent(text) {
   const personal =
     /\bmy\s+(meeting|meetings|calendar|schedule|appointments?|reminders?|messages?|inbox|day)\b/i;
   if (command.test(t) || personal.test(t)) return null;
+
+  // Explicit news source names → news-worker (real headlines, not Wikipedia stubs).
+  // Also catches "what is happening in X" style queries that are clearly news.
+  const newsSource =
+    /\b(bbc|reuters|ap news|npr|cnn|bloomberg|guardian|washington post|hacker news|hn\s|headlines about|coverage of|news about|what('s| is) happening in)\b/i;
+  if (newsSource.test(t)) return { research: true, query: t, kind: "news" };
 
   // Current-events phrasing needs live data by definition. Wikipedia and
   // DDG-instant-answer have NO current data — if we ask them about
