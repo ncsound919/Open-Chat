@@ -55,8 +55,10 @@ export function detectResearchIntent(text) {
   // sources are fine for these ("who invented X", "history of Y").
   const factual = /^\s*(who|what|when|where|which|why|how)\b/i;
   const knownEntity =
-    /\b(according to|sources?|cite|citation|wikipedia|history of|definition of|meaning of)\b/i;
-  if ((factual.test(t) || knownEntity.test(t)) && t.split(/\s+/).length >= 4) {
+    /\b(according to|sources?|cite|citation|wikipedia|history of|definition of|meaning of|caused|invented|discovered|developed|created)\b/i;
+  const hasKnownEntity = knownEntity.test(t);
+  const hasFactual = factual.test(t);
+  if ((hasFactual && t.split(/\s+/).length >= 4) || hasKnownEntity) {
     return { research: true, query: t, kind: "stable" };
   }
 

@@ -38,6 +38,33 @@ describe("detectResearchIntent", () => {
     expect(r2.kind).toBe("stable");
   });
 
+  it("classifies additional factual triggers as kind=stable", () => {
+    for (const t of [
+      "what caused ww2",
+      "definition of entropy",
+      "meaning of life",
+      "who discovered penicillin",
+    ]) {
+      const r = detectResearchIntent(t);
+      expect(r).not.toBeNull();
+      expect(r.kind).toBe("stable");
+    }
+  });
+
+  it("classifies time-sensitive phrasings as kind=fresh", () => {
+    for (const t of [
+      "what is happening right now",
+      "updates on the merger",
+      "weather in tokyo today",
+      "stock price of apple",
+      "breaking news about the merger",
+    ]) {
+      const r = detectResearchIntent(t);
+      expect(r).not.toBeNull();
+      expect(r.kind).toBe("fresh");
+    }
+  });
+
   it("does NOT fire on chat, commands, or device control", () => {
     for (const t of [
       "hey how are you",
