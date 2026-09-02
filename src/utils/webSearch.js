@@ -28,7 +28,7 @@ export const WEB_SEARCH_TOOL = {
 };
 
 const JUNK_LINE =
-  /^(google|sign in|all|images|videos|news|more|settings|tools|feedback|about this page|related searches|people also ask)$/i;
+  /^(google|sign in|all|images|videos|news|more|settings|tools|feedback|about this page|related searches|people also ask|next|previous|result \d+|an error occurred|no results found|try again|main menu|skip to content|close|search results|web results)$/i;
 
 /** Fast factual fallback using Wikipedia / instant search when Chrome fails. */
 async function fetchFactualFallback(query) {
@@ -83,7 +83,8 @@ function extractResults(pageText, query) {
     .filter((t) => !JUNK_LINE.test(t))
     .filter((t) => t.toLowerCase() !== q)
     .filter((t) => !/^https?:\/\//i.test(t))
-    .slice(0, 20);
+    .filter((t) => t.length < 300)
+    .slice(0, 24);
 }
 
 /**
@@ -134,20 +135,31 @@ export async function webSearch({ query, phoneControl, confirm, timing = {} } = 
     }
   }
 
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(String(query))}`;
+  // Primary: DuckDuckGo Lite — server-rendered, so result titles + snippets are
+  // plain text in the accessibility tree and reliably extractable. (Google's
+  // JS-rendered mobile page exposes little to the accessibility service, which
+  // is why live search returned nothing useful.) Falls back to Google below.
+  const encQuery = encodeURIComponent(String(query));
+  const searchUrls = [
+    `https://html.duckduckgo.com/html/?q=${encQuery}`,
+    `https://www.google.com/search?q=${encQuery}`,
+  ];
 
   try {
-    // Verified omnibox navigation — works from ANY starting page/tab.
-    const nav = await navigateTo({
-      url: searchUrl,
-      phoneControl: phone,
-      timing,
-    });
-    if (!nav?.ok) {
-      throw new Error(nav?.error || "navigation failed");
+    let nav = null;
+    let results = [];
+    let navError = null;
+    for (const url of searchUrls) {
+      // Verified omnibox navigation — works from ANY starting page/tab.
+      const attempt = await navigateTo({ url, phoneControl: phone, timing });
+      if (!attempt?.ok) {
+        navError = attempt?.error || navError;
+        continue;
+      }
+      nav = attempt;
+      results = extractResults(attempt.text ?? "", query);
+      if (results.length >= 1) break;
     }
-
-    const results = extractResults(nav.text ?? "", query);
 
     // Return to Open-Chat so the answer is visible without switching back.
     try {
@@ -156,7 +168,7 @@ export async function webSearch({ query, phoneControl, confirm, timing = {} } = 
       /* ignore */
     }
 
-    if (results.length >= 1) {
+    if (nav && results.length >= 1) {
       return {
         ok: true,
         provider: "chrome",
@@ -164,11 +176,11 @@ export async function webSearch({ query, phoneControl, confirm, timing = {} } = 
         results,
         screenshot: nav.screenshot ?? null,
         vision_summary: nav.vision_summary ?? `[PAGE VISION: ${nav.url}] Title: "${nav.title || "Search Results"}"`,
-        note: "These are live Google results read off the verified results page. Base your answer ONLY on them.",
+        note: "These are live search results read off the verified results page. Base your answer ONLY on them.",
       };
     }
 
-    throw new Error("Reached Google but could not read result snippets off the page.");
+    throw new Error(navError || "Reached the search engine but could not read result snippets off the page.");
   } catch (e) {
     const chromeError = e instanceof Error ? e.message : String(e);
 

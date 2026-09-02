@@ -28,11 +28,11 @@ const PAGE_TEXTAREA = {
   h: 120,
 };
 
-function resultsPageScreen() {
+function resultsPageScreen(urlText = "google.com/search?q=gemma+3n+model") {
   return {
     foregroundPackage: "com.android.chrome",
     nodes: [
-      { ...OMNIBOX, text: "google.com/search?q=gemma+3n+model" },
+      { ...OMNIBOX, text: urlText },
       { text: "Gemma 3n — a small on-device model", clickable: true, editable: false, x: 0, y: 300, w: 720, h: 40 },
       { text: "Gemma 3n is designed for efficient on-device inference.", clickable: false, editable: false, x: 0, y: 350, w: 720, h: 40 },
       { text: "All", clickable: false, editable: false, x: 0, y: 200, w: 40, h: 30 },
@@ -43,6 +43,7 @@ function resultsPageScreen() {
 /** Phone whose screen changes after the search is submitted. */
 function navigatingPhone({ submit = true } = {}) {
   let submittedOnce = false;
+  let lastUrl = "";
   return {
     getStatus: vi.fn(async () => ({ enabled: true })),
     openApp: vi.fn(async () => ({ ok: true })),
@@ -51,11 +52,12 @@ function navigatingPhone({ submit = true } = {}) {
         // Restored tab with a mid-page textarea + omnibox at top.
         return { nodes: [{ ...OMNIBOX, text: "" }, PAGE_TEXTAREA] };
       }
-      return resultsPageScreen();
+      return resultsPageScreen(lastUrl);
     }),
     performTap: vi.fn(async () => ({ ok: true })),
     inputText: vi.fn(async ({ text }) => {
-      if (/google\.[a-z.]+\/search/.test(text)) submittedOnce = true;
+      lastUrl = text;
+      if (/search\?q=|html\/\?q=/.test(text)) submittedOnce = true;
       return { ok: true };
     }),
     submitText: vi.fn(async () => ({ ok: submit })),
@@ -113,9 +115,10 @@ describe("webSearch", () => {
     expect(confirm).toHaveBeenCalled();
     expect(phone.openApp).toHaveBeenCalledWith({ packageName: "com.android.chrome" });
 
-    // Typed a full Google search URL into the omnibox.
+    // Typed a full DuckDuckGo Lite search URL into the omnibox (server-rendered
+    // so result snippets are reliably extractable by the accessibility tree).
     const typedArg = phone.inputText.mock.calls[0][0];
-    expect(typedArg.text).toMatch(/^https:\/\/www\.google\.com\/search\?q=/);
+    expect(typedArg.text).toMatch(/^https:\/\/html\.duckduckgo\.com\/html\/\?q=/);
 
     // Never touched the mid-page textarea: only one tap (the omnibox).
     const tapped = phone.performTap.mock.calls.map((c) => c[0]);
@@ -125,7 +128,7 @@ describe("webSearch", () => {
 
     expect(res.ok).toBe(true);
     expect(res.provider).toBe("chrome");
-    expect(res.pageUrl).toMatch(/google\.[a-z.]+\/search/);
+    expect(res.pageUrl).toMatch(/html\.duckduckgo\.com\/html/);
     expect(res.results.some((t) => /Gemma 3n/.test(t))).toBe(true);
     expect(res.note).toMatch(/ONLY/i);
     // Returns to Open-Chat so the answer is visible without switching back.
