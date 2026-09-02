@@ -104,7 +104,7 @@ describe("autoLoadMediaPipeModel", () => {
     gemma.loadModel.mockResolvedValue({ ok: true, modelPath: "/m/loaded" });
     expect(await autoLoadMediaPipeModel()).toBe("/m/loaded");
     expect(gemma.loadModel).toHaveBeenCalledWith(
-      expect.objectContaining({ fileName: "gemma.task", backend: "auto" })
+      expect.objectContaining({ fileName: "gemma.task", backend: "cpu" })
     );
   });
 

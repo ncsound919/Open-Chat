@@ -111,6 +111,27 @@ describe("storage load/save round-trip", () => {
     expect(storageModule.loadMode()).toBe("dev");
   });
 
+  it("saves and loads the Keywire vault config", () => {
+    const cfg = {
+      baseUrl: "http://127.0.0.1:3000",
+      token: "vault-tok",
+      projectId: "prj-x",
+      envSlug: "production",
+    };
+    storageModule.saveKeywireConfig(cfg);
+    expect(storageModule.loadKeywireConfig()).toEqual(cfg);
+  });
+
+  it("loadKeywireConfig returns empty defaults for no/malformed data", () => {
+    expect(storageModule.loadKeywireConfig()).toEqual({
+      baseUrl: "", token: "", projectId: "", envSlug: "",
+    });
+    global.localStorage.setItem("openchat_keywire_v1", "not-json");
+    expect(storageModule.loadKeywireConfig()).toEqual({
+      baseUrl: "", token: "", projectId: "", envSlug: "",
+    });
+  });
+
   it("saves and loads teams and schedules", () => {
     storageModule.saveTeams([{ id: "team1" }]);
     expect(storageModule.loadTeams()).toEqual([{ id: "team1" }]);

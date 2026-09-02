@@ -140,7 +140,20 @@ export function createWorkerEngine({
     };
 
     try {
-      await client.claimTask(taskId);
+      const claimed = await client.claimTask(taskId);
+      if (claimed !== true) {
+        // Server refused the claim (already claimed by another worker) or a
+        // transport error. Never execute a task we don't own — duplicate
+        // side effects (report/send/capture) are worse than a skipped task.
+        const claimError =
+          claimed && typeof claimed.error === "string"
+            ? claimed.error
+            : "claim failed — already claimed by another worker";
+        finish({ status: "skipped", error: claimError });
+        const skipped = { ok: false, taskId, error: claimError };
+        notifyResult(skipped);
+        return skipped;
+      }
       updateTask(taskId, { status: "claimed" });
 
       if (!task.skill_pack_id) {

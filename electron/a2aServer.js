@@ -33,9 +33,14 @@ export function createA2AServer(options = {}) {
   });
 
   return http.createServer((req, res) => {
+    // A client aborting mid-stream makes res.write() emit an 'error' event.
+    // Without a listener that becomes an uncaught exception that kills the
+    // whole Electron process. Swallow it here; the pump stops on 'close'.
+    res.on("error", () => {});
     handle(req, res, a2a).catch((err) => {
       // Avoid leaking any details into the wire.
       console.error("[OpenChat] A2A handler error:", err?.message || err);
+      if (res.destroyed || res.writableEnded) return;
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32603, message: "Internal error" } }));
@@ -92,18 +97,31 @@ async function handle(req, res, a2a) {
         "X-Accel-Buffering": "no",
       });
       const reader = result.body.getReader();
-      const pump = () =>
+      let closed = false;
+      const shutdown = () => {
+        if (closed) return;
+        closed = true;
+        reader.cancel().catch(() => {});
+        if (!res.writableEnded) res.destroy();
+      };
+      req.on("close", shutdown);
+      const pump = () => {
+        if (closed) return;
         reader
           .read()
           .then(({ done, value }) => {
+            if (closed) return;
             if (done) {
-              res.end();
+              if (!res.writableEnded) res.end();
               return;
             }
             res.write(Buffer.from(value));
             pump();
           })
-          .catch(() => res.end());
+          .catch(() => {
+            if (!res.writableEnded) res.end();
+          });
+      };
       return pump();
     }
 
@@ -149,9 +167,19 @@ export function startA2AServer(options = {}) {
   const host = options.host || "127.0.0.1";
   const server = createA2AServer(options);
   return new Promise((resolve, reject) => {
-    server.once("error", reject);
+    let settled = false;
+    server.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+        return;
+      }
+      // Post-listen server errors (e.g. socket failures) must not become an
+      // uncaught exception that kills the Electron process.
+      console.error("[OpenChat] A2A server error:", err?.message || err);
+    });
     server.listen(port, host, () => {
-      server.removeListener("error", reject);
+      settled = true;
       resolve(server);
     });
   });

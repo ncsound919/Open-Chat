@@ -107,18 +107,26 @@ export function ApprovalsScreen({ bots = [], history = {}, onExecute, onOpenMenu
     if (busyKey) return;
     setBusyKey(`${item.key}:${action.action}:${action.id || ""}`);
     setErrors((prev) => ({ ...prev, [item.key]: undefined }));
-    const res = await onExecute(item.botId, action);
-    if (res?.ok) {
-      const decision = String(action.label || action.action || "approved");
-      setResolved((prev) => {
-        const next = { ...prev, [item.key]: { decision, at: Date.now() } };
-        saveResolvedApprovals(next);
-        return next;
-      });
-    } else {
-      setErrors((prev) => ({ ...prev, [item.key]: res?.error || "Action failed" }));
+    try {
+      const res = await onExecute(item.botId, action);
+      if (res?.ok) {
+        const decision = String(action.label || action.action || "approved");
+        setResolved((prev) => {
+          const next = { ...prev, [item.key]: { decision, at: Date.now() } };
+          saveResolvedApprovals(next);
+          return next;
+        });
+      } else {
+        setErrors((prev) => ({ ...prev, [item.key]: res?.error || "Action failed" }));
+      }
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        [item.key]: err?.message || "Action failed",
+      }));
+    } finally {
+      setBusyKey(null);
     }
-    setBusyKey(null);
   };
 
   const renderCard = (item, isPending) => {

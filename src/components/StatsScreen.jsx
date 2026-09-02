@@ -333,7 +333,14 @@ export function StatsScreen({
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "4px 20px 28px" }}>
+      <div
+        className="safe-bottom"
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "4px 20px calc(env(safe-area-inset-bottom, 24px) + 72px)",
+        }}
+      >
         {/* Fleet connectivity */}
         <div style={sectionTitle}>FLEET</div>
         {bots.length === 0 ? (
@@ -460,7 +467,11 @@ export function StatsScreen({
                           marginTop: 6,
                         }}
                       >
-                        {platforms.slice(0, 6).map((p) => pill("#818cf8", p))}
+                        {platforms.slice(0, 6).map((p) => (
+                          <span key={p} style={{ display: "contents" }}>
+                            {pill("#818cf8", p)}
+                          </span>
+                        ))}
                       </div>
                     )}
                   </div>

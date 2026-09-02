@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from "react";
 import PropTypes from "prop-types";
 import { BackIcon } from "./icons/Icons.jsx";
-import { detectLocalModels, formatBytes, loadMediaPipe } from "../utils/modelRegistry.js";
+import { detectLocalModels, formatBytes, loadMediaPipe, getPreferredBackend, setPreferredBackend, reloadMediaPipeWithBackend } from "../utils/modelRegistry.js";
 import { modelServerToBot } from "../utils/localModels.js";
+import { KeywireVault } from "./KeywireVault.jsx";
 
 /**
  * GeneralSettings — the app's real settings menu (not tied to any single bot).
@@ -15,11 +16,24 @@ export function GeneralSettings({
   onChatLocal,
   onSelectLocalModel,
   onAddServerBot,
+  keywireConfig,
+  onSaveKeywireConfig,
 }) {
   const [sources, setSources] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(null);
   const [scanError, setScanError] = useState(null);
+  // GPU is opt-in: MediaPipe's GPU path garbles output on some devices
+  // (detokenizer FP16 bug). The chat loop auto-degrades to CPU on corruption.
+  const [gpuPref, setGpuPref] = useState(() => getPreferredBackend() === "gpu");
+
+  const toggleGpu = async () => {
+    const next = !gpuPref;
+    setGpuPref(next);
+    setPreferredBackend(next ? "gpu" : "cpu");
+    // Apply immediately if a bundle is already loaded.
+    await reloadMediaPipeWithBackend(next ? "gpu" : "cpu").catch(() => {});
+  };
 
   const refresh = useCallback(async () => {
     setScanning(true);
@@ -51,7 +65,7 @@ export function GeneralSettings({
         fileName: entry.fileName,
         maxTokens: 4096,
         topK: 40,
-        backend: "auto",
+        backend: getPreferredBackend(),
       });
       if (res?.ok) onSelectLocalModel?.(entry);
     } catch (e) {
@@ -106,6 +120,18 @@ export function GeneralSettings({
         <div style={{ fontSize: 13, fontWeight: 600, color: "#f6f7f9", marginBottom: 10 }}>
           Local Models
         </div>
+        <label
+          style={{
+            display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+            background: "#12141d", border: "1px solid #2a2a38", borderRadius: 10,
+            padding: "10px 12px", marginBottom: 12,
+          }}
+        >
+          <input type="checkbox" checked={gpuPref} onChange={toggleGpu} aria-label="GPU acceleration for on-device model" />
+          <span style={{ fontSize: 12, color: "#c8c9d4", lineHeight: 1.5 }}>
+            GPU acceleration (experimental — falls back to CPU if output corrupts)
+          </span>
+        </label>
         <div style={{ fontSize: 12, color: "#8b8b9e", marginBottom: 10, lineHeight: 1.5 }}>
           Detects on-device Gemma bundles and OpenAI-compatible servers (Ollama, LM Studio, llama.cpp, …).
         </div>
@@ -197,6 +223,7 @@ export function GeneralSettings({
             ))}
           </div>
         ))}
+        <KeywireVault config={keywireConfig} onSaveConfig={onSaveKeywireConfig} />
       </div>
     </div>
   );
@@ -208,6 +235,8 @@ GeneralSettings.propTypes = {
   onChatLocal: PropTypes.func,
   onSelectLocalModel: PropTypes.func,
   onAddServerBot: PropTypes.func,
+  keywireConfig: PropTypes.object,
+  onSaveKeywireConfig: PropTypes.func,
 };
 
 /** Build a chat-ready bot config for a detected OpenAI-compatible server model. */

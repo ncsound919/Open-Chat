@@ -4,7 +4,8 @@ import { BackIcon } from "./icons/Icons.jsx";
 import { BotAvatar } from "./BotAvatar.jsx";
 import { isLocalhost, maskToken } from "../utils/security.js";
 import { isFieldVisible, getAvailableProtocols, getModeDefaults, MODES } from "../utils/modeConfig.js";
-import { modelServerToBot } from "../utils/localModels.js";
+import { modelServerToBot, scanLocalModels } from "../utils/localModels.js";
+import { agentStatusRank } from "../utils/helpers.js";
 import * as secureStore from "../utils/secureStore.js";
 
 const PROTOCOL_DEFAULT_PORTS = {
@@ -16,16 +17,6 @@ const PROTOCOL_DEFAULT_PORTS = {
   "gemini-notebook": "3700",
   // subteam omitted intentionally — port is deployment-specific
 };
-
-/** Sort rank for the agent roster: active/online first, then by health. */
-function rosterRank(status) {
-  const s = String(status ?? "unknown").toLowerCase();
-  if (s === "online" || s === "active" || s === "connected") return 0;
-  if (s === "degraded" || s === "idle") return 1;
-  if (s === "busy" || s === "working" || s === "running") return 2;
-  if (s === "offline") return 3;
-  return 4;
-}
 
 /**
  * Settings panel for bot configuration
@@ -46,7 +37,40 @@ export function Settings({
   draymondClient,
   draymondNotifications = [],
   draymondAgents = {},
+  keywire = null,
+  keywireConfig = null,
 }) {
+  // Keywire resolve-from-vault state (per-bot token binding).
+  const [vaultKey, setVaultKey] = useState("");
+  const [resolvingToken, setResolvingToken] = useState(false);
+  const [vaultStatus, setVaultStatus] = useState(null); // { kind, text }
+  const canResolveToken =
+    keywire && keywireConfig?.projectId && keywireConfig?.envSlug;
+
+  const resolveTokenFromVault = async () => {
+    const k = vaultKey.trim();
+    if (!canResolveToken || !k) return;
+    setResolvingToken(true);
+    setVaultStatus(null);
+    try {
+      const res = await keywire.getSecretValue(
+        keywireConfig.projectId,
+        keywireConfig.envSlug,
+        k
+      );
+      if (res.ok) {
+        setForm((prev) => ({ ...prev, token: res.value }));
+        setVaultStatus({ kind: "ok", text: `Resolved "${k}" from the vault.` });
+        setVaultKey("");
+      } else {
+        setVaultStatus({ kind: "error", text: res.error || "Resolution failed" });
+      }
+    } catch (err) {
+      setVaultStatus({ kind: "error", text: err?.message || "Resolution failed" });
+    } finally {
+      setResolvingToken(false);
+    }
+  };
   // In Basic mode, pre-fill with mode defaults
   const [form, setForm] = useState(() => {
     if (isNew && mode === MODES.BASIC) {
@@ -169,7 +193,7 @@ export function Settings({
     setScanError(null);
     setScanResults([]);
     try {
-      const results = await detectLocalModels({ extraHost: lanHost });
+      const results = await scanLocalModels({ extraHost: lanHost });
       setScanResults(results);
       if (results.length === 0) {
         setScanError("No local models found. Open the Chat screen on your phone or enable experimental scans in Draymond settings, then scan again.");
@@ -549,6 +573,66 @@ export function Settings({
               }}
             >
               Stored as: {maskToken(form.token)}
+            </div>
+          )}
+          {canResolveToken && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: "8px 10px",
+                background: "#0a1f1a",
+                border: "1px solid #12715a",
+                borderRadius: 8,
+              }}
+            >
+              <div style={{ fontSize: 11, color: "#34d399", marginBottom: 6 }}>
+                Resolve token from the Keywire vault ({keywireConfig.envSlug})
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  style={{
+                    ...inputStyle,
+                    padding: "6px 10px",
+                    fontSize: 12,
+                    fontFamily: "monospace",
+                  }}
+                  value={vaultKey}
+                  onChange={(e) => setVaultKey(e.target.value)}
+                  placeholder="Secret key, e.g. DRAYMOND_CRON_SECRET"
+                  aria-label="Keywire secret key"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") resolveTokenFromVault();
+                  }}
+                />
+                <button
+                  onClick={resolveTokenFromVault}
+                  disabled={resolvingToken || !vaultKey.trim()}
+                  style={{
+                    background: "#22d3ee",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "6px 12px",
+                    color: "#05060a",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: resolvingToken ? "default" : "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {resolvingToken ? "…" : "Resolve"}
+                </button>
+              </div>
+              {vaultStatus && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: vaultStatus.kind === "ok" ? "#34d399" : "#ef4444",
+                  }}
+                >
+                  {vaultStatus.text}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -988,7 +1072,7 @@ export function Settings({
                   Agent Roster ({Object.keys(draymondAgents).length})
                 </div>
                 {Object.values(draymondAgents)
-                  .map((a) => ({ a, r: rosterRank(a?.status) }))
+                  .map((a) => ({ a, r: agentStatusRank(a?.status) }))
                   .sort((x, y) => x.r - y.r || (x.a?.name ?? "").localeCompare(y.a?.name ?? ""))
                   .map(({ a: agent }) => {
                   const origin = getDraymondOrigin(draymondClient);
@@ -1674,4 +1758,6 @@ Settings.propTypes = {
   draymondClient: PropTypes.object,
   draymondNotifications: PropTypes.array,
   draymondAgents: PropTypes.object,
+  keywire: PropTypes.object,
+  keywireConfig: PropTypes.object,
 };

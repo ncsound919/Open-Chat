@@ -101,7 +101,10 @@ async function askApp(phone, confirm, pkg, query, { searchHint = /search|ask|typ
     { phoneControl: phone, confirm }
   );
   await sleep(800);
-  await execPhoneTool("type", { text: query }, { phoneControl: phone, confirm });
+  // execPhoneTool("type") submits by default; ask it NOT to so this recipe
+  // owns the single submit below (avoids a double Enter / submit on the
+  // wrong context).
+  await execPhoneTool("type", { text: query, submit: false }, { phoneControl: phone, confirm });
   await sleep(500);
   if (typeof phone.submitText === "function") {
     await phone.submitText().catch(() => {});

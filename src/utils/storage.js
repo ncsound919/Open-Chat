@@ -19,6 +19,12 @@ const APPROVALS_KEY = "openchat_approvals_v1";
 const ENCRYPTED_KEYS = [HIST_KEY, CONF_KEY];
 secureStore.configure({ keys: ENCRYPTED_KEYS });
 
+// One-time migration flag: DEFAULT_BOTS self-heal (re-adding local/fleet bots
+// to a config persisted before they existed) must run once per install. After
+// the flag is set the user's deletions are respected, otherwise loadBots
+// would resurrect a bot they explicitly removed on every launch.
+const BOTS_SELF_HEAL_KEY = "openchat_bots_self_healed_v1";
+
 // ── Platform-aware storage abstraction ───────────────────────────────────────
 // On native (Android/iOS), use Capacitor Preferences (SharedPreferences).
 // On web/Electron, use localStorage (synchronous, same as before).
@@ -77,6 +83,12 @@ function storageSet(key, value) {
 
 /** Synchronous remove — persists to native asynchronously */
 function storageRemove(key) {
+  // Mirror storageGet/storageSet: encrypted keys must be removed from the
+  // secure store too, or the blob lingers and the in-memory cache stays.
+  if (ENCRYPTED_KEYS.includes(key) && secureStore.isEnabled()) {
+    secureStore.set(key, null);
+    return;
+  }
   if (isNative) {
     delete _nativeCache[key];
     Preferences.remove({ key }).catch((err) =>
@@ -252,11 +264,16 @@ export function pruneHistory(hist) {
 function checkStorageQuota(incomingBytes, excludeKey = HIST_KEY) {
   try {
     let totalBytes = incomingBytes;
+    const encoder = new TextEncoder();
     const keys = storageKeys();
     for (const key of keys) {
-      if (key !== excludeKey) {
-        totalBytes += (storageGet(key) || "").length;
-      }
+      if (key === excludeKey) continue;
+      // Encrypted keys are served decrypted by storageGet (already counted as
+      // their raw encrypted blob via _nativeCache/localStorage elsewhere), so
+      // skip them to avoid double-counting and measure in UTF-8 bytes, not
+      // UTF-16 code units.
+      if (ENCRYPTED_KEYS.includes(key)) continue;
+      totalBytes += encoder.encode(storageGet(key) || "").length;
     }
     if (totalBytes > STORAGE_WARN_BYTES) {
       console.warn(
@@ -279,18 +296,23 @@ export function loadBots() {
       console.warn("[OpenChat] Bot config corrupted — resetting to defaults.");
       return DEFAULT_BOTS;
     }
-    // Ensure the Private Local bot exists even if it was added to DEFAULT_BOTS
-    // after this config was first persisted.
-    if (!parsed.some((b) => b.id === "local")) {
-      const localDefault = DEFAULT_BOTS.find((b) => b.id === "local");
-      if (localDefault) parsed.push(localDefault);
-    }
-    // Ensure the fleet ntfy bots (alerts/approvals/recaps) exist so a config
-    // persisted before they were added still receives fleet pushes.
-    for (const id of ["fleet-alerts", "fleet-approvals", "fleet-recaps"]) {
-      if (!parsed.some((b) => b.id === id)) {
-        const ntfyDefault = DEFAULT_BOTS.find((b) => b.id === id);
-        if (ntfyDefault) parsed.push(ntfyDefault);
+    // Ensure required DEFAULT_BOTS exist — but only ONCE (migration), so a bot
+    // the user deliberately deletes stays deleted across restarts.
+    if (storageGet(BOTS_SELF_HEAL_KEY) !== "1") {
+      if (!parsed.some((b) => b.id === "local")) {
+        const localDefault = DEFAULT_BOTS.find((b) => b.id === "local");
+        if (localDefault) parsed.push(localDefault);
+      }
+      for (const id of ["fleet-alerts", "fleet-approvals", "fleet-recaps"]) {
+        if (!parsed.some((b) => b.id === id)) {
+          const ntfyDefault = DEFAULT_BOTS.find((b) => b.id === id);
+          if (ntfyDefault) parsed.push(ntfyDefault);
+        }
+      }
+      try {
+        storageSet(BOTS_SELF_HEAL_KEY, "1");
+      } catch {
+        // non-fatal
       }
     }
     return parsed;
@@ -461,6 +483,37 @@ export function saveMode(mode) {
     storageSet(MODE_KEY, mode);
   } catch (e) {
     console.error("Failed to save mode:", e);
+  }
+}
+
+// ── Keywire vault config ───────────────────────────────────────────────────
+// Host + token for the Keywire zero-trust vault (Open-Chat's secret source).
+// Persisted like other app prefs; the vault token is encrypted at rest only if
+// the secure store is enabled (CONF/HIST are; this key is plaintext-friendly
+// but harmless — it only unlocks the read-only vault API).
+const KEYWIRE_KEY = "openchat_keywire_v1";
+
+export function loadKeywireConfig() {
+  try {
+    const raw = storageGet(KEYWIRE_KEY);
+    if (!raw) return { baseUrl: "", token: "", projectId: "", envSlug: "" };
+    const parsed = JSON.parse(raw);
+    return {
+      baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : "",
+      token: typeof parsed.token === "string" ? parsed.token : "",
+      projectId: typeof parsed.projectId === "string" ? parsed.projectId : "",
+      envSlug: typeof parsed.envSlug === "string" ? parsed.envSlug : "",
+    };
+  } catch {
+    return { baseUrl: "", token: "", projectId: "", envSlug: "" };
+  }
+}
+
+export function saveKeywireConfig(config) {
+  try {
+    storageSet(KEYWIRE_KEY, JSON.stringify(config || {}));
+  } catch (e) {
+    console.error("Failed to save keywire config:", e);
   }
 }
 

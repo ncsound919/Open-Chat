@@ -152,9 +152,13 @@ export function parseSSEFrames(buffer) {
   const frames = [];
   let pos = 0;
 
+  // Normalize CRLF/CR so streams that use \r\n (the SSE spec's recommended
+  // line ending) are parsed identically to \n-only streams.
+  const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
   let idx;
-  while ((idx = buffer.indexOf("\n\n", pos)) !== -1) {
-    const rawFrame = buffer.slice(pos, idx);
+  while ((idx = normalized.indexOf("\n\n", pos)) !== -1) {
+    const rawFrame = normalized.slice(pos, idx);
     pos = idx + 2;
 
     if (!rawFrame.trim()) continue;
@@ -194,7 +198,7 @@ export function parseSSEFrames(buffer) {
     }
   }
 
-  return { frames, remaining: buffer.slice(pos) };
+  return { frames, remaining: normalized.slice(pos) };
 }
 
 /** The only event type worker subscribers receive on the CCR v2 stream. */

@@ -8,7 +8,20 @@
 import { chatLocal, resolveProvider, PROVIDER } from "../utils/localChat.js";
 import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
 import { PHONE_TOOLS, execPhoneTool } from "../utils/phoneTools.js";
-import { GALAXY_AI_SKILLS, execGalaxySkill } from "../utils/galaxyAi.js";
+import { GALAXY_AI_SKILLS, execGalaxySkill, isGalaxySkill } from "../utils/galaxyAi.js";
+import {
+  READ_PAGE_TOOL,
+  DEEP_RESEARCH_TOOL,
+  deepResearch,
+  execResearchTool,
+  isResearchTool,
+} from "../utils/researchTools.js";
+import { NAVIGATE_TOOL, navigateTo } from "../utils/browserNavigate.js";
+import {
+  detectResearchIntent,
+  buildGroundingSection,
+  RESEARCH_FAILED_SECTION,
+} from "../utils/researchIntent.js";
 import { DEFAULT_LOCAL_SYSTEM_PROMPT } from "../utils/galaxyPlanning.js";
 import { WEB_SEARCH_TOOL, webSearch } from "../utils/webSearch.js";
 import { IMAGE_GEN_TOOL, generateImage } from "../utils/imageGen.js";
@@ -36,13 +49,23 @@ export const LOCAL_PROVIDER_HINTS = {
 
 /** System-prompt section telling the agent which integrations exist. */
 const INTEGRATIONS_CONTEXT = [
-  "INTEGRATIONS:",
+  "INTEGRATIONS — these capabilities exist and you call them with the tool JSON contract:",
+  "- web_search: search the web in Chrome for live, factual, or current information. Uses vision + accessibility to locate Chrome's address bar, changes the URL directly to suit the research query from whatever page is open, and returns verified page vision + snippets.",
+  "- read_page: call this to inspect the page URL, title, layout vision summary, screenshot, and visible text for the currently open web page.",
+  "- navigate: changes the browser address bar directly to a URL (verified) regardless of whatever page is already loaded. Captures vision layout and page text.",
+  "- deep_research: for any research question, consults many sources at once (Wikipedia articles + search, DuckDuckGo, live Chrome search with vision) and returns an organized, attributed digest.",
+  "- When web_search or deep_research returns facts, base your reply ENTIRELY on the returned search data. Do not guess or make up unverified answers.",
+  "- If a research tool returns ok:false, an error, or empty results, say you could not verify sources and offer to retry. NEVER fill in an answer from memory when research was requested.",
+  "- When driving phone apps, actively tap and type to deliver what the user requested, rather than stopping after just opening the app.",
+].join("\n");
+
+/** Extra integration lines shown only when cloud/recipe tools are enabled. */
+const CLOUD_INTEGRATIONS_CONTEXT = [
   "- wikipedia_search(query): look up facts/background on Wikipedia (cloud, fast).",
   "- wikipedia_summary(title): get a short article intro.",
   "- news_headlines(topic or query): get recent headlines.",
   "- gmail_inbox / calendar_events / drive_browse: open the phone app and read the screen.",
   "- gemini_query(query) / youtube_search(query): open the app, ask/search, and read the result.",
-  "- Prefer the wikipedia/news cloud tools for factual info; use the phone recipes to read the user's actual Gmail/Calendar/Drive/Gemini/YouTube.",
 ].join("\n");
 
 /**
@@ -57,6 +80,15 @@ export class LocalModelClient {
     this.phoneToolsEnabled = bot.phoneToolsEnabled !== false;
     this.galaxySkillsEnabled = bot.galaxySkillsEnabled !== false;
     this.verifyEnabled = bot.verifyEnabled === true;
+    // Deterministic auto-research: intercept research-style questions and
+    // ground the answer in verified findings BEFORE the model generates.
+    this.autoResearchEnabled = bot.autoResearchEnabled !== false;
+    // Opt-in tool packs. Small models degrade past ~6 simultaneous tools
+    // (see research notes), so only the core research/phone set is exposed
+    // by default; image-gen, cloud integrations, and recipes are opt-in.
+    this.imageGenEnabled = bot.imageGenEnabled === true;
+    this.cloudToolsEnabled = bot.cloudToolsEnabled === true;
+    this.recipesEnabled = bot.recipesEnabled === true;
     // Optional Draymond skill tools (schemas + handler injected by the app).
     this.draymondToolsEnabled = bot.draymondSkillsEnabled === true;
     this.draymondTools = Array.isArray(opts.draymondTools) ? opts.draymondTools : [];
@@ -113,7 +145,7 @@ export class LocalModelClient {
    */
   async _execTool(name, args) {
     const confirm = this.confirmAction;
-    if (this.galaxySkillsEnabled && isGalaxySkillName(name)) {
+    if (this.galaxySkillsEnabled && isGalaxySkill(name)) {
       return execGalaxySkill(name, args, { confirm });
     }
     return execPhoneTool(name, args, { confirm });
@@ -137,9 +169,11 @@ export class LocalModelClient {
     const tools = [];
     if (this.phoneToolsEnabled) tools.push(...PHONE_TOOLS);
     if (this.phoneToolsEnabled) tools.push(WEB_SEARCH_TOOL);
-    if (this.phoneToolsEnabled) tools.push(IMAGE_GEN_TOOL);
-    if (this.phoneToolsEnabled) tools.push(...CLOUD_TOOLS);
-    if (this.phoneToolsEnabled) tools.push(...RECIPE_TOOLS);
+    if (this.phoneToolsEnabled) tools.push(NAVIGATE_TOOL);
+    if (this.phoneToolsEnabled) tools.push(READ_PAGE_TOOL, DEEP_RESEARCH_TOOL);
+    if (this.imageGenEnabled && this.phoneToolsEnabled) tools.push(IMAGE_GEN_TOOL);
+    if (this.cloudToolsEnabled) tools.push(...CLOUD_TOOLS);
+    if (this.recipesEnabled) tools.push(...RECIPE_TOOLS);
     if (this.galaxySkillsEnabled) tools.push(...GALAXY_AI_SKILLS);
     if (this.draymondToolsEnabled && this.draymondTools.length > 0) {
       tools.push(...this.draymondTools);
@@ -148,8 +182,42 @@ export class LocalModelClient {
     // Append the discovered-app capability surface to the system prompt so
     // Gemma knows exactly what it can open and drive on this device.
     const appSection = this.phoneToolsEnabled ? await this._appContext() : "";
-    const integrationSection = this.phoneToolsEnabled ? INTEGRATIONS_CONTEXT : "";
-    const systemPrompt = [this.systemPrompt, appSection, integrationSection]
+    const integrationSections = this.phoneToolsEnabled
+      ? [
+          INTEGRATIONS_CONTEXT,
+          ...(this.cloudToolsEnabled || this.recipesEnabled ? [CLOUD_INTEGRATIONS_CONTEXT] : []),
+        ]
+      : [];
+
+    // Deterministic research interception: small models often skip tool
+    // calls and hallucinate summaries. If this message asks for research,
+    // run deep_research HERE and inject verified findings as the only
+    // permitted answer material.
+    let grounding = "";
+    if (this.phoneToolsEnabled && this.autoResearchEnabled) {
+      const intent = detectResearchIntent(text);
+      if (intent) {
+        this.onToolCall?.(
+          { name: "deep_research", args: { query: intent.query, auto: true } },
+          { status: "running" }
+        );
+        const dr = await deepResearch({
+          query: intent.query,
+          confirm: this.confirmAction,
+        }).catch(() => null);
+        grounding = dr?.ok
+          ? buildGroundingSection(dr)
+          : RESEARCH_FAILED_SECTION;
+        this.onToolCall?.(
+          { name: "deep_research", args: { query: intent.query, auto: true } },
+          dr?.ok
+            ? { ok: true, sourcesUsed: dr.sourcesUsed, findingsCount: dr.findingsCount }
+            : { ok: false }
+        );
+      }
+    }
+
+    const systemPrompt = [this.systemPrompt, appSection, ...integrationSections, grounding]
       .filter(Boolean)
       .join("\n\n");
 
@@ -165,6 +233,12 @@ export class LocalModelClient {
       toolHandler: async (name, args) => {
         if (name === "web_search") {
           return webSearch({ query: String(args?.query ?? args?.q ?? ""), confirm: this.confirmAction });
+        }
+        if (name === "navigate") {
+          return navigateTo({ url: String(args?.url ?? args?.site ?? "") });
+        }
+        if (isResearchTool(name)) {
+          return execResearchTool(name, args, { confirm: this.confirmAction });
         }
         if (name === "image_gen") {
           return generateImage({ prompt: String(args?.prompt ?? "") });
@@ -193,9 +267,4 @@ export class LocalModelClient {
 
     return result.text;
   }
-}
-
-/** Local helper (avoids importing the schema just to check membership). */
-function isGalaxySkillName(name) {
-  return ["galaxy_open", "galaxy_ai_action", "galaxy_read_screen"].includes(name);
 }

@@ -117,6 +117,30 @@ describe("createWorkerEngine", () => {
     expect(last.runningTaskId).toBeNull();
   });
 
+  it("skips execution when the claim is refused by another worker", async () => {
+    const task = queuedTask();
+    mocks.pullTasks.mockResolvedValue([task]);
+    mocks.claimTask.mockResolvedValue(false); // server says already claimed
+
+    const engine = createWorkerEngine({
+      baseUrl: "http://127.0.0.1:8644",
+      workerId: "test-worker",
+      store: fakeStore(),
+      deps: { chat: vi.fn(), onSend: vi.fn(), onNotify: vi.fn() },
+    });
+    const states = [];
+    engine.subscribe((s) => states.push(s));
+
+    await engine.pull();
+
+    // Never executed nor reported (would clobber the owning worker's result).
+    expect(mocks.fetchSkill).not.toHaveBeenCalled();
+    expect(mocks.reportTask).not.toHaveBeenCalled();
+    const last = states[states.length - 1];
+    expect(last.tasks[0].status).toBe("skipped");
+    expect(last.runningTaskId).toBeNull();
+  });
+
   it("uses a cached pack and skips the fetch when the library has it", async () => {
     const store = fakeStore();
     store.get.mockResolvedValue(TEST_PACK);

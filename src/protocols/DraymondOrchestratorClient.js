@@ -118,6 +118,13 @@ export class DraymondOrchestratorClient {
   async connect() {
     this._setStatus("connecting");
 
+    // A stale reconnect timer must not fire later and close the stream this
+    // fresh connect opens.
+    if (this._reconnectTimerId !== null) {
+      clearTimeout(this._reconnectTimerId);
+      this._reconnectTimerId = null;
+    }
+
     try {
       // Health check
       const healthy = await this._healthCheck();
@@ -392,9 +399,7 @@ export class DraymondOrchestratorClient {
     const url = `${this.baseUrl}/v1/workflows/${workflowId}`;
 
     try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url);
 
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -415,10 +420,7 @@ export class DraymondOrchestratorClient {
     const url = `${this.baseUrl}/v1/workflows/${workflowId}`;
 
     try {
-      const res = await fetch(url, {
-        method: "DELETE",
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url, { method: "DELETE" });
 
       if (res.ok) {
         if (!this.activeWorkflows[workflowId]) {
@@ -459,13 +461,9 @@ export class DraymondOrchestratorClient {
   async syncMessages(sessionId, messages) {
     const url = `${this.baseUrl}/v1/messages`;
     try {
-      const res = await fetch(url, {
+      const res = await this._fetchJson(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        },
-        body: JSON.stringify({ session_id: sessionId, messages }),
+        body: { session_id: sessionId, messages },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
@@ -493,9 +491,7 @@ export class DraymondOrchestratorClient {
 
     const url = `${this.baseUrl}/v1/messages?${params}`;
     try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (error) {
@@ -522,9 +518,7 @@ export class DraymondOrchestratorClient {
 
     const url = `${this.baseUrl}/v1/chains?${params}`;
     try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (error) {
@@ -543,13 +537,9 @@ export class DraymondOrchestratorClient {
   async executeChain(chainSlug, input = {}, agentId) {
     const url = `${this.baseUrl}/v1/chains`;
     try {
-      const res = await fetch(url, {
+      const res = await this._fetchJson(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        },
-        body: JSON.stringify({ chain_slug: chainSlug, input, agent_id: agentId }),
+        body: { chain_slug: chainSlug, input, agent_id: agentId },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
@@ -577,9 +567,7 @@ export class DraymondOrchestratorClient {
 
     const url = `${this.baseUrl}/v1/schedules?${params}`;
     try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (error) {
@@ -597,13 +585,9 @@ export class DraymondOrchestratorClient {
   async toggleSchedule(jobId, action) {
     const url = `${this.baseUrl}/v1/schedules`;
     try {
-      const res = await fetch(url, {
+      const res = await this._fetchJson(url, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        },
-        body: JSON.stringify({ id: jobId, action }),
+        body: { id: jobId, action },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
@@ -626,18 +610,14 @@ export class DraymondOrchestratorClient {
   async reportStatus(action = "heartbeat") {
     const url = `${this.baseUrl}/v1/status`;
     try {
-      const res = await fetch(url, {
+      const res = await this._fetchJson(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        },
-        body: JSON.stringify({
+        body: {
           client_id: this._clientId,
           action,
           version: "1.0.0",
           platform: "open-chat",
-        }),
+        },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
@@ -654,9 +634,7 @@ export class DraymondOrchestratorClient {
   async getServerStatus() {
     const url = `${this.baseUrl}/v1/status`;
     try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (error) {
@@ -673,9 +651,7 @@ export class DraymondOrchestratorClient {
   async getMissionDashboard() {
     const url = `${this.baseUrl}/mission/dashboard`;
     try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (error) {
@@ -691,9 +667,7 @@ export class DraymondOrchestratorClient {
   async getHeartbeats() {
     const url = `${this.baseUrl}/ops/heartbeats`;
     try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+      const res = await this._fetchJson(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (error) {
@@ -745,6 +719,86 @@ export class DraymondOrchestratorClient {
     );
   }
 
+  // ── Wake & Direct (ping / invoke / recover) ─────────────────────────────
+
+  /**
+   * Ping an agent's repair-gate slug — a healthy observation (wakes/resets the
+   * service's dead-man switch), or `fail` to record a failure.
+   * @param {string} slug - repair-gate slug
+   * @param {object} [opts] - { fail?: boolean }
+   * @returns {Promise<{ok: boolean, entry?: object, error?: string}>}
+   */
+  async wake(slug, { fail = false } = {}) {
+    const url = `${this.baseUrl}/ping/${encodeURIComponent(slug)}${fail ? "?fail=1" : ""}`;
+    try {
+      const res = await this._fetchJson(url, { method: "POST" });
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to wake agent:", error.message);
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get a repair-gate slug's current status.
+   * @param {string} slug
+   * @returns {Promise<{ok: boolean, entry?: object}|null>}
+   */
+  async getGateStatus(slug) {
+    const url = `${this.baseUrl}/ping/${encodeURIComponent(slug)}`;
+    try {
+      const res = await this._fetchJson(url);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to get gate status:", error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Directly invoke a registered registry entity/agent through Draymond.
+   * @param {string} id - entity id or slug
+   * @param {string} action
+   * @param {object} [input]
+   * @param {object} [opts] - { timeout_ms }
+   * @returns {Promise<{ok: boolean, result?: object, error?: string}>}
+   */
+  async invokeAgent(id, action, input = {}, opts = {}) {
+    const url = `${this.baseUrl}/agents/${encodeURIComponent(id)}/invoke`;
+    try {
+      const res = await this._fetchJson(url, {
+        method: "POST",
+        body: { action, input, ...(opts.timeout_ms ? { timeout_ms: opts.timeout_ms } : {}) },
+      });
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to invoke agent:", error.message);
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /**
+   * Trigger Draymond's recovery protocol for an agent.
+   * @param {string} id - agent/entity id or slug
+   * @param {string} [sessionId]
+   * @returns {Promise<{ok: boolean, error?: string}>}
+   */
+  async recoverAgent(id, sessionId) {
+    const url = `${this.baseUrl}/agents/${encodeURIComponent(id)}/recover`;
+    try {
+      const res = await this._fetchJson(url, {
+        method: "POST",
+        body: sessionId ? { session_id: sessionId } : {},
+      });
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to recover agent:", error.message);
+      return { ok: false, error: error.message };
+    }
+  }
+
   // ── Offline Queue ───────────────────────────────────────────────────────
 
   /**
@@ -771,23 +825,31 @@ export class DraymondOrchestratorClient {
     let failed = 0;
 
     for (const cmd of queue) {
+      let ok = true;
       try {
         switch (cmd.type) {
           case "syncMessages":
-            await this.syncMessages(cmd.sessionId, cmd.messages);
+            ok = (await this.syncMessages(cmd.sessionId, cmd.messages)).ok !== false;
             break;
           case "executeChain":
-            await this.executeChain(cmd.chainSlug, cmd.input, cmd.agentId);
+            ok = (await this.executeChain(cmd.chainSlug, cmd.input, cmd.agentId)).ok !== false;
             break;
           case "toggleSchedule":
-            await this.toggleSchedule(cmd.jobId, cmd.action);
+            ok = (await this.toggleSchedule(cmd.jobId, cmd.action)).ok !== false;
             break;
           default:
             console.warn(`Unknown queued command type: ${cmd.type}`);
+            ok = true; // dropped — can never succeed, so never re-queued
         }
-        succeeded++;
       } catch {
-        // Re-queue on failure
+        ok = false;
+      }
+
+      if (ok) {
+        succeeded++;
+      } else {
+        // Re-queue on failure (the underlying methods swallow errors while
+        // _flushing is true, so a failed retry must be re-queued here).
         this._offlineQueue.push(cmd);
         failed++;
       }
@@ -799,6 +861,36 @@ export class DraymondOrchestratorClient {
   }
 
   // ── Private methods ──────────────────────────────────────────────────────
+
+  /**
+   * Fetch with auth headers + a hard timeout so a hung server can never wedge
+   * a caller forever (mirrors orchestrate()'s merged-controller pattern).
+   * @private
+   * @param {string} url
+   * @param {object} [opts] - { method, body, timeoutMs, signal }
+   * @returns {Promise<Response>}
+   */
+  _fetchJson(url, { method = "GET", body, timeoutMs = 10_000, signal } = {}) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    let combined = controller.signal;
+    if (signal) {
+      if (typeof AbortSignal.any === "function") {
+        combined = AbortSignal.any([signal, controller.signal]);
+      } else {
+        signal.addEventListener("abort", () => controller.abort(), { once: true });
+      }
+    }
+    return fetch(url, {
+      method,
+      signal: combined,
+      headers: {
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    }).finally(() => clearTimeout(timeoutId));
+  }
 
   /**
    * Health check
@@ -826,44 +918,39 @@ export class DraymondOrchestratorClient {
   /**
    * Discover agents
    * @private
+   * @throws {Error} on network failure or non-ok HTTP so connect() fails loudly
+   *   instead of reporting "connected" with a silently dying event stream.
    */
   async _discoverAgents() {
     const url = `${this.baseUrl}/v1/agents`;
 
-    try {
-      const res = await fetch(url, {
-        headers: this.token ? { Authorization: `Bearer ${this.token}` } : {},
-      });
+    const res = await this._fetchJson(url);
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      const data = await res.json();
-      const agents = {};
-
-      // Convert array to map
-      if (Array.isArray(data.agents)) {
-        for (const agent of data.agents) {
-          agents[agent.id] = {
-            id: agent.id,
-            name: agent.name,
-            capabilities: agent.capabilities || [],
-            status: agent.status || "unknown",
-            lastHeartbeat: agent.last_heartbeat,
-            avatarUrl: agent.avatar_url || null,
-          };
-
-          // Notify callback
-          this.onAgentDiscovered?.(agents[agent.id]);
-        }
-      }
-
-      return agents;
-    } catch (error) {
-      console.warn("Failed to discover agents");
-      return {};
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
+
+    const data = await res.json();
+    const agents = {};
+
+    // Convert array to map
+    if (Array.isArray(data.agents)) {
+      for (const agent of data.agents) {
+        agents[agent.id] = {
+          id: agent.id,
+          name: agent.name,
+          capabilities: agent.capabilities || [],
+          status: agent.status || "unknown",
+          lastHeartbeat: agent.last_heartbeat,
+          avatarUrl: agent.avatar_url || null,
+        };
+
+        // Notify callback
+        this.onAgentDiscovered?.(agents[agent.id]);
+      }
+    }
+
+    return agents;
   }
 
   /**
@@ -880,6 +967,13 @@ export class DraymondOrchestratorClient {
     const connection = {
       close: () => controller.abort(),
     };
+
+    // If a reconnect timer is still pending it would later close this brand-new
+    // stream; cancel it first (idempotent when invoked by the timer itself).
+    if (this._reconnectTimerId !== null) {
+      clearTimeout(this._reconnectTimerId);
+      this._reconnectTimerId = null;
+    }
 
     this.eventSource = connection;
 

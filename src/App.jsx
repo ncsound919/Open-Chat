@@ -34,6 +34,8 @@ import { buildDraymondTools } from "./utils/draymondTools.js";
 import { useWorkerEngine, createPreferencesStore } from "./hooks/useWorkerEngine.js";
 import { parseMcpServers, summarizeMcpTools } from "./utils/mcpConfig.js";
 import { resolveWorkerBaseUrl } from "./utils/workerEngine.js";
+import { KeywireClient } from "./utils/keywireClient.js";
+import { createFleetController } from "./utils/fleetControl.js";
 import {
   loadHist,
   saveHist,
@@ -53,6 +55,8 @@ import {
   saveSchedules,
   loadResolvedApprovals,
   searchMessages,
+  loadKeywireConfig,
+  saveKeywireConfig,
 } from "./utils/storage.js";
 import { uuid, ts, markAllSeen } from "./utils/helpers.js";
 import { isNative } from "./utils/platform.js";
@@ -69,7 +73,7 @@ export default function App() {
   const [history, setHistory] = useState(loadHist);
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
+  const [streamingBotId, setStreamingBotId] = useState(null);
   const [statuses, setStatuses] = useState({});
   const [search, setSearch] = useState("");
   const [searchMode, setSearchMode] = useState("bots");
@@ -81,6 +85,9 @@ export default function App() {
   const [workflows, setWorkflows] = useState(loadWorkflows);
   const [agentRegistry, setAgentRegistry] = useState(loadAgentRegistry);
   const [toolLog, setToolLog] = useState(loadToolLog);
+
+  // Keywire vault config (Settings → KeywireVault).
+  const [keywireConfig, setKeywireConfig] = useState(loadKeywireConfig);
 
   // UI state
   const [showCfg, setShowCfg] = useState(false);
@@ -158,7 +165,7 @@ export default function App() {
   const seenNtfyIds = useRef(new Set()); // ntfy message ids already rendered
   const abortRef = useRef(null); // Hermes AbortController
   const streamBuf = useRef("");
-  const streamMsgIdRef = useRef(null); // id of the streaming placeholder message
+  const streamMsgIdRef = useRef({}); // botId → id of that bot's streaming placeholder
   const streamToolCallsRef = useRef([]); // tool calls accumulated during a local stream
   const streamImageRef = useRef(null); // generated image data URI for the current local turn
   const draymondBotRef = useRef(null); // latest connected Draymond bot (for closures)
@@ -169,9 +176,16 @@ export default function App() {
   // ── Worker engine (Open Chat as a Draymond executor) ───────────────────────
   // The connected Draymond bot drives the pull/claim/execute/report loop; its
   // state feeds the Work screen and task results land back in the chat.
-  const draymondBot = bots.find(
-    (b) => b.protocol === "draymond" && statuses[b.id] === "connected"
-  );
+  // Prefer a real orchestrator over auto-populated agent shells so worker
+  // results land in the user's main Draymond chat, not a shell's.
+  const draymondBot =
+    bots.filter(
+      (b) => b.protocol === "draymond" && statuses[b.id] === "connected"
+    ).find((b) => !b.autoPopulated) ||
+    bots.find(
+      (b) => b.protocol === "draymond" && statuses[b.id] === "connected"
+    ) ||
+    null;
   draymondBotRef.current = draymondBot;
 
   const workerDeps = useMemo(
@@ -307,6 +321,44 @@ export default function App() {
   useEffect(() => {
     saveSchedules(schedules);
   }, [schedules]);
+
+  // Keywire vault config persistence.
+  useEffect(() => {
+    saveKeywireConfig(keywireConfig);
+  }, [keywireConfig]);
+
+  const handleSaveKeywireConfig = useCallback((cfg) => {
+    setKeywireConfig({
+      baseUrl: cfg?.baseUrl || "",
+      token: cfg?.token || "",
+      projectId: cfg?.projectId || "",
+      envSlug: cfg?.envSlug || "",
+    });
+  }, []);
+
+  /** KeywireClient bound to the saved vault config (null when not configured). */
+  const keywireClient = useMemo(() => {
+    if (!keywireConfig?.baseUrl && !keywireConfig?.token) return null;
+    try {
+      return new KeywireClient(keywireConfig.baseUrl, keywireConfig.token);
+    } catch {
+      return null;
+    }
+  }, [keywireConfig]);
+
+  /**
+   * Fleet controller — "wake and direct" the orchestrator. Bound via getter to
+   * whatever Draymond client is currently the primary connected bot, so it
+   * survives bot-swap without re-creation.
+   */
+  const fleet = useMemo(
+    () =>
+      createFleetController(() => {
+        const dym = draymondBotRef.current;
+        return dym ? orchestratorRefs.current[dym.id] || null : null;
+      }),
+    []
+  );
 
   // â”€â”€ Status management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const setStatus = useCallback((id, status) => {
@@ -694,7 +746,12 @@ export default function App() {
     const targetBot = bots.find((b) => b.id === botId);
     const host = targetBot?.host || "127.0.0.1";
     const port = targetBot?.port || 8644;
-    const fallbackClient = new NtfyClient(host, port, targetBot?.token || "", "alerts");
+    const fallbackClient = new NtfyClient(
+      host,
+      port,
+      targetBot?.token || "",
+      targetBot?.topic || "alerts"
+    );
     return fallbackClient.executeAction(action);
   }, [bots]);
 
@@ -738,9 +795,12 @@ export default function App() {
           .catch(() => setStatus(b.id, "disconnected"));
       });
 
-    // Connect Draymond Orchestrator bots
+    // Connect Draymond Orchestrator bots. Agent shells are manualConnect:
+    // true ("don't stream events until opened") — auto-connecting them opens
+    // one SSE stream per discovered agent to the same orchestrator, which
+    // re-delivers the whole event bus and duplicates every notification.
     bots
-      .filter((b) => b.protocol === "draymond")
+      .filter((b) => b.protocol === "draymond" && !b.manualConnect)
       .forEach((b) => {
         if (!orchestratorRefs.current[b.id]) {
           connectDraymond(b);
@@ -886,7 +946,7 @@ export default function App() {
       if (!msgs.length) return prev;
       // Target the streaming placeholder by id when one is in flight; inbound
       // messages appended during streaming must not shift the target.
-      const targetId = streamMsgIdRef.current;
+      const targetId = streamMsgIdRef.current[botId];
       const idx = targetId
         ? msgs.findIndex((m) => m.id === targetId)
         : msgs.length - 1;
@@ -894,6 +954,16 @@ export default function App() {
       msgs[idx] = { ...msgs[idx], ...patch };
       return { ...prev, [botId]: msgs };
     });
+  }
+
+  /** Mark a specific user message as read (clears its unread badge). */
+  function markUserRead(botId, userMsgId) {
+    setHistory((prev) => ({
+      ...prev,
+      [botId]: (prev[botId] || []).map((m) =>
+        m.id === userMsgId ? { ...m, read: true } : m
+      ),
+    }));
   }
 
   function deleteMessage(botId, msgId) {
@@ -910,11 +980,12 @@ export default function App() {
   // â”€â”€ Send message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   async function sendMessage() {
     const text = input.trim();
-    if (!text || !bot || streaming) return;
+    if (!text || !bot || streamingBotId) return;
 
     setInput("");
-    setStreaming(true);
+    setStreamingBotId(bot.id);
     streamBuf.current = "";
+    streamToolCallsRef.current = []; // fresh set of tool-call cards per turn
 
     // Add user message
     const userMsg = { id: uuid(), role: "user", text, time: ts(), read: false };
@@ -922,7 +993,7 @@ export default function App() {
 
     // Add placeholder bot message
     const botMsgId = uuid();
-    streamMsgIdRef.current = botMsgId;
+    streamMsgIdRef.current[bot.id] = botMsgId;
     addMessage(bot.id, {
       id: botMsgId,
       role: "bot",
@@ -1015,12 +1086,7 @@ export default function App() {
         });
 
 // Mark user message as read
-        setHistory((prev) => ({
-          ...prev,
-          [bot.id]: (prev[bot.id] || []).map((m) =>
-            m.id === userMsg.id ? { ...m, read: true } : m
-          ),
-        }));
+        markUserRead(bot.id, userMsg.id);
       } else if (bot.protocol === "gemini-notebook") {
         // Gemini Notebook Bridge (AgentBrowser) — JSON request/response
         abortRef.current = new AbortController();
@@ -1049,12 +1115,7 @@ export default function App() {
         updateLastMessage(bot.id, { text: replyText, streaming: false });
 
         // Mark user message as read
-        setHistory((prev) => ({
-          ...prev,
-          [bot.id]: (prev[bot.id] || []).map((m) =>
-            m.id === userMsg.id ? { ...m, read: true } : m
-          ),
-        }));
+        markUserRead(bot.id, userMsg.id);
       } else if (bot.protocol === "uplift-bridge") {
         // Uplift Bridge
         const client = clawRefs.current[bot.id];
@@ -1242,12 +1303,7 @@ export default function App() {
         streamImageRef.current = null;
 
         // Mark user message as read
-        setHistory((prev) => ({
-          ...prev,
-          [bot.id]: (prev[bot.id] || []).map((m) =>
-            m.id === userMsg.id ? { ...m, read: true } : m
-          ),
-        }));
+        markUserRead(bot.id, userMsg.id);
       } else if (bot.protocol === "mcp") {
         // MCP host — report the aggregated tool surface available to agents.
         const client = mcpRefs.current[bot.id];
@@ -1261,12 +1317,7 @@ export default function App() {
         });
 
         // Mark user message as read
-        setHistory((prev) => ({
-          ...prev,
-          [bot.id]: (prev[bot.id] || []).map((m) =>
-            m.id === userMsg.id ? { ...m, read: true } : m
-          ),
-        }));
+        markUserRead(bot.id, userMsg.id);
       } else if (bot.protocol === "local") {
         // Private on-device chat (Gemma / Nano / WebLLM) + phone control
         let client = localRefs.current[bot.id];
@@ -1281,7 +1332,10 @@ export default function App() {
         abortRef.current = new AbortController();
         streamToolCallsRef.current = []; // fresh set of tool-call cards per turn
 
-        // Pass recent context so private chat is multi-turn.
+        // Pass recent context so private chat is multi-turn. `history` here is
+        // the render-closure value, so it does NOT include the just-added user
+        // message; send() appends it separately. No pop() needed — popping would
+        // drop the previous bot reply from context.
         const prior = (history[bot.id] || [])
           .filter((m) => m.role === "user" || (m.role === "bot" && !m.streaming))
           .slice(-12)
@@ -1289,7 +1343,6 @@ export default function App() {
             role: m.role === "user" ? "user" : "assistant",
             content: m.text,
           }));
-        prior.pop(); // drop the just-added user message; send() re-appends it
 
         const finalText = await client.send(
           text,
@@ -1307,15 +1360,20 @@ export default function App() {
         updateLastMessage(bot.id, {
           text: streamBuf.current || finalText || "âœ“",
           streaming: false,
+          ...(streamImageRef.current ? { image: streamImageRef.current } : {}),
         });
+        streamImageRef.current = null;
 
         // Mark user message as read
-        setHistory((prev) => ({
-          ...prev,
-          [bot.id]: (prev[bot.id] || []).map((m) =>
-            m.id === userMsg.id ? { ...m, read: true } : m
-          ),
-        }));
+        markUserRead(bot.id, userMsg.id);
+      } else {
+        // Unknown/corrupt protocol: finalize the placeholder instead of
+        // leaving a permanently-streaming empty message stuck in history.
+        updateLastMessage(bot.id, {
+          text: `Unsupported protocol: ${bot.protocol}`,
+          streaming: false,
+          error: true,
+        });
       }
     } catch (e) {
       const errText =
@@ -1326,8 +1384,13 @@ export default function App() {
         error: true,
       });
     } finally {
-      streamMsgIdRef.current = null;
-      setStreaming(false);
+      // Only clear state we still own — a newer stream may have started in the
+      // same chat while this one was interrupted/hung.
+      if (streamMsgIdRef.current[bot?.id] === botMsgId) {
+        delete streamMsgIdRef.current[bot?.id];
+      }
+      streamImageRef.current = null;
+      setStreamingBotId((cur) => (cur === bot?.id ? null : cur));
     }
   }
 
@@ -1351,8 +1414,13 @@ export default function App() {
     // via AbortController; all other protocols (hermes, uplift-bridge, subteam)
     // use abortRef.
     if (!bot || bot.protocol === "openclaw") return;
+    // Only the chat that owns the in-flight stream may stop it — otherwise a
+    // Stop press in a different chat would kill the background stream.
+    if (streamingBotId && streamingBotId !== bot.id) return;
     abortRef.current?.abort();
-    setStreaming(false);
+    // Unlock the input immediately; some transports never surface the abort,
+    // and the stream's own finally will re-clear (idempotently).
+    setStreamingBotId((cur) => (cur === bot.id ? null : cur));
   }
 
   // â”€â”€ Open chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1384,8 +1452,18 @@ export default function App() {
     return count;
   }, [bots, history]);
 
+  const LOCAL_MODEL_LABELS = {
+    gemma_e4b: "Gemma 3n ready",
+    gemma_e2b: "Gemma 3n ready",
+    nano: "Gemini Nano ready",
+    webllm: "WebLLM ready",
+  };
+  const localBotCfg = bots.find((b) => b.id === "local");
   const localModelStatus =
-    statuses["local"] === "connected" ? "Gemma ready" : "No model loaded";
+    statuses["local"] === "connected"
+      ? (localBotCfg?.model && LOCAL_MODEL_LABELS[localBotCfg.model]) ||
+        "On-device model ready"
+      : "No model loaded";
 
   /** Navigate via the sidebar. 'local' is an action, not a screen. */
   function navigate(id, chatId) {
@@ -1406,14 +1484,12 @@ export default function App() {
 
   /** Push benchmark rows into the connected Draymond orchestrator. */
   async function handleSyncBenchmarks(rows) {
-    const draymondBot = bots.find(
-      (b) => b.protocol === "draymond" && orchestratorRefs.current[b.id]?.status === "connected"
-    );
-    if (!draymondBot) return { ok: false, error: "no connected Draymond bot" };
-    const baseUrl = `${draymondBot.host?.includes("://") ? "" : "http://"}${draymondBot.host}${
-      draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 3444}`
-    }/api`;
-    return syncBenchmarksViaDraymond({ baseUrl, token: draymondBot.token, rows });
+    const dym = draymondBotRef.current;
+    if (!dym) return { ok: false, error: "no connected Draymond bot" };
+    // resolveWorkerBaseUrl forces https:// for remote hosts so the bearer
+    // token is never sent in cleartext (same normalization as the client).
+    const baseUrl = `${resolveWorkerBaseUrl(dym)}/api`;
+    return syncBenchmarksViaDraymond({ baseUrl, token: dym.token, rows });
   }
 
   /** Select the model used by the Private Local bot. */
@@ -1431,18 +1507,16 @@ export default function App() {
 
   /** Push the last private local exchange into the connected Draymond store. */
   async function handleSyncLocalToDraymond() {
-    const draymondBot = bots.find(
-      (b) => b.protocol === "draymond" && orchestratorRefs.current[b.id]?.status === "connected"
-    );
-    if (!draymondBot) return false;
+    const dym = draymondBotRef.current;
+    if (!dym) return false;
     const localMessages = history["local"] || [];
     const exchange = lastLocalExchange(localMessages);
     if (!exchange.length) return false;
+    // resolveWorkerBaseUrl forces https:// for remote hosts so the bearer
+    // token is never sent in cleartext (same normalization as the client).
     const res = await syncMessagesToDraymond({
-      baseUrl: `${draymondBot.host?.includes("://") ? "" : "http://"}${draymondBot.host}${
-        draymondBot.host?.includes("://") ? "" : `:${draymondBot.port || 3444}`
-      }/api`,
-      token: draymondBot.token,
+      baseUrl: `${resolveWorkerBaseUrl(dym)}/api`,
+      token: dym.token,
       sessionId: `open-chat-local-${new Date().toISOString().slice(0, 10)}`,
       messages: exchange,
     });
@@ -1699,6 +1773,7 @@ export default function App() {
               onOpenSettings={openSettings}
               onOpenMenu={() => setSidebarOpen(true)}
               draymondOrigin={draymondBot ? resolveWorkerBaseUrl(draymondBot).replace(/\/+$/, "") : ""}
+              fleet={fleet}
             />
           )}
           {screen === "models" && (
@@ -1752,6 +1827,8 @@ export default function App() {
               onChatLocal={() => openChat("local")}
               onSelectLocalModel={handleSelectLocalModel}
               onAddServerBot={handleAddServerBot}
+              keywireConfig={keywireConfig}
+              onSaveKeywireConfig={handleSaveKeywireConfig}
             />
           )}
 
@@ -1794,7 +1871,7 @@ export default function App() {
             messages={messages}
             status={statuses[bot.id] || "disconnected"}
             input={input}
-            streaming={streaming}
+            streaming={streamingBotId === bot?.id}
             onInputChange={setInput}
             onSend={sendMessage}
             onInterrupt={interruptMessage}
@@ -1892,6 +1969,8 @@ export default function App() {
               cfgBot.protocol === "draymond" ? draymondNotifications : []
             }
             draymondAgents={agentRegistry}
+            keywire={keywireClient}
+            keywireConfig={keywireConfig}
           />
         </div>
       )}

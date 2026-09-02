@@ -31,24 +31,6 @@ export function parseMcpServers(raw) {
 }
 
 /**
- * Serialize an array of server configs to a JSON string for storage.
- * @param {Array} servers
- * @returns {string}
- */
-export function serializeMcpServers(servers) {
-  if (!Array.isArray(servers)) return "[]";
-  return JSON.stringify(
-    servers
-      .filter((s) => s && typeof s === "object")
-      .map((s) => ({
-        name: String(s.name || ""),
-        url: String(s.url || ""),
-        token: String(s.token || ""),
-      }))
-  );
-}
-
-/**
  * Build a friendly display label for the aggregated tools.
  * @param {Object<string, string[]>} byServer
  * @returns {string}

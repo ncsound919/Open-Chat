@@ -457,17 +457,25 @@ export function TeamPanel({ teams, onCreateTeam, onInviteMember, onClose }) {
                       {role}
                     </div>
                     <div
+                      title={`${role} role color`}
                       style={{
                         background: `${getRoleBadgeColor(role)}20`,
                         border: `1px solid ${getRoleBadgeColor(role)}`,
-                        color: getRoleBadgeColor(role),
-                        borderRadius: 6,
-                        padding: "4px 10px",
-                        fontSize: 11,
-                        fontWeight: 600,
+                        borderRadius: 999,
+                        padding: "4px 9px",
+                        display: "inline-flex",
+                        alignItems: "center",
                       }}
                     >
-                      {getRoleBadgeColor(role)}
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: getRoleBadgeColor(role),
+                          display: "inline-block",
+                        }}
+                      />
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: "#666680" }}>

@@ -14,7 +14,7 @@
  * text/llm/summarize tools). Tests substitute fakes for all three.
  */
 
-import { PHONE_TOOLS, execPhoneTool } from "./phoneTools.js";
+import { execPhoneTool } from "./phoneTools.js";
 import { runSkill } from "./skillRegistry.js";
 import { discoverApps } from "./appRegistry.js";
 import { webSearch } from "./webSearch.js";
@@ -224,6 +224,3 @@ export function buildSkillExecutors({ onSend, onNotify, chat, confirm, draymondB
     registry: async () => ({ ok: false, error: "registry tool is not available on this device" }),
   };
 }
-
-/** All phone tool names, for runtime membership checks. */
-export const PHONE_TOOL_NAMES = PHONE_TOOLS.map((t) => t.name);

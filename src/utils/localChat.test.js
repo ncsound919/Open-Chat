@@ -4,6 +4,7 @@ import {
   cleanReply,
   parseToolCall,
   buildToolSchema,
+  looksDegenerate,
   PROVIDER,
 } from "./localChat.js";
 
@@ -70,8 +71,15 @@ describe("buildToolSchema", () => {
 
   it("embeds tool definitions", () => {
     const schema = buildToolSchema([{ name: "tap", description: "Tap", parameters: {} }]);
-    expect(schema).toContain('"tap"');
+    expect(schema).toContain("tap: Tap");
     expect(schema).toContain('{"tool":"<name>","args":{...}}');
+  });
+
+  it("shows the JSON contract and examples before the tool list", () => {
+    const schema = buildToolSchema([{ name: "web_search", description: "Search", parameters: { query: {} } }]);
+    expect(schema.indexOf("TOOL CALLING")).toBeGreaterThan(-1);
+    expect(schema.indexOf('{"tool":"<name>","args":{...}}')).toBeLessThan(schema.indexOf("web_search: Search"));
+    expect(schema).toContain('{"tool":"web_search","args":{"query":');
   });
 });
 
@@ -307,5 +315,18 @@ describe("resolveProvider", () => {
     const { resolveProvider: rp } = await import("./localChat.js");
     const p = await rp();
     expect(p).toBe(PROVIDER.NONE);
+  });
+});
+
+describe("looksDegenerate", () => {
+  it("flags repeated-token garbage (MediaPipe GPU detokenizer bugs)", () => {
+    expect(looksDegenerate("geory geory geory geory geory geory")).toBe(true);
+    expect(looksDegenerate("<bos><bos><bos><bos><bos><bos>")).toBe(true);
+  });
+
+  it("accepts normal short and long replies", () => {
+    expect(looksDegenerate("ace")).toBe(false);
+    expect(looksDegenerate("Gemma 3n is a small model.")).toBe(false);
+    expect(looksDegenerate("")).toBe(false);
   });
 });

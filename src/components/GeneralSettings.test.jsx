@@ -7,6 +7,9 @@ vi.mock("../utils/modelRegistry.js", () => ({
   detectLocalModels: vi.fn(),
   formatBytes: vi.fn((b) => `${b} B`),
   loadMediaPipe: vi.fn(),
+  getPreferredBackend: vi.fn(() => "cpu"),
+  setPreferredBackend: vi.fn(),
+  reloadMediaPipeWithBackend: vi.fn(async () => true),
 }));
 
 vi.mock("../utils/localModels.js", () => ({

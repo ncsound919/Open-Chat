@@ -244,6 +244,13 @@ export class MCPHostClient {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
+      // MCP Streamable HTTP requires echoing the server's Mcp-Session-Id on
+      // every subsequent request. Mutating the caller's headers object keeps
+      // the id on the connection for tools/call etc.
+      const sessionId = res.headers?.get?.("Mcp-Session-Id");
+      if (sessionId) {
+        headers["Mcp-Session-Id"] = sessionId;
+      }
       if (isNotification) return null;
       const json = await res.json();
       if (json?.error) {

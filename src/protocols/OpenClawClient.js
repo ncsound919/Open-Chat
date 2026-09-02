@@ -30,6 +30,13 @@ export class OpenClawClient {
         return reject(new Error("Client destroyed"));
       }
 
+      // A pending auto-reconnect timer must not fire later and open a SECOND
+      // live socket while this connect is in flight.
+      if (this._reconnectTimer !== null) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+      }
+
       // Enforce reconnect attempt limit
       if (this._reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         this.onStatusChange?.("error");

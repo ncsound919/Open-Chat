@@ -13,7 +13,11 @@
  * to the native MediaPipe runtime).
  */
 
-import { loadMediaPipe } from "./modelRegistry.js";
+import {
+  loadMediaPipe,
+  setPreferredBackend,
+  reloadMediaPipeWithBackend,
+} from "./modelRegistry.js";
 
 /** Gemma chat-template markers used by the MediaPipe task bundles. */
 const TURN_USER = "<start_of_turn>user";
@@ -116,15 +120,49 @@ export function parseToolCall(reply) {
   return null;
 }
 
-/** Tool-calling system-prompt suffix describing the available tools. */
+/**
+ * Tool-calling system-prompt suffix describing the available tools.
+ *
+ * Formatting matters for small models: the JSON contract and concrete examples
+ * are shown FIRST (recency + exemplars beat an abstract rule buried after a
+ * wall of prose), and each tool is a one-line directory entry rather than a
+ * full JSON dump. The rest of the system prompt must NOT demonstrate a
+ * different call syntax (e.g. `tool(args)` or `tool {arg: ...}`) — mixed
+ * styles make tiny models answer from memory instead of emitting a call.
+ */
 export function buildToolSchema(tools) {
   if (!Array.isArray(tools) || tools.length === 0) return "";
+
+  const directory = tools
+    .map((t) => `- ${t.name}: ${t.description}`)
+    .join("\n");
+
+  const argHints = tools
+    .filter(
+      (t) =>
+        t.parameters &&
+        Object.keys(t.parameters).length > 0 &&
+        !("type" in t.parameters)
+    )
+    .map((t) => `  ${t.name} arguments: ${Object.keys(t.parameters).join(", ")}`)
+    .join("\n");
+
   return (
-    "\n\nYou can call tools to get things done. Available tools:\n" +
-    JSON.stringify(tools) +
-    "\n\nWhen you need a tool, respond with ONLY this JSON object (no other text): " +
-    '{"tool":"<name>","args":{...}}. You will receive the tool result as the next user turn. ' +
-    'When you have the answer, respond normally in plain text.'
+    "\n\n[TOOL CALLING]\n" +
+    "You can call tools. When the user's request needs one (searching the web, " +
+    "researching, opening or driving an app, reading the screen), reply with " +
+    "ONLY a single JSON object — no markdown fences, no prose, no other text:\n" +
+    '{"tool":"<name>","args":{...}}\n' +
+    "You will receive the tool result as the next user turn; then answer using it.\n\n" +
+    "Available tools:\n" +
+    directory +
+    (argHints ? `\n${argHints}` : "") +
+    "\n\nExamples:\n" +
+    '{"tool":"web_search","args":{"query":"latest iPhone reviews"}}\n' +
+    '{"tool":"deep_research","args":{"query":"what causes the northern lights"}}\n' +
+    '{"tool":"open_app","args":{"package_name":"com.whatsapp"}}\n\n' +
+    "You MUST call a tool before answering when the request needs one — never " +
+    "answer a search/research/action request from memory."
   );
 }
 
@@ -140,27 +178,69 @@ async function generateOnce(provider, prompt, onChunk, { signal, session = false
     const sessionId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     let listener;
     let full = "";
-    if (typeof onChunk === "function") {
-      const handle = await mp.addListener("generate:progress", (data) => {
-        if (data?.sessionId !== sessionId) return;
-        if (data?.text) {
-          full += data.text;
-          onChunk(data.text);
-        }
-      });
-      listener = handle;
-    }
+    // Watchdog: MediaPipe occasionally stalls mid-generation (native decode
+    // hang). Two tiers — CPU prefill of a large prompt can legitimately take
+    // minutes before the FIRST token, so allow a longer initial window;
+    // once tokens are flowing, 60s of silence means a stall.
+    const IDLE_TIMEOUT_MS = 60_000;
+    const PREFILL_TIMEOUT_MS = 150_000;
+    const TOTAL_TIMEOUT_MS = 420_000;
+    let lastActivity = Date.now();
+    const startedAt = lastActivity;
+    const handle = await mp.addListener("generate:progress", (data) => {
+      if (data?.sessionId !== sessionId) return;
+      lastActivity = Date.now();
+      if (data?.text) {
+        full += data.text;
+        onChunk?.(data.text);
+      }
+    });
+    listener = handle;
     const abort = () => {
       mp.cancel?.().catch?.(() => {});
     };
+    signal?.addEventListener?.("abort", abort);
     try {
-      const call = session ? { prompt, sessionId } : { prompt, sessionId };
-      const res = await (session
-        ? mp.generateSession(call)
-        : mp.generate(call));
-      const text = res?.text || full;
-      onChunk?.(text.slice(full.length)); // flush any remainder
-      return text;
+      const call = { prompt, sessionId };
+      let settled = false;
+      let completed = false;
+      const genPromise = session ? mp.generateSession(call) : mp.generate(call);
+      const watchdog = (async () => {
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 1000));
+          if (settled) return;
+          const now = Date.now();
+          const quietFor = now - lastActivity;
+          if (full === "") {
+            // No token yet: judge against the prefill window.
+            if (quietFor > PREFILL_TIMEOUT_MS) {
+              throw new Error("generation stalled during prefill");
+            }
+          } else if (quietFor > IDLE_TIMEOUT_MS) {
+            throw new Error(
+              `generation stalled — no output for ${Math.round(IDLE_TIMEOUT_MS / 1000)}s`
+            );
+          }
+          if (now - startedAt > TOTAL_TIMEOUT_MS) {
+            throw new Error("generation exceeded time limit");
+          }
+        }
+      })();
+      watchdog.catch(() => {}); // losing branch must never become unhandled
+      try {
+        const res = await Promise.race([genPromise, watchdog]).finally(() => {
+          settled = true;
+        });
+        const text = res?.text || full;
+        onChunk?.(text.slice(full.length)); // flush any remainder
+        completed = true;
+        return text;
+      } finally {
+        // Cancel the native job ONLY when it failed/stalled/aborted. On a
+        // completed generation mp.cancel() could interrupt a CONCURRENT
+        // generation on a shared plugin instance.
+        if (!completed) abort();
+      }
     } finally {
       listener?.remove?.();
       signal?.removeEventListener?.("abort", abort);
@@ -217,17 +297,67 @@ export async function resolveProvider() {
 }
 
 /**
+ * Race a native plugin call against a timeout. MediaPipe session teardown
+ * (resetSession/close) can block while a cancelled generation unwinds —
+ * without this the recovery path itself freezes and the reply never lands.
+ */
+function withTimeout(promise, ms, label = "native call") {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
+/** Best-effort native session op that can never hang the caller. */
+async function tryNative(mp, method, ms = 5000) {
+  if (typeof mp?.[method] !== "function") return false;
+  try {
+    await withTimeout(mp[method](), ms, method);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect MediaPipe degenerate output — the known GPU-detokenizer bug family
+ * (google-ai-edge/mediapipe #5414, #5534, #6014: repeated single tokens like
+ * "geory geory…"/"<bos><bos>…" or truncated digit fragments). Used to retry
+ * generation on a fresh session instead of surfacing garbage to the user.
+ */
+export function looksDegenerate(reply) {
+  const t = String(reply ?? "").trim();
+  if (!t || t.length < 2) return false;
+  const words = t.split(/\s+/);
+  // Same token repeated 6+ times with nothing else present.
+  if (words.length >= 6 && words.every((w) => w === words[0])) return true;
+  // Pure special-token spam.
+  if (/^(<bos>|<eos>|<end_of_turn>|<start_of_turn>[\s>])+$/i.test(t)) return true;
+  return false;
+}
+
+/**
  * Generic tool-calling loop (NANO / WEBLLM / fallback). Rebuilds the full
  * prompt each round — used only when persistent sessions aren't available.
  */
 async function genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider }) {
   const toolCalls = [];
   let transcript = [...history];
+  let degenerateRetries = 0;
   for (let round = 0; round < maxRounds; round++) {
     const prompt = buildGemmaPrompt(baseSystem, transcript, { includeModelTurn: true });
     // Buffer each round's stream so tool-call JSON never leaks into the visible chat.
-    const reply = cleanReply(await generateOnce(provider, prompt, null, { signal }));
+    let reply = cleanReply(await generateOnce(provider, prompt, null, { signal }));
     if (reply === "") return { text: "", provider, toolCalls };
+
+    // Garbage-output guard: regenerate once on a fresh context before giving up.
+    if (looksDegenerate(reply) && degenerateRetries < 1) {
+      degenerateRetries++;
+      round--;
+      continue;
+    }
 
     const toolCall = parseToolCall(reply);
     if (toolCall && typeof toolHandler === "function") {
@@ -267,34 +397,70 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
     return genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider });
   }
 
-  // Seed system prompt + prior turns once; they live in the KV cache after this.
-  const seedPrompt = buildGemmaPrompt(baseSystem, history.slice(0, -1), { includeModelTurn: false });
+  // Seed system prompt + prior turns once; they live in the KV cache after
+  // this. Cap the seeded history — tiny models lose track of which turn is
+  // current when long transcripts are seeded (they answer OLD questions).
+  const recentHistory = history.slice(0, -1).slice(-6);
+  const seedPrompt = buildGemmaPrompt(baseSystem, recentHistory, { includeModelTurn: false });
   try {
-    await mp.beginSession({ systemPrompt: seedPrompt });
+    await withTimeout(mp.beginSession({ systemPrompt: seedPrompt }), 15000, "beginSession");
   } catch (e) {
     throw new Error(`Session init failed: ${e.message}`);
   }
 
   const feedUserTurn = (content) => `\n${TURN_USER}\n${content}${TURN_END}\n${TURN_MODEL}\n`;
+  // Small models parrot context instead of answering. This directive rides
+  // along with every tool result to force a final conversational answer.
+  const ANSWER_NOW =
+    "\n(Give your final answer to the user NOW based on this result, in one short friendly message. Do not repeat these instructions or the result text verbatim.)";
   let lastToolResult = null;
   let priorReply = null;
+  let degenerateRetries = 0;
 
   for (let round = 0; round < maxRounds; round++) {
     const incremental = priorReply === null
-      ? feedUserTurn(history[history.length - 1].content)
-      : feedUserTurn(`Tool result: ${JSON.stringify(lastToolResult)}`);
+      ? feedUserTurn(`Current request — answer THIS: ${history[history.length - 1].content}`)
+      : feedUserTurn(`Tool result: ${JSON.stringify(lastToolResult)}${ANSWER_NOW}`);
     let reply;
     try {
       // Buffer the round so tool-call JSON never leaks into the visible chat.
       reply = cleanReply(await generateOnce(provider, incremental, null, { signal, session: true }));
     } catch (e) {
-      // The persistent session's context window filled (OUT_OF_RANGE) or the
-      // runtime errored. Reset the session and degrade to the full-prompt loop
-      // for the rest of this conversation so the task still completes.
-      try { await mp.resetSession?.().catch?.(() => {}); } catch { /* ignore */ }
+      // The persistent session's context window filled (OUT_OF_RANGE), the
+      // runtime errored, or the watchdog cancelled a stall. Reset (bounded —
+      // native teardown can hang) and degrade to the full-prompt loop so the
+      // task still completes.
+      await tryNative(mp, "resetSession");
       return genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider });
     }
     if (reply === "") return { text: "", provider, toolCalls };
+
+    // Garbage-output guard (GPU detokenizer bugs): strike 1 = reset the
+    // whole session and regenerate. Strike 2 = the runtime itself is
+    // corrupting output — persist CPU as the preferred backend, reload the
+    // model on CPU, rebuild the session, and regenerate before answering.
+    if (looksDegenerate(reply) && degenerateRetries < 2) {
+      degenerateRetries++;
+      let reseeded = false;
+      await tryNative(mp, "resetSession");
+      if (degenerateRetries >= 2) {
+        setPreferredBackend("cpu");
+        await reloadMediaPipeWithBackend("cpu").catch(() => false);
+      }
+      try {
+        // beginSession needs the systemPrompt argument — bounded directly.
+        await withTimeout(mp.beginSession({ systemPrompt: seedPrompt }), 8000, "beginSession");
+        reseeded = true;
+      } catch {
+        /* keep going with whatever state we have */
+      }
+      lastToolResult = null;
+      priorReply = null;
+      if (reseeded) {
+        round--;
+        continue;
+      }
+    }
 
     const toolCall = parseToolCall(reply);
     if (toolCall && typeof toolHandler === "function") {

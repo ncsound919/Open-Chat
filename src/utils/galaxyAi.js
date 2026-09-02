@@ -22,16 +22,38 @@ export const SAMSUNG_APPS = {
   keyboard: "com.samsung.android.honeyboard",
 };
 
-/** AI trigger labels Samsung surfaces in its apps (best-effort match). */
+/**
+ * AI trigger labels Samsung surfaces in its apps. Real Galaxy AI entry points
+ * are frequently icon-only buttons whose accessibility label carries the hint
+ * ("Galaxy AI", "Writing assist", "Composer", …) — match desc AND text, and
+ * also accept viewId fragments Samsung uses for its AI widgets.
+ */
 const AI_TRIGGER_PATTERNS = [
-  /ai/i,
+  /galaxy\s*ai/i,
+  /\bai\b/i,
   /magic/i,
   /assist/i,
   /summari/i,
   /translate/i,
   /rewrite/i,
-  /compose/i,
+  /composer|compose/i,
+  /writing\s*(tool|assist)?/i,
+  /note\s*assist/i,
+  /browsing\s*assist/i,
+  /chat\s*assist/i,
+  /live\s*translate/i,
+  /interpreter/i,
+  /sketch\s*to|photo\s*assist/i,
 ];
+
+const AI_TRIGGER_VIEWIDS = /galaxy.?ai|ai.?button|writing_?assist|composer/i;
+
+/** How long to wait for a Samsung app to render before giving up (ms). */
+const APP_LAUNCH_TIMEOUT_MS = 8000;
+/** How often to re-read the screen while waiting (ms). */
+const POLL_INTERVAL_MS = 600;
+/** Extra settle time after tapping an AI trigger (ms). */
+const RESULT_WAIT_MS = 3500;
 
 /**
  * Skill schemas exposed to the local Gemma agent.
@@ -82,19 +104,59 @@ export function isGalaxySkill(name) {
 }
 
 /**
- * Find a clickable element on screen whose text or content-desc matches an
- * AI trigger pattern. Returns its center coordinates or null.
+ * Find a clickable element on screen whose text, content-desc, or viewId
+ * matches an AI trigger. Returns its center coordinates or null.
+ * Prefers explicit Galaxy AI labels over generic /ai/ matches.
  */
-function findAiTrigger(phone, screen) {
+function findAiTrigger(screen) {
   const nodes = screen?.nodes ?? [];
+  const hits = [];
   for (const node of nodes) {
-    const haystack = `${node.text || ""} ${node.desc || ""}`.toLowerCase();
     if (node.clickable !== true) continue;
-    if (AI_TRIGGER_PATTERNS.some((re) => re.test(haystack))) {
-      return { x: Math.round(node.x + node.w / 2), y: Math.round(node.y + node.h / 2) };
+    const haystack = `${node.text || ""} ${node.desc || ""}`.toLowerCase();
+    const viewId = String(node.viewId || "");
+    if (AI_TRIGGER_VIEWIDS.test(viewId)) {
+      hits.push({ node, rank: 0 });
+      continue;
+    }
+    for (let i = 0; i < AI_TRIGGER_PATTERNS.length; i++) {
+      if (AI_TRIGGER_PATTERNS[i].test(haystack)) {
+        // "galaxy ai" (rank via pattern position) beats generic /ai/.
+        hits.push({ node, rank: i });
+        break;
+      }
     }
   }
-  return null;
+  if (!hits.length) return null;
+  hits.sort((a, b) => a.rank - b.rank);
+  const best = hits[0].node;
+  return { x: Math.round(best.x + best.w / 2), y: Math.round(best.y + best.h / 2) };
+}
+
+/** Poll readScreen until the app renders nodes (or the timeout elapses). */
+async function waitForScreen(phone, { timeoutMs = APP_LAUNCH_TIMEOUT_MS, minNodes = 3 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    try {
+      last = await phone.readScreen();
+      if ((last?.nodes ?? []).length >= minNodes) return last;
+    } catch {
+      /* retry until deadline */
+    }
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  }
+  return last;
+}
+
+/** Extract readable text lines from a raw screen payload. */
+function readableText(screen, { max = 40 } = {}) {
+  return (screen?.nodes ?? [])
+    .filter((n) => (n.text || n.desc) && !n.editable)
+    .map((n) => n.text || n.desc)
+    .filter(Boolean)
+    .slice(0, max)
+    .join("\n");
 }
 
 /**
@@ -103,48 +165,88 @@ function findAiTrigger(phone, screen) {
 async function openSamsungApp(phone, appKey) {
   const pkg = SAMSUNG_APPS[appKey];
   if (!pkg) return { ok: false, error: `unknown Samsung app: ${appKey}` };
-  const res = await phone.openApp({ packageName: pkg });
-  return { ok: res?.ok === true, app: appKey, packageName: pkg };
+  let res;
+  try {
+    res = await phone.openApp({ packageName: pkg });
+  } catch (e) {
+    return { ok: false, error: `openApp failed for ${appKey}: ${e?.message ?? e}` };
+  }
+  if (res?.ok === false) {
+    return { ok: false, error: res?.error || `Could not open ${appKey} (${pkg})` };
+  }
+  return { ok: true, app: appKey, packageName: pkg };
 }
 
 /**
  * Best-effort Galaxy AI flow:
  *   1. Open the Samsung app.
- *   2. Wait a moment, read the screen.
+ *   2. Poll until its UI renders (Samsung apps can take several seconds).
  *   3. Find the AI trigger and tap it.
- *   4. Read the screen again and return the visible result.
+ *   4. Poll again so on-device AI output has time to stream in.
+ *   5. Read the screen and return the visible result.
+ *
+ * @param {object} [timing] - { appLaunchTimeoutMs, resultWaitMs } overrides
  */
-async function runGalaxyAiAction(phone, appKey, action, waitMs = 2500) {
+async function runGalaxyAiAction(phone, appKey, action, timing = {}) {
+  const launchTimeoutMs = Number(timing.appLaunchTimeoutMs) || APP_LAUNCH_TIMEOUT_MS;
+  const waitMs = Number(timing.resultWaitMs) || RESULT_WAIT_MS;
+
   const opened = await openSamsungApp(phone, appKey);
   if (!opened.ok) return opened;
 
-  await new Promise((r) => setTimeout(r, waitMs));
-  const screen = await phone.readScreen();
-  const trigger = findAiTrigger(phone, screen);
+  const screen = await waitForScreen(phone, { timeoutMs: launchTimeoutMs });
+  let trigger = findAiTrigger(screen);
   if (!trigger) {
     // Report what IS on screen so the agent can adapt.
     const labels = (screen?.nodes ?? [])
       .filter((n) => (n.text || n.desc) && n.clickable)
       .slice(0, 15)
       .map((n) => n.text || n.desc);
-    return {
-      ok: false,
-      error: `No Galaxy AI button found in ${appKey}.`,
-      action,
-      visibleButtons: labels,
-    };
+    // One retry after a short settle — some apps load the AI entry late.
+    await new Promise((r) => setTimeout(r, waitMs));
+    const retryScreen = await phone.readScreen().catch(() => null);
+    const retryTrigger = findAiTrigger(retryScreen);
+    if (!retryTrigger) {
+      return {
+        ok: false,
+        error: `No Galaxy AI button found in ${appKey}.`,
+        action,
+        visibleButtons: labels.length
+          ? labels
+          : (retryScreen?.nodes ?? [])
+              .filter((n) => (n.text || n.desc) && n.clickable)
+              .slice(0, 15)
+              .map((n) => n.text || n.desc),
+        foregroundPackage: screen?.foregroundPackage ?? "",
+      };
+    }
+    trigger = retryTrigger;
   }
 
-  await phone.performTap({ x: trigger.x, y: trigger.y });
-  await new Promise((r) => setTimeout(r, waitMs));
-  const after = await phone.readScreen();
-  const text = (after?.nodes ?? [])
-    .filter((n) => n.text && !n.clickable)
-    .map((n) => n.text)
-    .filter(Boolean)
-    .slice(0, 40)
-    .join("\n");
-  return { ok: true, action, app: appKey, result: text.slice(0, 2000) };
+  try {
+    await phone.performTap({ x: trigger.x, y: trigger.y });
+  } catch (e) {
+    return { ok: false, error: `tap failed: ${e?.message ?? e}`, action, app: appKey };
+  }
+
+  // Poll for the result panel instead of a single fixed sleep — Galaxy AI
+  // panels animate in and on-device generation keeps updating the screen.
+  const deadline = Date.now() + waitMs + Math.min(2500, waitMs);
+  let after = null;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    after = await phone.readScreen().catch(() => null);
+    const text = readableText(after, { max: 40 });
+    if (text && text.split("\n").length >= 2) break;
+  }
+  const result = readableText(after, { max: 40 });
+  return {
+    ok: true,
+    action,
+    app: appKey,
+    foregroundPackage: after?.foregroundPackage ?? "",
+    result: result.slice(0, 2000),
+  };
 }
 
 /**
@@ -193,17 +295,19 @@ export async function execGalaxySkill(name, args = {}, opts = {}) {
       return res;
     }
     case "galaxy_ai_action": {
-      return runGalaxyAiAction(phone, args.app, args.action);
+      return runGalaxyAiAction(phone, args.app, args.action, {
+        appLaunchTimeoutMs: opts.appLaunchTimeoutMs,
+        resultWaitMs: opts.resultWaitMs,
+      });
     }
     case "galaxy_read_screen": {
       const screen = await phone.readScreen();
-      const text = (screen?.nodes ?? [])
-        .filter((n) => n.text && !n.clickable)
-        .map((n) => n.text)
-        .filter(Boolean)
-        .slice(0, 60)
-        .join("\n");
-      return { ok: true, text: text.slice(0, 3000) };
+      const text = readableText(screen, { max: 60 });
+      return {
+        ok: true,
+        text: text.slice(0, 3000),
+        foregroundPackage: screen?.foregroundPackage ?? "",
+      };
     }
     default:
       return { ok: false, error: `unknown Galaxy AI skill: ${name}` };

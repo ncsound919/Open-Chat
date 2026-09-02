@@ -59,12 +59,37 @@ vi.mock("../utils/modelRegistry.js", () => ({
   autoLoadMediaPipeModel: vi.fn(async () => null),
 }));
 
+vi.mock("../utils/researchTools.js", () => ({
+  READ_PAGE_TOOL: { name: "read_page", description: "d", parameters: {} },
+  DEEP_RESEARCH_TOOL: { name: "deep_research", description: "d", parameters: {} },
+  deepResearch: vi.fn(async () => ({ ok: false })),
+  execResearchTool: vi.fn(async () => ({ ok: true })),
+  isResearchTool: vi.fn((name) => ["read_page", "deep_research"].includes(name)),
+}));
+
+vi.mock("../utils/browserNavigate.js", () => ({
+  NAVIGATE_TOOL: { name: "navigate", description: "d", parameters: {} },
+  navigateTo: vi.fn(async () => ({ ok: false })),
+}));
+
+vi.mock("../utils/researchIntent.js", () => ({
+  detectResearchIntent: vi.fn((t) =>
+    /\bresearch\b/i.test(String(t)) ? { research: true, query: t } : null
+  ),
+  buildGroundingSection: vi.fn(
+    (dr) => `GROUNDING[${dr.sourcesUsed.join(",")}]`
+  ),
+  RESEARCH_FAILED_SECTION: "RESEARCH_FAILED",
+}));
+
 import { chatLocal } from "../utils/localChat.js";
 import { execPhoneTool } from "../utils/phoneTools.js";
 import { resolveProvider } from "../utils/localChat.js";
 import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
 import { runCloudTool } from "../utils/cloudIntegrations.js";
 import { runRecipe } from "../utils/appRecipes.js";
+import { deepResearch } from "../utils/researchTools.js";
+import { detectResearchIntent } from "../utils/researchIntent.js";
 
 describe("LocalModelClient", () => {
   beforeEach(() => {
@@ -133,7 +158,7 @@ describe("LocalModelClient", () => {
     expect(draymondHandler).toHaveBeenCalledWith("list_skills", {});
   });
 
-  it("registers cloud + recipe tools and routes them", async () => {
+  it("registers cloud + recipe tools only when opted in, and routes them", async () => {
     let capturedTools = [];
     chatLocal.mockImplementation(async ({ tools, toolHandler }) => {
       capturedTools = tools;
@@ -144,7 +169,14 @@ describe("LocalModelClient", () => {
 
     const confirm = vi.fn(async () => true);
     const client = new LocalModelClient(
-      { id: "local", model: "auto", phoneToolsEnabled: true, galaxySkillsEnabled: false },
+      {
+        id: "local",
+        model: "auto",
+        phoneToolsEnabled: true,
+        galaxySkillsEnabled: false,
+        cloudToolsEnabled: true,
+        recipesEnabled: true,
+      },
       { confirmAction: confirm }
     );
 
@@ -158,5 +190,96 @@ describe("LocalModelClient", () => {
     );
     expect(runCloudTool).toHaveBeenCalledWith("wikipedia_search", { query: "x" });
     expect(runRecipe).toHaveBeenCalledWith("gmail_inbox", {}, expect.objectContaining({ confirm }));
+  });
+
+  it("keeps the default tool surface small (core research + phone only)", async () => {
+    let capturedTools = [];
+    chatLocal.mockImplementation(async ({ tools }) => {
+      capturedTools = tools;
+      return { text: "done", toolCalls: [], usedTools: [] };
+    });
+
+    const client = new LocalModelClient({
+      id: "local",
+      model: "auto",
+      phoneToolsEnabled: true,
+      galaxySkillsEnabled: false,
+    });
+    await client.send("hello there friend", () => {});
+
+    const names = capturedTools.map((t) => t.name);
+    // Core research set present…
+    for (const n of ["web_search", "navigate", "read_page", "deep_research"]) {
+      expect(names).toContain(n);
+    }
+    // …opt-in packs absent.
+    expect(names).not.toContain("image_gen");
+    expect(names).not.toContain("wikipedia_search");
+    expect(names).not.toContain("gmail_inbox");
+    expect(capturedTools.length).toBeLessThanOrEqual(12);
+  });
+
+  it("auto-runs research on research-style messages and grounds the prompt", async () => {
+    deepResearch.mockResolvedValueOnce({
+      ok: true,
+      summary: "DIGEST: gemma runs on phone",
+      sourcesUsed: ["wikipedia", "duckduckgo"],
+      findingsCount: 4,
+    });
+    let capturedPrompt = "";
+    chatLocal.mockImplementation(async ({ systemPrompt }) => {
+      capturedPrompt = systemPrompt;
+      return { text: "grounded answer", toolCalls: [], usedTools: [] };
+    });
+
+    const client = new LocalModelClient({
+      id: "local",
+      model: "auto",
+      phoneToolsEnabled: true,
+    });
+    const out = await client.send("research gemma 3n for me", () => {});
+
+    expect(detectResearchIntent).toHaveBeenCalled();
+    expect(deepResearch).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.stringMatching(/gemma 3n/i) })
+    );
+    expect(capturedPrompt).toContain("GROUNDING[wikipedia,duckduckgo]");
+    expect(out).toBe("grounded answer");
+  });
+
+  it("injects a hard failure notice when auto-research finds nothing", async () => {
+    deepResearch.mockResolvedValueOnce({ ok: false });
+    let capturedPrompt = "";
+    chatLocal.mockImplementation(async ({ systemPrompt }) => {
+      capturedPrompt = systemPrompt;
+      return { text: "cannot verify", toolCalls: [], usedTools: [] };
+    });
+
+    const client = new LocalModelClient({ id: "local", model: "auto" });
+    await client.send("research the latest on x", () => {});
+    expect(capturedPrompt).toContain("RESEARCH_FAILED");
+  });
+
+  it("skips auto-research when disabled or message is not research", async () => {
+    deepResearch.mockClear();
+    detectResearchIntent.mockClear();
+    chatLocal.mockImplementation(async () => ({ text: "ok", toolCalls: [], usedTools: [] }));
+
+    const off = new LocalModelClient({
+      id: "local",
+      model: "auto",
+      phoneToolsEnabled: true,
+      autoResearchEnabled: false,
+    });
+    await off.send("research something", () => {});
+    expect(deepResearch).not.toHaveBeenCalled();
+
+    const on = new LocalModelClient({
+      id: "local",
+      model: "auto",
+      phoneToolsEnabled: true,
+    });
+    await on.send("what time is my meeting", () => {});
+    expect(deepResearch).not.toHaveBeenCalled();
   });
 });

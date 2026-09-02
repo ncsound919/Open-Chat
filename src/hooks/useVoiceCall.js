@@ -138,7 +138,11 @@ export function useVoiceCall({ systemPrompt, draymondUrl, apiKey, chatSend, chat
       rec.onresult = (e) => finish(e.results?.[0]?.[0]?.transcript ?? "");
       rec.onerror = () => finish("");
       rec.onend = () => finish("");
-      rec.start();
+      try {
+        rec.start();
+      } catch {
+        finish(""); // mic busy/blocked — treat as no transcript, keep looping
+      }
       setTimeout(() => finish(""), 15000);
     });
 
@@ -151,28 +155,31 @@ export function useVoiceCall({ systemPrompt, draymondUrl, apiKey, chatSend, chat
     }
 
     setSpeaking(true);
-    // On-device chat WITH phone skills (read recap, open apps, reminders, send)
-    // when a model is available; otherwise fall back to a remote Draymond
-    // agent invoke so the call still works on a phone with no local model yet.
-    // Skills still run locally either way — only the reasoning is remote.
-    const reply = modelKind && modelKind !== "none"
-      ? await localChatWithTools(transcript, {
-          systemPrompt,
-          tools: skillList(),
-          toolHandler: (name, args) => runSkill(name, args, {
-            draymondUrl,
-            onSend: chatSend,
-            onSpeak: async (text) => { if (!mutedRef.current) await speak(text); },
-          }),
-          forceGguf: modelKind === "gguf",
-        })
-      : await remoteChat(transcript);
-    if (reply.error) setError(reply.error);
-    setProvider(reply.provider || "none");
-    const toolNote = reply.toolCalls?.length ? ` (${reply.toolCalls.map((t) => t.name).join(", ")})` : "";
-    setLastReply((reply.text || "") + toolNote);
-    if (!mutedRef.current && reply.text) await speak(reply.text);
-    setSpeaking(false);
+    try {
+      // On-device chat WITH phone skills (read recap, open apps, reminders, send)
+      // when a model is available; otherwise fall back to a remote Draymond
+      // agent invoke so the call still works on a phone with no local model yet.
+      // Skills still run locally either way — only the reasoning is remote.
+      const reply = modelKind && modelKind !== "none"
+        ? await localChatWithTools(transcript, {
+            systemPrompt,
+            tools: skillList(),
+            toolHandler: (name, args) => runSkill(name, args, {
+              draymondUrl,
+              onSend: chatSend,
+              onSpeak: async (text) => { if (!mutedRef.current) await speak(text); },
+            }),
+            forceGguf: modelKind === "gguf",
+          })
+        : await remoteChat(transcript);
+      if (reply.error) setError(reply.error);
+      setProvider(reply.provider || "none");
+      const toolNote = reply.toolCalls?.length ? ` (${reply.toolCalls.map((t) => t.name).join(", ")})` : "";
+      setLastReply((reply.text || "") + toolNote);
+      if (!mutedRef.current && reply.text) await speak(reply.text);
+    } finally {
+      setSpeaking(false);
+    }
   }, [systemPrompt, modelKind, chatSend, draymondUrl, remoteChat]);
 
   const start = useCallback(() => {
@@ -184,7 +191,13 @@ export function useVoiceCall({ systemPrompt, draymondUrl, apiKey, chatSend, chat
     (async () => {
       while (activeRef.current && loopRef.current) {
         setListening(true);
-        await runOnce();
+        try {
+          await runOnce();
+        } catch (err) {
+          // A throwing runOnce must not kill the call loop (unhandled
+          // rejection) — surface the error and keep listening.
+          setError(err?.message || String(err));
+        }
         await new Promise((r) => setTimeout(r, 400));
       }
     })();

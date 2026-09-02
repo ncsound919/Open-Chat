@@ -88,6 +88,40 @@ export function isMutatingPhoneTool(name) {
   return MUTATING_PHONE_TOOLS.has(name);
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const PACKAGE_ALIASES = {
+  youtube: "com.google.android.youtube",
+  gmail: "com.google.android.gm",
+  calendar: "com.google.android.calendar",
+  chrome: "com.android.chrome",
+  maps: "com.google.android.apps.maps",
+  drive: "com.google.android.apps.docs",
+  files: "com.google.android.apps.nbu.files",
+  calculator: "com.google.android.calculator",
+  clock: "com.google.android.deskclock",
+  notes: "com.samsung.android.app.notes",
+  whatsapp: "com.whatsapp",
+  telegram: "org.telegram.messenger",
+  settings: "com.android.settings",
+};
+
+/** Normalize screen nodes into a compact list. */
+function extractElements(screen, max = 50) {
+  return (screen?.nodes ?? [])
+    .map((n) => ({
+      text: (n.text || n.desc || "").trim(),
+      clickable: n.clickable === true,
+      editable: n.editable === true,
+      x: n.x,
+      y: n.y,
+      w: n.w,
+      h: n.h,
+    }))
+    .filter((n) => n.text || n.editable)
+    .slice(0, max);
+}
+
 /**
  * Find a clickable node on the current screen whose text or content-desc
  * contains the query (case-insensitive). Returns its center coordinates.
@@ -97,12 +131,22 @@ async function findNodeByText(phone, text) {
   const nodes = screen?.nodes ?? [];
   const query = String(text ?? "").trim().toLowerCase();
   if (!query) return null;
-  const best = nodes
-    .filter((n) => (n.text || n.desc || "").toLowerCase().includes(query))
-    .sort((a, b) => (b.clickable === true ? 1 : 0) - (a.clickable === true ? 1 : 0))
-    [0];
+
+  // Exact or contains match, prioritizing clickable nodes. Only match when the
+  // node's text contains the query — a reversed match (query includes node
+  // text) can tap a near-empty node like "e" for "search youtube".
+  const matches = nodes.filter((n) => {
+    const t = (n.text || n.desc || "").toLowerCase();
+    return t.includes(query);
+  });
+
+  const best =
+    matches.find((n) => n.clickable === true) ||
+    matches.find((n) => n.editable === true) ||
+    matches[0];
+
   if (!best) return null;
-  return { x: Math.round(best.x + best.w / 2), y: Math.round(best.y + best.h / 2) };
+  return { x: Math.round(best.x + (best.w || 40) / 2), y: Math.round(best.y + (best.h || 40) / 2) };
 }
 
 /**
@@ -151,26 +195,26 @@ export async function execPhoneTool(name, args = {}, opts = {}) {
     }
     case "read_screen": {
       const screen = await phone.readScreen();
-      // Trim to the essentials so we don't blow the model context.
-      const nodes = (screen?.nodes ?? [])
-        .map((n) => ({
-          text: n.text || n.desc || "",
-          clickable: n.clickable === true,
-          editable: n.editable === true,
-          x: n.x,
-          y: n.y,
-          w: n.w,
-          h: n.h,
-        }))
-        .filter((n) => n.text)
-        .slice(0, 120);
+      const nodes = extractElements(screen, 120);
       return { ok: true, foreground_package: screen?.foregroundPackage ?? "", elements: nodes };
     }
     case "open_app": {
-      const pkg = String(args.package_name ?? "");
+      let pkg = String(args.package_name ?? args.app ?? "").trim();
       if (!pkg) return { ok: false, error: "package_name required" };
-      const res = await phone.openApp({ packageName: pkg });
-      return { ok: res?.ok === true, app: pkg };
+      const normalized = PACKAGE_ALIASES[pkg.toLowerCase()] || pkg;
+      const res = await phone.openApp({ packageName: normalized });
+      if (res?.ok === false) {
+        return { ok: false, error: res?.error || `Could not open ${normalized}` };
+      }
+      await sleep(1200);
+      let elements = [];
+      try {
+        const sc = await phone.readScreen();
+        elements = extractElements(sc, 40);
+      } catch {
+        /* ignore */
+      }
+      return { ok: true, app: normalized, elements };
     }
     case "tap": {
       let target = null;
@@ -182,13 +226,32 @@ export async function execPhoneTool(name, args = {}, opts = {}) {
         return { ok: false, error: `Could not find element "${args.text ?? "(coordinates)"}" on screen` };
       }
       const res = await phone.performTap({ x: target.x, y: target.y });
-      return { ok: res?.ok === true, tapped: target };
+      await sleep(800);
+      let elements = [];
+      try {
+        const sc = await phone.readScreen();
+        elements = extractElements(sc, 30);
+      } catch {
+        /* ignore */
+      }
+      return { ok: res?.ok === true, tapped: target, elements };
     }
     case "type": {
       const text = String(args.text ?? "");
       if (!text) return { ok: false, error: "text required" };
       const res = await phone.inputText({ text });
-      return { ok: res?.ok === true, typed: text.slice(0, 200) };
+      if (args.submit !== false && typeof phone.submitText === "function") {
+        await phone.submitText().catch(() => {});
+      }
+      await sleep(800);
+      let elements = [];
+      try {
+        const sc = await phone.readScreen();
+        elements = extractElements(sc, 30);
+      } catch {
+        /* ignore */
+      }
+      return { ok: res?.ok === true, typed: text.slice(0, 200), elements };
     }
     case "press": {
       const key = String(args.key ?? "back");

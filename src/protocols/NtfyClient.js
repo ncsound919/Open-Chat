@@ -19,6 +19,9 @@ import { isSafeUrl } from "../utils/security.js";
 /** Reconnect delay after an unexpected stream close (ms) */
 const RECONNECT_DELAY_MS = 3_000;
 
+/** Timeout for the initial connect (ms) — the long-lived stream itself is not timed out */
+const CONNECT_TIMEOUT_MS = 15_000;
+
 /** First-connect lookback when no last message id is known (ms) */
 const INITIAL_SINCE_MS = 24 * 60 * 60 * 1000;
 
@@ -91,10 +94,28 @@ export class NtfyClient {
     }
 
     try {
-      const res = await fetch(url, {
-        headers,
-        signal: this._controller.signal,
-      });
+      // Timeout only the connect phase; the stream itself is long-lived. A
+      // server that accepts but never responds must not wedge us in
+      // "connecting" forever.
+      const connectController = new AbortController();
+      const connectTimeoutId = setTimeout(
+        () => connectController.abort(),
+        CONNECT_TIMEOUT_MS
+      );
+      const connectSignal =
+        typeof AbortSignal.any === "function"
+          ? AbortSignal.any([this._controller.signal, connectController.signal])
+          : this._controller.signal;
+
+      let res;
+      try {
+        res = await fetch(url, {
+          headers,
+          signal: connectSignal,
+        });
+      } finally {
+        clearTimeout(connectTimeoutId);
+      }
 
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -274,23 +295,44 @@ export class NtfyClient {
     }
   }
 
-  /** Open a URL in a new tab (view action). */
-  _viewAction(action) {
-    const url = String(action.url || "").trim();
-    if (!isSafeUrl(url)) {
-      return { ok: false, error: "Blocked unsafe URL" };
+  /** Resolve a potentially relative URL against the configured base or origin. */
+  _resolveUrl(rawUrl) {
+    const trimmed = String(rawUrl || "").trim();
+    if (!trimmed) return "";
+    if (/^https?:\/\//i.test(trimmed)) {
+      if (!isSafeUrl(trimmed)) throw new Error("Blocked unsafe URL: must use http(s)");
+      return trimmed;
     }
-    if (typeof window !== "undefined") {
-      window.open(url, "_blank", "noopener,noreferrer");
+    if (trimmed.startsWith("/")) {
+      const base = this.baseUrl || (typeof window !== "undefined" ? window.location?.origin : "") || "http://127.0.0.1:8644";
+      const resolved = `${base.replace(/\/+$/, "")}${trimmed}`;
+      if (!isSafeUrl(resolved)) throw new Error("Blocked unsafe URL: must use http(s)");
+      return resolved;
     }
-    return { ok: true, output: `Opened ${url}` };
+    if (isSafeUrl(trimmed)) return trimmed;
+    throw new Error("Blocked unsafe URL: must use http(s)");
   }
 
-  /** Perform an HTTP action (approve/reject callbacks). */
+  /** Open a URL in a new tab (view action). */
+  _viewAction(action) {
+    try {
+      const url = this._resolveUrl(action.url);
+      if (typeof window !== "undefined") {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+      return { ok: true, output: `Opened ${url}` };
+    } catch (err) {
+      return { ok: false, error: err.message || "Blocked unsafe URL" };
+    }
+  }
+
+  /** Perform an HTTP action (approve/reject callbacks, diagnose & repair). */
   async _httpAction(action) {
-    const url = String(action.url || "").trim();
-    if (!isSafeUrl(url)) {
-      return { ok: false, error: "Blocked unsafe URL" };
+    let url;
+    try {
+      url = this._resolveUrl(action.url);
+    } catch (err) {
+      return { ok: false, error: err.message || "Blocked unsafe URL" };
     }
 
     const method = String(action.method || "GET").toUpperCase();
@@ -309,10 +351,10 @@ export class NtfyClient {
         method,
         headers,
         body,
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(15_000),
       });
 
-      if (!res.ok) {
+      if (!res.ok && res.status !== 202) {
         let detail = `HTTP ${res.status}`;
         try {
           const json = await res.json();
@@ -328,8 +370,12 @@ export class NtfyClient {
         const json = await res.json();
         if (json?.action?.status) {
           output = `Status: ${json.action.status}`;
+        } else if (json?.repair?.detail) {
+          output = String(json.repair.detail);
         } else if (json?.message) {
           output = String(json.message);
+        } else if (json?.ok) {
+          output = json.signal ? `Repair completed for ${json.signal}` : "Repair applied successfully";
         }
       } catch {
         // No JSON body — keep default output

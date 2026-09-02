@@ -155,7 +155,6 @@ ToolCallCard.propTypes = {
     result: PropTypes.any,
     status: PropTypes.string,
   }),
-  accent: PropTypes.string,
 };
 
 /** Validate a CSS color string — only allow hex, rgb(a), hsl(a), named colors */
@@ -383,7 +382,7 @@ export const MessageBubble = memo(function MessageBubble({
         {Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0 && bot?.protocol !== "local" && (
           <div style={{ marginTop: 4 }}>
             {msg.toolCalls.map((call, i) => (
-              <ToolCallCard key={`${call?.name}-${i}`} call={call} accent={color} />
+                <ToolCallCard key={`${call?.name}-${i}`} call={call} />
             ))}
           </div>
         )}

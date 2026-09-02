@@ -207,4 +207,62 @@ class PhoneControlPlugin : Plugin() {
             else call.resolve(JSObject().put("data", b64))
         }
     }
+
+    // ── Text-to-speech (default engine = the phone assistant's voice) ──────
+
+    private var tts: android.speech.tts.TextToSpeech? = null
+    private var ttsReady = false
+    private var pendingSpeak: PluginCall? = null
+
+    private fun doSpeak(engine: android.speech.tts.TextToSpeech, call: PluginCall, text: String, rate: Float, pitch: Float) {
+        engine.setSpeechRate(rate)
+        engine.setPitch(pitch)
+        val result = engine.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "oc-${text.hashCode()}")
+        if (result == android.speech.tts.TextToSpeech.SUCCESS) call.resolve(JSObject().put("ok", true))
+        else call.reject("speak failed")
+    }
+
+    @PluginMethod
+    fun speak(call: PluginCall) {
+        val text = call.getString("text")?.trim().orEmpty()
+        if (text.isEmpty()) {
+            call.reject("text required")
+            return
+        }
+        val rate = (call.getFloat("rate") ?: 1.0f).coerceIn(0.5f, 2.0f)
+        val pitch = (call.getFloat("pitch") ?: 1.0f).coerceIn(0.5f, 2.0f)
+
+        val engine = tts
+        if (engine != null && ttsReady) {
+            doSpeak(engine, call, text, rate, pitch)
+            return
+        }
+        // First use: create the engine and queue this request until init lands.
+        if (engine == null) {
+            tts = android.speech.tts.TextToSpeech(context) { status ->
+                ttsReady = status == android.speech.tts.TextToSpeech.SUCCESS
+                val queued = pendingSpeak
+                pendingSpeak = null
+                if (queued == null) return@TextToSpeech
+                if (ttsReady) doSpeak(this.tts!!, queued, queued.getString("text")?.trim().orEmpty(),
+                    (queued.getFloat("rate") ?: 1.0f), (queued.getFloat("pitch") ?: 1.0f))
+                else queued.reject("tts init failed")
+            }
+        }
+        pendingSpeak?.reject("superseded")
+        pendingSpeak = call
+    }
+
+    @PluginMethod
+    fun stopSpeaking(call: PluginCall) {
+        tts?.stop()
+        call.resolve(JSObject().put("ok", true))
+    }
+
+    override fun handleOnDestroy() {
+        tts?.shutdown()
+        tts = null
+        ttsReady = false
+        super.handleOnDestroy()
+    }
 }

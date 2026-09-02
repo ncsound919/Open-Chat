@@ -135,33 +135,54 @@ export async function transcribeAudio(audioData, sampleRate, backend, host, toke
   return (data && data.text) || "";
 }
 
-/** Synthesize text and return a playable HTMLAudioElement. */
+/** Synthesize text and return a playable HTMLAudioElement / speech handle. */
 export async function synthesizeAndPlay(text, backend, host, token, apiKey, baseUrl) {
-  const url = buildVoiceEndpoint(backend, host, "synthesize", baseUrl);
-  const headers = { "Content-Type": "application/json" };
-  if (backend === "draymond" && token) headers.Authorization = `Bearer ${token}`;
-  if (backend === "aetherdesk" && apiKey) headers["x-api-key"] = apiKey;
-  const res = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ text }),
-  });
-  if (!res.ok) throw new Error(`Synthesize failed: HTTP ${res.status}`);
-  const data = await res.json();
-  if (!data.audio) throw new Error("Synthesize returned no audio");
-  const bin = atob(data.audio);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  const blob = new Blob([arr], { type: "audio/wav" });
-  const urlObj = URL.createObjectURL(blob);
-  const audio = new Audio(urlObj);
-  try {
-    await audio.play();
-  } catch (err) {
-    URL.revokeObjectURL(urlObj);
-    throw err;
+  if (backend || host || apiKey || baseUrl) {
+    const url = buildVoiceEndpoint(backend, host, "synthesize", baseUrl);
+    const headers = { "Content-Type": "application/json" };
+    if (backend === "draymond" && token) headers.Authorization = `Bearer ${token}`;
+    if (backend === "aetherdesk" && apiKey) headers["x-api-key"] = apiKey;
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`Synthesize failed: HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.audio) throw new Error("Synthesize returned no audio");
+    const bin = atob(data.audio);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const blob = new Blob([arr], { type: "audio/wav" });
+    const urlObj = URL.createObjectURL(blob);
+    const audio = new Audio(urlObj);
+    try {
+      await audio.play();
+      return audio;
+    } catch (err) {
+      URL.revokeObjectURL(urlObj);
+      throw err;
+    }
   }
-  return audio;
+
+  // Native SpeechSynthesis fallback for on-device/local bots
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
+    return {
+      pause: () => {
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+        }
+      },
+      src: "",
+    };
+  }
+
+  throw new Error("Speech synthesis not available on this device");
 }
 
 /** Resolve a capture: stop it, then await its done promise (order matters). */

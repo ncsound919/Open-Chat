@@ -12,7 +12,7 @@ import {
   getUnreadCount,
   formatUnread,
 } from "../utils/helpers.js";
-import { isFieldVisible, getModeLabel } from "../utils/modeConfig.js";
+import { isFieldVisible, getModeLabel, MODES } from "../utils/modeConfig.js";
 
 /**
  * Inbox component - shows list of all bots
@@ -37,10 +37,17 @@ export function Inbox({
     String(b.name ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
-  const sortedBots = [...filtered].sort(
-    (a, b) =>
-      Number(pinnedIds.includes(b.id)) - Number(pinnedIds.includes(a.id))
-  );
+  const sortedBots = [...filtered].sort((a, b) => {
+    const aPinned = Number(pinnedIds.includes(a.id));
+    const bPinned = Number(pinnedIds.includes(b.id));
+    if (aPinned !== bPinned) return bPinned - aPinned;
+
+    const aTime = getLastMessage(history, a.id)?.time || 0;
+    const bTime = getLastMessage(history, b.id)?.time || 0;
+    if (aTime !== bTime) return bTime - aTime;
+
+    return (a.name || a.id).localeCompare(b.name || b.id);
+  });
 
   return (
     <div
@@ -96,19 +103,19 @@ export function Inbox({
             <button
               onClick={onToggleMode}
               style={{
-                background: mode === "dev" ? "#34d39920" : "#1c1c28",
-                border: mode === "dev" ? "1px solid #34d39940" : "1px solid #2c2c38",
+                background: mode === MODES.DEV ? "#34d39920" : "#1c1c28",
+                border: mode === MODES.DEV ? "1px solid #34d39940" : "1px solid #2c2c38",
                 borderRadius: 8,
                 padding: "4px 10px",
                 fontSize: 11,
                 fontWeight: 600,
-                color: mode === "dev" ? "#34d399" : "#888",
+                color: mode === MODES.DEV ? "#34d399" : "#888",
                 cursor: "pointer",
                 transition: "all .15s",
               }}
-              aria-pressed={mode === "dev"}
-              aria-label={`Switch to ${mode === "basic" ? "Dev" : "Basic"} mode`}
-              title={`Switch to ${mode === "basic" ? "Dev" : "Basic"} mode`}
+              aria-pressed={mode === MODES.DEV}
+              aria-label={`Switch to ${mode === MODES.BASIC ? "Dev" : "Basic"} mode`}
+              title={`Switch to ${mode === MODES.BASIC ? "Dev" : "Basic"} mode`}
             >
               {getModeLabel(mode)}
             </button>

@@ -16,7 +16,6 @@ const LOCAL_PROBES = [
   { name: "KoboldCpp", host: "127.0.0.1", port: 5001 },
   { name: "Jan", host: "127.0.0.1", port: 1337 },
   { name: "GPT4All", host: "127.0.0.1", port: 4891 },
-  { name: "Ollama (LAN)", host: "192.168.1.100", port: 11434 },
 ];
 
 const MODELS_TIMEOUT_MS = 2500;
@@ -31,7 +30,16 @@ const MODELS_TIMEOUT_MS = 2500;
 export async function fetchModels(baseUrl, { signal } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MODELS_TIMEOUT_MS);
-  const merged = signal ? AbortSignal.any?.( [signal, controller.signal] ) ?? controller.signal : controller.signal;
+  let merged = controller.signal;
+  if (signal) {
+    if (typeof AbortSignal.any === "function") {
+      merged = AbortSignal.any([signal, controller.signal]);
+    } else {
+      // Older WebViews lack AbortSignal.any — honor the caller's signal by
+      // forwarding its abort into the timeout controller.
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+  }
 
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/v1/models`, { signal: merged });
@@ -70,7 +78,7 @@ export function probeBaseUrl(probe) {
  * @returns {Promise<Array<{name:string, baseUrl:string, models:string[]}>>}
  */
 export async function scanLocalModels({ extraHost, signal } = {}) {
-  const probes = LOCAL_PROBES.filter((p) => p.host !== "192.168.1.100");
+  const probes = [...LOCAL_PROBES];
   if (extraHost && extraHost.trim()) {
     probes.push({ name: `${extraHost.trim()} (custom)`, host: extraHost.trim(), port: 11434 });
   }

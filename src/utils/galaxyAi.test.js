@@ -72,7 +72,7 @@ describe("execGalaxySkill", () => {
     const res = await execGalaxySkill(
       "galaxy_ai_action",
       { app: "notes", action: "summarize" },
-      { phoneControl: plugin, confirm: async () => true }
+      { phoneControl: plugin, confirm: async () => true, appLaunchTimeoutMs: 200, resultWaitMs: 100 }
     );
     expect(res.ok).toBe(true);
     expect(res.action).toBe("summarize");
@@ -89,7 +89,7 @@ describe("execGalaxySkill", () => {
     const res = await execGalaxySkill(
       "galaxy_ai_action",
       { app: "notes", action: "summarize" },
-      { phoneControl: plugin, confirm: async () => true }
+      { phoneControl: plugin, confirm: async () => true, appLaunchTimeoutMs: 200, resultWaitMs: 100 }
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/No Galaxy AI button/);

@@ -212,6 +212,48 @@ export async function detectMediaPipeBundles() {
 }
 
 /**
+ * Preferred on-device backend ("cpu" | "gpu").
+ *
+ * CPU is the default: MediaPipe's GPU path has a known FP16 detokenizer bug
+ * that emits garbled/repeated tokens on many devices (google-ai-edge/
+ * mediapipe #5414 #5534 #6014, google-ai-edge/gallery #157). GPU is opt-in
+ * via Settings; the chat loop auto-degrades to CPU if output corrupts.
+ */
+const BACKEND_KEY = "oc.llmBackend";
+
+export function getPreferredBackend() {
+  try {
+    const v = localStorage.getItem(BACKEND_KEY);
+    return v === "gpu" ? "gpu" : "cpu";
+  } catch {
+    return "cpu";
+  }
+}
+
+export function setPreferredBackend(backend) {
+  try {
+    localStorage.setItem(BACKEND_KEY, backend === "gpu" ? "gpu" : "cpu");
+  } catch {
+    /* private mode etc. */
+  }
+}
+
+/** Reload the currently loaded bundle with the given backend. */
+export async function reloadMediaPipeWithBackend(backend = getPreferredBackend()) {
+  const mp = await loadMediaPipe();
+  if (!mp?.loadModel) return false;
+  try {
+    const status = await mp.getStatus();
+    const fileName = String(status?.modelPath || "").split(/[\\/]/).pop();
+    if (!fileName) return false;
+    const res = await mp.loadModel({ fileName, maxTokens: 4096, topK: 40, backend });
+    return res?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Ensure an on-device MediaPipe bundle is loaded, loading the most recently
  * added bundle if none is currently loaded. This makes the "private local"
  * bot (and the on-device engine) usable without a manual load step.
@@ -230,11 +272,13 @@ export async function autoLoadMediaPipeModel() {
     const { models = [] } = await mp.listModels();
     if (models.length === 0) return null;
     const bundle = models[0]; // native plugin sorts newest-first
+    // Backend honors the user's Settings preference (default cpu — see note
+    // above getPreferredBackend).
     const res = await mp.loadModel({
       fileName: bundle.fileName,
       maxTokens: 4096,
       topK: 40,
-      backend: "auto",
+      backend: getPreferredBackend(),
     });
     return res?.ok ? (res.modelPath || bundle.fileName) : null;
   } catch {

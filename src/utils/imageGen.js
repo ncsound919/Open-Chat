@@ -23,7 +23,7 @@ export const IMAGE_GEN_TOOL = {
 
 const OFF_GRID_PACKAGE = "ai.offgridmobile";
 
-/** ONNX SD 1.5 model (modularai/stable-diffusion-1.5-onnx, not gated). */
+/** ONNX SD 1.5 model (modularai/stable-diffusion-1.5-onnx — fp32, standard NCHW, CPU/NNAPI compatible). */
 const SD_MODEL_NAME = "sd-1.5-onnx";
 const SD_MODEL_BASE =
   "https://huggingface.co/modularai/stable-diffusion-1.5-onnx/resolve/main/";

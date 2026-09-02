@@ -87,15 +87,19 @@ export function resolveEndpoint(host, port, kind = "http") {
   const secure = kind === "ws" ? "wss" : "https";
   const insecure = kind === "ws" ? "ws" : "http";
 
+  // IPv6 hosts must be bracketed in a URL (http://[::1]:port).
+  const hostForUrl =
+    trimmed.includes(":") && !trimmed.startsWith("[") ? `[${trimmed}]` : trimmed;
+
   if (/^https?:\/\//i.test(trimmed)) {
     return trimmed.replace(/\/$/, "");
   }
   if (isLocalhost(trimmed) || isPrivateIp(trimmed)) {
     const p = port ? `:${port}` : "";
-    return `${insecure}://${trimmed}${p}`;
+    return `${insecure}://${hostForUrl}${p}`;
   }
   const p = port ? `:${port}` : "";
-  return `${secure}://${trimmed}${p}`;
+  return `${secure}://${hostForUrl}${p}`;
 }
 
 /**
@@ -131,16 +135,25 @@ export function isValidMessageSize(data, maxBytes = MAX_MESSAGE_BYTES) {
  * @param {unknown} [err] The error or value to log.
  */
 export function safeLog(label, err) {
-  const redact = (str) =>
-    String(str)
-      .replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")
-      .replace(/token[=:\s]+\S+/gi, "token=[REDACTED]")
-      .replace(/key[=:\s]+\S+/gi, "key=[REDACTED]")
-      .replace(/password[=:\s]+\S+/gi, "password=[REDACTED]");
+  const redact = (str) => {
+    let out = String(str);
+    out = out.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
+    // Preserve the key name so logs stay readable: token=abc → token=[REDACTED]
+    out = out.replace(
+      /(token|api[_-]?key|secret|passwd|password|authorization|key)\s*[=:]\s*[^\s,;&]+/gi,
+      (m) => `${(m.match(/\w[\w_-]*/i) || ["key"])[0]}=[REDACTED]`
+    );
+    // Known token formats + long opaque hex/base64 blobs.
+    out = out.replace(/\bghp_[A-Za-z0-9]+\b/g, "[REDACTED]");
+    out = out.replace(/\bsk-[A-Za-z0-9]{8,}\b/g, "[REDACTED]");
+    out = out.replace(/\b[0-9a-fA-F]{32,}\b/g, "[REDACTED]");
+    return out;
+  };
+  const labelText = redact(label);
 
   if (err instanceof Error) {
-    console.error(`[OpenChat] ${label}:`, redact(err.message));
+    console.error(`[OpenChat] ${labelText}:`, redact(err.message));
   } else {
-    console.error(`[OpenChat] ${label}:`, redact(String(err ?? "")));
+    console.error(`[OpenChat] ${labelText}:`, redact(String(err ?? "")));
   }
 }

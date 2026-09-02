@@ -80,9 +80,9 @@ class OnnxImageGenPlugin : Plugin() {
         val filesArr = call.getArray("files")
         val files = mutableListOf<Pair<String, String>>()
         for (i in 0 until filesArr.length()) {
-            val o = filesArr.get(i) as? JSObject ?: continue
-            val url = o.getString("url")?.takeIf { it.isNotEmpty() } ?: continue
-            val path = o.getString("path")?.takeIf { it.isNotEmpty() } ?: continue
+            val o = filesArr.get(i) as? org.json.JSONObject ?: continue
+            val url = o.optString("url").takeIf { it.isNotEmpty() } ?: continue
+            val path = o.optString("path").takeIf { it.isNotEmpty() } ?: continue
             files.add(url to path)
         }
         if (files.isEmpty()) {

@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Preferences } from "@capacitor/preferences";
 import { isNative } from "../utils/platform.js";
-import { createWorkerEngine } from "../utils/workerEngine.js";
+import { createWorkerEngine, resolveWorkerBaseUrl } from "../utils/workerEngine.js";
 
 const TASKS_KEY = "openchat_worker_tasks_v1";
 const SKILLS_KEY = "openchat_worker_skills_v1";
@@ -99,7 +99,7 @@ export function useWorkerEngine({ bot = null, enabled = false, deps = {}, onTask
     }
 
     const engine = createWorkerEngine({
-      baseUrl: workerBaseUrl(stableBot),
+      baseUrl: resolveWorkerBaseUrl(stableBot),
       token: stableBot.token || "",
       workerId: `open-chat-${stableBot.id}`,
       store: createPreferencesStore(),
@@ -170,17 +170,4 @@ export function useWorkerEngine({ bot = null, enabled = false, deps = {}, onTask
     proposeSkill,
     refresh,
   };
-}
-
-/** Duplicate of workerEngine.resolveWorkerBaseUrl kept here to avoid a cycle. */
-function workerBaseUrl(bot) {
-  const host = String(bot?.host || "").trim();
-  if (!host) return "";
-  if (/^https?:\/\//i.test(host)) {
-    return host.replace(/\/+$/, "").replace(/\/api\/?$/, "");
-  }
-  const isLocal =
-    ["127.0.0.1", "localhost", "::1"].includes(host.toLowerCase()) ||
-    /^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  return isLocal ? `http://${host}:${bot.port || 3444}` : `https://${host}`;
 }

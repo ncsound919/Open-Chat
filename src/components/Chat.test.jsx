@@ -402,9 +402,20 @@ describe("Chat quick actions", () => {
 
   it("renders and wires the quick clear chat button", () => {
     const onClearChat = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<Chat {...baseProps({ onClearChat })} />);
     fireEvent.click(screen.getByLabelText("Clear chat"));
     expect(onClearChat).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("does not clear via the quick button when confirmation is declined", () => {
+    const onClearChat = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<Chat {...baseProps({ onClearChat })} />);
+    fireEvent.click(screen.getByLabelText("Clear chat"));
+    expect(onClearChat).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });
 

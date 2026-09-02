@@ -102,15 +102,21 @@ export function WorkScreen({
       platforms: ["android", "web", "electron"],
       outputs: [],
     };
-    const result = await onProposeSkill(pack);
-    setProposalStatus(result?.ok ? "ok" : "error");
-    if (result?.ok) {
-      setProposalName("");
-      setProposalPurpose("");
-      setProposalTools("");
-      setProposing(false);
+    try {
+      const result = await onProposeSkill(pack);
+      setProposalStatus(result?.ok ? "ok" : "error");
+      if (result?.ok) {
+        setProposalName("");
+        setProposalPurpose("");
+        setProposalTools("");
+        setProposing(false);
+      }
+    } catch {
+      // A throwing proposal must not leave the button stuck on "Submitting…".
+      setProposalStatus("error");
+    } finally {
+      setTimeout(() => setProposalStatus("idle"), 2500);
     }
-    setTimeout(() => setProposalStatus("idle"), 2500);
   };
 
   const statusColor = STATUS_COLOR[status] || "#555568";

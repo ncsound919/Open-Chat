@@ -146,7 +146,7 @@ describe("geminiQuery", () => {
     );
     expect(execPhoneTool).toHaveBeenCalledWith(
       "type",
-      { text: "what is 2+2" },
+      { text: "what is 2+2", submit: false },
       expect.anything()
     );
   });
@@ -171,7 +171,7 @@ describe("youtubeSearch", () => {
       { package_name: "com.google.android.youtube" },
       expect.anything()
     );
-    expect(execPhoneTool).toHaveBeenCalledWith("type", { text: "lofi" }, expect.anything());
+    expect(execPhoneTool).toHaveBeenCalledWith("type", { text: "lofi", submit: false }, expect.anything());
   });
 });
 

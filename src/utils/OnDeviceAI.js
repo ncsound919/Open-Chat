@@ -95,7 +95,11 @@ export async function generate(prompt, options = {}) {
     const result = await session.prompt(prompt, signal ? { signal } : undefined);
     return result;
   } finally {
-    session.destroy();
+    // destroy() returns a Promise; await it (swallowing rejection) so it can
+    // never surface as an unhandled rejection.
+    if (typeof session.destroy === "function") {
+      await Promise.resolve(session.destroy()).catch(() => {});
+    }
   }
 }
 
@@ -152,7 +156,9 @@ export async function generateStream(prompt, onChunk, options = {}) {
 
     return fullText;
   } finally {
-    session.destroy();
+    if (typeof session.destroy === "function") {
+      await Promise.resolve(session.destroy()).catch(() => {});
+    }
   }
 }
 

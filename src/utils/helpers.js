@@ -35,6 +35,26 @@ export const STATUS_COLOR = {
   error: "#ef4444",
 };
 
+/**
+ * Canonical agent-health sort rank — single source of truth shared by the
+ * Settings roster, Agents screen, and Home stats. Lower = healthier.
+ * online/active/connected → 0 · degraded/idle → 1 · busy/working/running → 2
+ * offline → 3 · unknown → 4.
+ */
+export function agentStatusRank(status) {
+  const s = String(status ?? "unknown").toLowerCase();
+  if (s === "online" || s === "active" || s === "connected") return 0;
+  if (s === "degraded" || s === "idle") return 1;
+  if (s === "busy" || s === "working" || s === "running") return 2;
+  if (s === "offline") return 3;
+  return 4;
+}
+
+/** True when an agent status means it is reachable and working. */
+export function isAgentOnline(status) {
+  return agentStatusRank(status) === 0;
+}
+
 // Format unread count (cap at 9+)
 export function formatUnread(count) {
   if (count === 0) return null;

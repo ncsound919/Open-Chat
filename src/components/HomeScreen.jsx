@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import PropTypes from "prop-types";
 import { BotAvatar } from "./BotAvatar.jsx";
-import { getLastMessage, getUnreadCount } from "../utils/helpers.js";
+import { getLastMessage, getUnreadCount, isAgentOnline } from "../utils/helpers.js";
 
 const CARD = {
   background: "#15151f",
@@ -35,10 +35,7 @@ export function HomeScreen({
 
   const agentCount = useMemo(() => Object.keys(agents).length, [agents]);
   const onlineAgents = useMemo(
-    () =>
-      Object.values(agents).filter(
-        (a) => String(a.status ?? "").toLowerCase() === "active"
-      ).length,
+    () => Object.values(agents).filter((a) => isAgentOnline(a?.status)).length,
     [agents]
   );
 

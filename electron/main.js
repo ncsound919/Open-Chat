@@ -21,6 +21,21 @@ const CSP = [
 let mainWindow;
 let a2aServer;
 
+// Single-instance lock: a second `electron .` must not open a duplicate window
+// and fight over the A2A hub port (18644). Quit immediately and focus the
+// existing window instead.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,

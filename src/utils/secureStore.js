@@ -69,6 +69,24 @@ function rawRemove(key) {
   }
 }
 
+/**
+ * Async variant of rawSet that REJECTS when native persistence fails, so
+ * durable callers (enable/change) can verify a blob landed before deleting
+ * the plaintext copy. Web localStorage either writes or throws synchronously.
+ */
+async function rawSetAsync(key, value) {
+  _blobs[key] = value;
+  if (isNative) {
+    await Preferences.set({ key, value });
+    return;
+  }
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    throw err;
+  }
+}
+
 /** Async read of a raw storage value (used for legacy plaintext on native). */
 async function readRaw(key) {
   if (!isNative) {
@@ -225,7 +243,6 @@ export async function enable(passphrase) {
 
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await deriveKey(passphrase, salt);
-  rawSet(META_KEY, JSON.stringify({ v: 1, salt: bufToB64(salt) }));
 
   const cache = {};
   for (const origKey of _configuredKeys) {
@@ -233,9 +250,13 @@ export async function enable(passphrase) {
     const value = legacyRaw !== null ? legacyRaw : "";
     cache[origKey] = value;
     const blob = await encryptValue(key, value);
-    rawSet(blobKeyFor(origKey), JSON.stringify(blob));
+    // Persist the blob BEFORE deleting the plaintext: a failed native write
+    // must not leave us with neither copy. META is written last so a partial
+    // failure leaves the store still-plaintext.
+    await rawSetAsync(blobKeyFor(origKey), JSON.stringify(blob));
     rawRemove(origKey); // delete the plaintext copy
   }
+  await rawSetAsync(META_KEY, JSON.stringify({ v: 1, salt: bufToB64(salt) }));
 
   _key = key;
   _cache = cache;
@@ -275,13 +296,33 @@ export async function change(passphrase, newPassphrase) {
   if (String(newPassphrase || "").length < 4) {
     throw new Error("New passphrase must be at least 4 characters");
   }
+  const oldKey = _key;
+  const oldMetaRaw = rawGet(META_KEY);
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const key = await deriveKey(newPassphrase, salt);
-  for (const [origKey, value] of Object.entries(_cache)) {
-    const blob = await encryptValue(key, value);
-    rawSet(blobKeyFor(origKey), JSON.stringify(blob));
+  try {
+    // Persist every blob under the new key before committing the new META, so
+    // a failed write can't leave a half-re-keyed store behind.
+    for (const [origKey, value] of Object.entries(_cache)) {
+      const blob = await encryptValue(key, value);
+      await rawSetAsync(blobKeyFor(origKey), JSON.stringify(blob));
+    }
+    await rawSetAsync(META_KEY, JSON.stringify({ v: 1, salt: bufToB64(salt) }));
+  } catch (err) {
+    // Roll back blobs already written under the new key using the old key,
+    // and restore the old META, so the store stays decryptable under the old
+    // passphrase.
+    for (const [origKey, value] of Object.entries(_cache)) {
+      try {
+        const blob = await encryptValue(oldKey, value);
+        await rawSetAsync(blobKeyFor(origKey), JSON.stringify(blob));
+      } catch {
+        // keep whatever was written — nothing better we can do per-key
+      }
+    }
+    if (oldMetaRaw !== null) rawSet(META_KEY, oldMetaRaw);
+    throw err;
   }
-  rawSet(META_KEY, JSON.stringify({ v: 1, salt: bufToB64(salt) }));
   _key = key;
   return { changed: true };
 }

@@ -17,6 +17,11 @@
  * Vite cannot statically resolve/require it at build time. On web (no
  * native platform) this resolves to null; on device the plugin is installed.
  */
+
+// Monotonic sequence so notification ids never collide — Date.now() % 100000
+// wraps and would silently replace a previously scheduled reminder.
+let notificationSeq = 0;
+
 async function nativePlugin(name) {
   try {
     const mod = await import(name);
@@ -63,9 +68,12 @@ export const PHONE_SKILLS = [
       if (!(await isNative())) return { ok: false, result: "open_app requires native (Android/iOS)" };
       try {
         // Intent-based launch via the Browser plugin's intent:// scheme.
+        // pkg comes from model tool args (LLM output) — encode it so a
+        // prompt-injected ";" cannot smuggle extra intent extras.
         const Browser = await nativePlugin("@capacitor/browser");
         if (Browser?.Browser?.open) {
-          await Browser.Browser.open({ url: `intent://#Intent;package=${pkg};end` });
+          const safePkg = /^[a-zA-Z0-9.]+$/.test(pkg) ? pkg : encodeURIComponent(pkg);
+          await Browser.Browser.open({ url: `intent://#Intent;package=${safePkg};end` });
           return { ok: true, result: `opened ${pkg}` };
         }
         return { ok: false, result: "browser plugin not installed" };
@@ -85,7 +93,7 @@ export const PHONE_SKILLS = [
       try {
         const { LocalNotifications } = await nativePlugin("@capacitor/local-notifications");
         if (!LocalNotifications) return { ok: false, result: "local-notifications plugin not installed" };
-        await LocalNotifications.schedule({ notifications: [{ id: Date.now() % 100000, title: "Open Chat", body: text, schedule: { at: new Date(when) } }] });
+        await LocalNotifications.schedule({ notifications: [{ id: (Date.now() % 100000) + notificationSeq++, title: "Open Chat", body: text, schedule: { at: new Date(when) } }] });
         return { ok: true, result: `reminder set for ${new Date(when).toLocaleString()}` };
       } catch (err) {
         return { ok: false, result: err.message };

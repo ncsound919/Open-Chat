@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   parseMcpServers,
-  serializeMcpServers,
   summarizeMcpTools,
 } from "./mcpConfig.js";
 
@@ -37,17 +36,6 @@ describe("parseMcpServers", () => {
     expect(parseMcpServers(null)).toEqual([]);
     expect(parseMcpServers("not json")).toEqual([]);
     expect(parseMcpServers("{}")).toEqual([]);
-  });
-});
-
-describe("serializeMcpServers", () => {
-  it("serializes an array of servers", () => {
-    const out = serializeMcpServers([{ name: "a", url: "http://x", token: "t" }]);
-    expect(JSON.parse(out)).toEqual([{ name: "a", url: "http://x", token: "t" }]);
-  });
-
-  it("returns [] for non-arrays", () => {
-    expect(serializeMcpServers(null)).toBe("[]");
   });
 });
 

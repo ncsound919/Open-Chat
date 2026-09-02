@@ -6,6 +6,7 @@ import {
   resolveCapture,
   classifyMicError,
 } from "../utils/voice.js";
+import { loadPhoneControl } from "../utils/modelRegistry.js";
 
 /**
  * Push-to-talk + auto-speak voice for a chat bot.
@@ -82,7 +83,7 @@ export function useVoice(bot) {
 
   const speak = useCallback(
     async (text) => {
-      if (!speakEnabled || !enabled || !text) return;
+      if (!speakEnabled || !text) return;
       try {
         if (speakRef.current) {
           speakRef.current.pause();
@@ -91,25 +92,61 @@ export function useVoice(bot) {
             URL.revokeObjectURL(oldSrc);
           }
         }
-        const audio = await synthesizeAndPlay(
-          text,
-          backend,
-          bot?.host,
-          bot?.token,
-          bot?.aetherdeskApiKey,
-          bot?.aetherdeskBaseUrl
-        );
+        // Prefer the native Android TTS engine (the phone assistant's voice).
+        // window.speechSynthesis is a no-op in the Android WebView, so this
+        // is what makes the local model audible on-device.
+        let spokeNatively = false;
+        try {
+          const pc = await loadPhoneControl();
+          if (pc?.speak && pc?.getStatus) {
+            const r = await pc.speak({ text });
+            spokeNatively = r?.ok === true;
+          } else if (pc?.speak) {
+            // Web fallback implements speak() without getStatus.
+            const r = await pc.speak({ text });
+            spokeNatively = r?.ok === true;
+          }
+        } catch {
+          /* native bridge unavailable — fall through */
+        }
+        if (spokeNatively) {
+          speakRef.current = { pause: () => {}, src: "" };
+          return;
+        }
+        let audio;
+        try {
+          audio = await synthesizeAndPlay(
+            text,
+            bot?.voiceBackend,
+            bot?.host,
+            bot?.token,
+            bot?.aetherdeskApiKey,
+            bot?.aetherdeskBaseUrl
+          );
+        } catch (err) {
+          if (typeof window !== "undefined" && "speechSynthesis" in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.speak(utterance);
+            audio = { pause: () => window.speechSynthesis.cancel(), src: "" };
+          } else {
+            throw err;
+          }
+        }
         speakRef.current = audio;
       } catch (err) {
         setMicError("Voice playback failed: " + (err.message || ""));
       }
     },
-    [speakEnabled, enabled, backend, bot]
+    [speakEnabled, bot]
   );
 
-  // Auto-speak a NEW final bot message when enabled.
+  // Auto-speak a NEW final bot message when enabled. bot.lastMessageText is
+  // always the newest message, so enabling speech speaks the current one;
+  // lastSpokenRef guards against re-speaking the same message when the effect
+  // re-runs (e.g. speech toggled off/on).
   useEffect(() => {
-    if (!speakEnabled || !enabled) return;
+    if (!speakEnabled) return;
     const last = bot?.lastMessageText;
     if (!last || !last.trim()) return;
     const lastStreaming = bot?.lastMessageStreaming === true;
@@ -117,7 +154,7 @@ export function useVoice(bot) {
     if (last === lastSpokenRef.current) return; // already spoken
     lastSpokenRef.current = last;
     speak(last).catch(() => {});
-  }, [bot?.lastMessageText, bot?.lastMessageStreaming, speakEnabled, enabled, speak, bot]);
+  }, [bot?.lastMessageText, bot?.lastMessageStreaming, speakEnabled, speak, bot]);
 
   // Cleanup on unmount / bot change.
   useEffect(() => {
@@ -127,6 +164,8 @@ export function useVoice(bot) {
       }
       if (speakRef.current) {
         speakRef.current.pause();
+        const src = speakRef.current.src;
+        if (src && src.startsWith("blob:")) URL.revokeObjectURL(src);
       }
     };
   }, []);

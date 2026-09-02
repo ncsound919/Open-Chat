@@ -501,6 +501,74 @@ describe("entity/chain routing", () => {
   });
 });
 
+describe("wake & direct (ping / invoke / recover)", () => {
+  it("wake POSTs a healthy observation to the repair-gate slug", async () => {
+    const entry = { slug: "openchat", healthy: true };
+    fetchMock.mockResolvedValueOnce(jsonOk({ ok: true, entry }));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const res = await c.wake("openchat");
+    expect(res).toEqual({ ok: true, entry });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/ping/openchat"),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("wake records a failure with ?fail=1", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({ ok: true }));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    await c.wake("openchat", { fail: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/ping/openchat?fail=1"),
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("wake returns {ok:false} on HTTP error", async () => {
+    fetchMock.mockResolvedValueOnce(httpError(500));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const res = await c.wake("openchat");
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("500");
+  });
+
+  it("getGateStatus returns the gate entry or null", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({ ok: true, entry: { healthy: true } }));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    expect(await c.getGateStatus("openchat")).toEqual({ ok: true, entry: { healthy: true } });
+    fetchMock.mockResolvedValueOnce(httpError(404));
+    expect(await c.getGateStatus("missing")).toBeNull();
+  });
+
+  it("invokeAgent POSTs action+input to /agents/:id/invoke", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({ ok: true, result: { text: "done" } }));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const res = await c.invokeAgent("writer", "summarize", { doc: "x" }, { timeout_ms: 5000 });
+    expect(res).toEqual({ ok: true, result: { text: "done" } });
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toContain("/agents/writer/invoke");
+    expect(JSON.parse(opts.body)).toEqual({ action: "summarize", input: { doc: "x" }, timeout_ms: 5000 });
+  });
+
+  it("recoverAgent POSTs the optional session id", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({ ok: true, recovery: "started" }));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const res = await c.recoverAgent("dca-brain", "sess-1");
+    expect(res).toEqual({ ok: true, recovery: "started" });
+    const [, opts] = fetchMock.mock.calls[0];
+    expect(JSON.parse(opts.body)).toEqual({ session_id: "sess-1" });
+  });
+
+  it("recoverAgent tolerates an absent session id", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({ ok: true }));
+    const c = new DraymondOrchestratorClient("localhost", 8644, "");
+    const res = await c.recoverAgent("dca-brain");
+    expect(res.ok).toBe(true);
+    const [, opts] = fetchMock.mock.calls[0];
+    expect(JSON.parse(opts.body)).toEqual({});
+  });
+});
+
 describe("offline queue", () => {
   it("flushOfflineQueue returns early when empty", async () => {
     const c = new DraymondOrchestratorClient("localhost", 8644, "");
@@ -585,10 +653,10 @@ describe("private helpers", () => {
     expect(await c._discoverAgents()).toEqual({});
   });
 
-  it("_discoverAgents returns {} on error", async () => {
+  it("_discoverAgents throws on network error so connect() fails loudly", async () => {
     fetchMock.mockRejectedValueOnce(new Error("boom"));
     const c = new DraymondOrchestratorClient("localhost", 8644, "");
-    expect(await c._discoverAgents()).toEqual({});
+    await expect(c._discoverAgents()).rejects.toThrow("boom");
   });
 
   it("_setStatus updates status and notifies callback", () => {
@@ -1034,10 +1102,10 @@ describe("workflows API edge cases", () => {
     expect(await c.getWorkflowStatus("wf1")).toBeNull();
   });
 
-  it("_discoverAgents returns {} on a non-ok response", async () => {
+  it("_discoverAgents throws on a non-ok response so auth/server errors surface", async () => {
     fetchMock.mockResolvedValueOnce(httpError(500));
     const c = new DraymondOrchestratorClient("localhost", 8644, "");
-    expect(await c._discoverAgents()).toEqual({});
+    await expect(c._discoverAgents()).rejects.toThrow("HTTP 500");
   });
 });
 

@@ -159,6 +159,33 @@ The **Settings** screen (☰ → Settings) is the app-wide control panel:
 
 ---
 
+## Ecosystem Setup (make Open Chat aware of your world)
+
+Open Chat can be made **ecosystem-aware**: the on-device agent reads a file called
+`ECOSYSTEM.md` and treats its contents as part of its system prompt. This lets the
+assistant know your ecosystem, your agents, and your agenda up front.
+
+**How to create your own `ECOSYSTEM.md`:**
+
+1. Open the bundled `ECOSYSTEM.md` (a blank template is included).
+2. Fill in the three sections with **your** setup:
+
+| Section | What to write |
+|---------|---------------|
+| **1. Ecosystem** | What the system is, who runs it, the overall mission (2–4 sentences). |
+| **2. Agents** | Each agent/fleet member: name, role, what it does. |
+| **3. Agenda** | Your current focus / priorities the assistant should help with. |
+
+3. Save it, rebuild, and reinstall Open Chat.
+
+The content is injected automatically into the on-device model's context — no other
+configuration needed.
+
+**Keep it clean:** only true/current facts, plain short lines, no secrets (never put
+API keys or tokens in it), and update the agenda often.
+
+---
+
 ## Troubleshooting
 
 **"No local models found" in Settings/Models**

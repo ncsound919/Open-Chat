@@ -226,8 +226,12 @@ export function Chat({
           <button
             onClick={async () => {
               setSyncState("syncing");
-              const ok = await onSyncToDraymond();
-              setSyncState(ok ? "ok" : "error");
+              try {
+                const ok = await onSyncToDraymond();
+                setSyncState(ok ? "ok" : "error");
+              } catch {
+                setSyncState("error");
+              }
               setTimeout(() => setSyncState("idle"), 2500);
             }}
             aria-label="Send to Draymond"
@@ -559,8 +563,10 @@ export function Chat({
               botConfig={bot}
               draymondUrl={
                 bot.draymondUrl ||
-                (bot.protocol === "draymond" && bot.host && bot.port
-                  ? `http://${bot.host}:${bot.port}`
+                (bot.protocol === "draymond" && bot.host
+                  ? // Same host normalization as the connection label (https
+                    // for remote tunnel hosts) but without the /api/v1 suffix.
+                    getDraymondConnectionLabel(bot).replace(/\/api\/v1$/, "")
                   : draymondUrl)
               }
               apiKey={bot.token || ""}
@@ -637,7 +643,13 @@ export function Chat({
           {onClearChat && (
             <button
               type="button"
-              onClick={onClearChat}
+              onClick={() => {
+                // Same confirmation gate as the kebab-menu "Clear Chat" — one
+                // tap must not permanently wipe the whole conversation.
+                if (confirm(`Clear all messages with ${bot.name}?`)) {
+                  onClearChat();
+                }
+              }}
               aria-label="Clear chat"
               title="Clear chat"
               style={{
