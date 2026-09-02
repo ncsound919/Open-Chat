@@ -104,7 +104,34 @@ export function StatsScreen({
   draymondNotifications = [],
   agentRegistry = {},
   unread = 0,
+  fleet = null,
 }) {
+  const [busySlug, setBusySlug] = useState(null); // `${slug}:${kind}`
+  const [fleetMsg, setFleetMsg] = useState(null); // { slug, kind, text }
+
+  /** Wake/recover a down agent through the shared fleet controller. */
+  const runFleetAction = async (slug, kind) => {
+    if (!fleet || typeof fleet[kind] !== "function") return;
+    const key = `${slug}:${kind}`;
+    if (busySlug === key) return;
+    setBusySlug(key);
+    const res = await fleet[kind](slug);
+    setFleetMsg({
+      slug,
+      kind: res?.ok === true ? "ok" : "error",
+      text:
+        kind === "ping"
+          ? res?.ok === true
+            ? `Pinged ${slug}`
+            : res?.error || "Ping failed"
+          : res?.ok === true
+          ? `Recovery initiated for ${slug}`
+          : res?.error || "Recovery failed",
+    });
+    setBusySlug(null);
+  };
+
+  const fleetReady = !!fleet && typeof fleet.isReady === "function" && fleet.isReady();
   const hermesBots = useMemo(
     () => bots.filter((b) => b.protocol === "hermes"),
     [bots]
@@ -631,9 +658,56 @@ export function StatsScreen({
                       )}
                     </div>
                     {pill(up ? "#22c55e" : "#ef4444", up ? "up" : "down")}
+                    {fleetReady && !up && (
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <button
+                          onClick={() => runFleetAction(slug, "ping")}
+                          disabled={busySlug === `${slug}:ping`}
+                          title="Record a healthy observation (wake the repair gate)"
+                          style={{
+                            background: "none",
+                            border: "1px solid #34d39960",
+                            color: "#34d399",
+                            borderRadius: 6,
+                            padding: "2px 8px",
+                            fontSize: 11,
+                            cursor: busySlug === `${slug}:ping` ? "default" : "pointer",
+                          }}
+                        >
+                          {busySlug === `${slug}:ping` ? "…" : "Wake"}
+                        </button>
+                        <button
+                          onClick={() => runFleetAction(slug, "recover")}
+                          disabled={busySlug === `${slug}:recover`}
+                          title="Initiate Draymond recovery for this agent"
+                          style={{
+                            background: "none",
+                            border: "1px solid #f59e0b60",
+                            color: "#f59e0b",
+                            borderRadius: 6,
+                            padding: "2px 8px",
+                            fontSize: 11,
+                            cursor: busySlug === `${slug}:recover` ? "default" : "pointer",
+                          }}
+                        >
+                          {busySlug === `${slug}:recover` ? "…" : "Recover"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
+              {fleetMsg && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 11,
+                    color: fleetMsg.kind === "ok" ? "#34d399" : "#ef4444",
+                  }}
+                >
+                  {fleetMsg.text}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -672,4 +746,5 @@ StatsScreen.propTypes = {
   draymondNotifications: PropTypes.array,
   agentRegistry: PropTypes.object,
   unread: PropTypes.number,
+  fleet: PropTypes.object,
 };

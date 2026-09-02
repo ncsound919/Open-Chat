@@ -1810,6 +1810,7 @@ export default function App() {
               draymondNotifications={draymondNotifications}
               agentRegistry={agentRegistry}
               unread={totalUnread}
+              fleet={fleet}
             />
           )}
           {screen === "approvals" && (
