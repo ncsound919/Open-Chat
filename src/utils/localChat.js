@@ -339,6 +339,45 @@ export function looksDegenerate(reply) {
 }
 
 /**
+ * Sanitize a tool result before persisting it on the tool-call card: drop
+ * binary blobs (base64 screenshot data URIs) and truncate very long strings
+ * so history/message state never balloons. Keeps the object shape so callers
+ * can still read fields like `result.error`.
+ */
+export function sanitizeToolResult(result) {
+  if (typeof result === "string") {
+    return result.length > 4000
+      ? `${result.slice(0, 4000)}…[truncated]`
+      : result;
+  }
+  if (result && typeof result === "object") {
+    const copy = {};
+    for (const [k, v] of Object.entries(result)) {
+      if (typeof v === "string" && /^data:image\//i.test(v)) continue;
+      if (typeof v === "string" && v.length > 4000) {
+        copy[k] = `${v.slice(0, 4000)}…[truncated]`;
+      } else {
+        copy[k] = v;
+      }
+    }
+    return copy;
+  }
+  return String(result ?? "");
+}
+
+/**
+ * Bound a tool result to a short text string for feeding back to the model.
+ * A full web_search result can carry a screenshot blob that blows past a
+ * small model's context window — the follow-up generation then returns empty
+ * (the on-device failure: tool runs, answer turn is "").
+ */
+export function toolResultToText(result) {
+  const safe = sanitizeToolResult(result);
+  const text = typeof safe === "string" ? safe : JSON.stringify(safe);
+  return text.length > 2500 ? `${text.slice(0, 2500)}…[truncated]` : text;
+}
+
+/**
  * Generic tool-calling loop (NANO / WEBLLM / fallback). Rebuilds the full
  * prompt each round — used only when persistent sessions aren't available.
  */
@@ -364,12 +403,13 @@ async function genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolH
       const result = await toolHandler(toolCall.name, toolCall.args).catch((err) => ({
         error: err instanceof Error ? err.message : String(err),
       }));
-      toolCalls.push({ ...toolCall, result });
-      onToolCall?.(toolCall, result);
+      const safeResult = sanitizeToolResult(result);
+      toolCalls.push({ ...toolCall, result: safeResult });
+      onToolCall?.(toolCall, safeResult);
       transcript = [
         ...transcript,
         { role: "assistant", content: reply },
-        { role: "user", content: `Tool result: ${JSON.stringify(result)}` },
+        { role: "user", content: `Tool result: ${toolResultToText(result)}` },
       ];
       continue;
     }
@@ -420,7 +460,7 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
   for (let round = 0; round < maxRounds; round++) {
     const incremental = priorReply === null
       ? feedUserTurn(`Current request — answer THIS: ${history[history.length - 1].content}`)
-      : feedUserTurn(`Tool result: ${JSON.stringify(lastToolResult)}${ANSWER_NOW}`);
+      : feedUserTurn(`Tool result: ${toolResultToText(lastToolResult)}${ANSWER_NOW}`);
     let reply;
     try {
       // Buffer the round so tool-call JSON never leaks into the visible chat.
@@ -467,9 +507,10 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
       const result = await toolHandler(toolCall.name, toolCall.args).catch((err) => ({
         error: err instanceof Error ? err.message : String(err),
       }));
-      toolCalls.push({ ...toolCall, result });
-      onToolCall?.(toolCall, result);
-      lastToolResult = result;
+      const safeResult = sanitizeToolResult(result);
+      toolCalls.push({ ...toolCall, result: safeResult });
+      onToolCall?.(toolCall, safeResult);
+      lastToolResult = safeResult;
       priorReply = reply;
       continue;
     }

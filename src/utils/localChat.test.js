@@ -5,6 +5,8 @@ import {
   parseToolCall,
   buildToolSchema,
   looksDegenerate,
+  sanitizeToolResult,
+  toolResultToText,
   PROVIDER,
 } from "./localChat.js";
 
@@ -60,6 +62,32 @@ describe("parseToolCall", () => {
 
   it("returns null for malformed JSON", () => {
     expect(parseToolCall('{"tool":"tap","args":{')).toBeNull();
+  });
+});
+
+describe("sanitizeToolResult / toolResultToText", () => {
+  it("strips base64 screenshot blobs and keeps object shape", () => {
+    const result = {
+      ok: true,
+      results: ["line"],
+      screenshot: "data:image/png;base64,AAAA",
+    };
+    const safe = sanitizeToolResult(result);
+    expect(safe.screenshot).toBeUndefined();
+    expect(safe.ok).toBe(true);
+    expect(safe.results).toEqual(["line"]);
+  });
+
+  it("bounds the model-facing text", () => {
+    const big = { results: ["x".repeat(4000)], ok: true };
+    const text = toolResultToText(big);
+    expect(text.length).toBeLessThanOrEqual(2600);
+    expect(text).toContain("[truncated]");
+  });
+
+  it("preserves short error objects for the card", () => {
+    const safe = sanitizeToolResult({ error: "boom" });
+    expect(safe.error).toBe("boom");
   });
 });
 
