@@ -133,21 +133,36 @@ const STOPWORDS = new Set([
   "it","its","this","that","as","at","by","from","about","into","over","vs",
 ]);
 
-/** Cloudflare Worker URL. Configurable via VITE_NEWS_WORKER_URL; falls back to dev default. */
+/** Cloudflare Worker URL. Configurable via VITE_NEWS_WORKER_URL; falls back to
+ *  the known-live worker (the old default, news-worker.overlay365.workers.dev,
+ *  does not resolve — a build without the env override silently returned no
+ *  headlines). */
 const NEWS_WORKER_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_NEWS_WORKER_URL) ||
-  "https://news-worker.overlay365.workers.dev";
+  "https://news-worker.tap4500.workers.dev";
 
 /**
  * Fetch real news headlines from the news-worker Cloudflare Worker.
  * Returns verified 2026 headlines with source URLs (not Wikipedia stubs).
- * Each failure mode degrades quietly — caller decides what to do with empty results.
+ *
+ * The worker can be slow on cold start and intermittently times out — so on a
+ * fetch failure this retries with backoff (an empty-but-successful response is
+ * honored immediately: no point retrying a query the worker answered).
  */
 async function fetchNews(query, limit = 25) {
   const url = `${NEWS_WORKER_URL}?q=${encodeURIComponent(query)}&limit=${limit}`;
-  const data = await fetchJson(url, 8000);
-  if (!data || !Array.isArray(data.articles)) return [];
-  return data.articles.map((a) => ({
+  let lastData = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const data = await fetchJson(url, 15000);
+    if (Array.isArray(data?.articles)) {
+      lastData = data;
+      if (data.articles.length > 0) break; // got headlines
+      return []; // worker answered; genuinely no articles for this query
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+  }
+  if (!Array.isArray(lastData?.articles)) return [];
+  return lastData.articles.map((a) => ({
     source: a.source || "news",
     title: a.title || "",
     text: [a.title, a.summary].filter(Boolean).join(" — "),

@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   mediaPipeBundleToEntry,
   formatBytes,
@@ -7,7 +7,7 @@ import {
   autoLoadMediaPipeModel,
   MODEL_STATE,
 } from "./modelRegistry.js";
-import gemma from "@open-chat/mediapipe-gemma";
+import litert from "@open-chat/litert-lm";
 
 vi.mock("./localModels.js", () => ({
   scanLocalModels: vi.fn(async () => [
@@ -15,7 +15,7 @@ vi.mock("./localModels.js", () => ({
   ]),
 }));
 
-vi.mock("@open-chat/mediapipe-gemma", () => ({
+vi.mock("@open-chat/litert-lm", () => ({
   default: {
     getStatus: vi.fn(async () => ({ available: true, modelLoaded: false })),
     listModels: vi.fn(async () => ({ models: [] })),
@@ -44,15 +44,15 @@ vi.mock("@open-chat/phone-control", () => ({
 describe("mediaPipeBundleToEntry", () => {
   it("normalizes a known bundle", () => {
     const entry = mediaPipeBundleToEntry({
-      fileName: "gemma-3n-E4B-it-int4.task",
+      fileName: "Qwen3.5-4B_int8.litertlm",
       sizeBytes: 1000,
       loaded: true,
-      path: "/data/user/0/com.openchat.app/files/models/gemma-3n-E4B-it-int4.task",
+      path: "/data/user/0/com.openchat.app/files/models/Qwen3.5-4B_int8.litertlm",
     });
-    expect(entry.id).toBe("gemma-e4b");
-    expect(entry.name).toBe("Gemma 3n E4B");
+    expect(entry.id).toBe("qwen3-5-4b");
+    expect(entry.name).toBe("Qwen3.5 4B");
     expect(entry.kind).toBe("ondevice");
-    expect(entry.provider).toBe("mediapipe");
+    expect(entry.provider).toBe("litertlm");
     expect(entry.loaded).toBe(true);
   });
 
@@ -87,44 +87,44 @@ describe("autoLoadMediaPipeModel", () => {
   });
 
   it("returns null when no bundle exists", async () => {
-    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
-    gemma.listModels.mockResolvedValue({ models: [] });
+    litert.getStatus.mockResolvedValue({ modelLoaded: false });
+    litert.listModels.mockResolvedValue({ models: [] });
     expect(await autoLoadMediaPipeModel()).toBeNull();
   });
 
   it("returns the loaded path when a model is already loaded", async () => {
-    gemma.getStatus.mockResolvedValue({ modelLoaded: true, modelPath: "/m/gemma.task" });
+    litert.getStatus.mockResolvedValue({ modelLoaded: true, modelPath: "/m/gemma.task" });
     expect(await autoLoadMediaPipeModel()).toBe("/m/gemma.task");
-    expect(gemma.loadModel).not.toHaveBeenCalled();
+    expect(litert.loadModel).not.toHaveBeenCalled();
   });
 
   it("loads the first bundle when none is loaded", async () => {
-    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
-    gemma.listModels.mockResolvedValue({ models: [{ fileName: "gemma.task" }] });
-    gemma.loadModel.mockResolvedValue({ ok: true, modelPath: "/m/loaded" });
+    litert.getStatus.mockResolvedValue({ modelLoaded: false });
+    litert.listModels.mockResolvedValue({ models: [{ fileName: "gemma.task" }] });
+    litert.loadModel.mockResolvedValue({ ok: true, modelPath: "/m/loaded" });
     expect(await autoLoadMediaPipeModel()).toBe("/m/loaded");
-    expect(gemma.loadModel).toHaveBeenCalledWith(
+    expect(litert.loadModel).toHaveBeenCalledWith(
       expect.objectContaining({ fileName: "gemma.task", backend: "cpu" })
     );
   });
 
   it("returns null when loadModel fails", async () => {
-    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
-    gemma.listModels.mockResolvedValue({ models: [{ fileName: "gemma.task" }] });
-    gemma.loadModel.mockResolvedValue({ ok: false });
+    litert.getStatus.mockResolvedValue({ modelLoaded: false });
+    litert.listModels.mockResolvedValue({ models: [{ fileName: "gemma.task" }] });
+    litert.loadModel.mockResolvedValue({ ok: false });
     expect(await autoLoadMediaPipeModel()).toBeNull();
   });
 
   it("returns null when listModels throws", async () => {
-    gemma.getStatus.mockResolvedValue({ modelLoaded: false });
-    gemma.listModels.mockRejectedValue(new Error("boom"));
+    litert.getStatus.mockResolvedValue({ modelLoaded: false });
+    litert.listModels.mockRejectedValue(new Error("boom"));
     expect(await autoLoadMediaPipeModel()).toBeNull();
   });
 });
 
 describe("formatBytes", () => {
   it("formats units", () => {
-    expect(formatBytes(0)).toBe("—");
+    expect(formatBytes(0)).toBe("\u2014");
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2048)).toBe("2 KB");
     expect(formatBytes(1048576)).toBe("1 MB");

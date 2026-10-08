@@ -88,7 +88,7 @@ vi.mock("./protocols/LocalModelClient.js", () => ({
     this.send = vi.fn(async () => "ok");
   }),
 }));
-vi.mock("@open-chat/mediapipe-gemma", () => ({
+vi.mock("@open-chat/litert-lm", () => ({
   default: {
     getStatus: vi.fn(async () => ({ available: true, modelLoaded: false })),
     listModels: vi.fn(async () => ({ models: [] })),

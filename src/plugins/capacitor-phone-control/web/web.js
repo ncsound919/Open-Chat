@@ -70,7 +70,7 @@ export async function stopSpeaking() {
 }
 
 /** Web fallback: no native STT on web — return unavailable error. */
-export async function startSpeechRecognition({ language, prompt } = {}) {
+export async function startSpeechRecognition() {
   return { ok: false, error: "speech recognition requires the native Android plugin" };
 }
 

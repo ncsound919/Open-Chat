@@ -1,77 +1,78 @@
 {
-    "name":  "open-chat",
-    "main":  "electron/main.js",
-    "version":  "1.1.0",
-    "description":  "Private, local-first chat app for autonomous agents (OpenClaw, Hermes, Draymond Orchestrator, SubTeam, Uplift Bridge, ntfy)",
-    "type":  "module",
-    "engines":  {
-                    "node":  "\u003e=20.19.0"
-                },
-    "repository":  {
-                       "type":  "git",
-                       "url":  "git+https://github.com/ncsound919/Open-Chat.git"
-                   },
-    "bugs":  {
-                 "url":  "https://github.com/ncsound919/Open-Chat/issues"
-             },
-    "homepage":  "https://github.com/ncsound919/Open-Chat#readme",
-    "scripts":  {
-                    "dev":  "vite",
-                    "build":  "vite build",
-                    "preview":  "vite preview",
-                    "lint":  "eslint src --report-unused-disable-directives --max-warnings 0",
-                    "test":  "vitest run",
-                    "test:coverage":  "vitest run --coverage",
-                    "electron:dev":  "vite build \u0026\u0026 electron .",
-                    "electron:build":  "vite build \u0026\u0026 electron-builder --win --mac --linux",
-                    "android:dev":  "vite build \u0026\u0026 npx cap sync android \u0026\u0026 npx cap open android",
-                    "android:build":  "vite build \u0026\u0026 npx cap sync android",
-                    "android:sync":  "npx cap sync android",
-                    "android:open":  "npx cap open android"
-                },
-    "dependencies":  {
-                         "@capacitor/android":  "^8.3.0",
-    "@open-chat/mediapipe-gemma":  "file:src/plugins/capacitor-mediapipe-gemma",
-    "@open-chat/onnx-imagegen":  "file:src/plugins/capacitor-onnx-imagegen",
-    "@open-chat/phone-control":  "file:src/plugins/capacitor-phone-control",
-                         "@capacitor/app":  "^8.1.0",
-                         "@capacitor/haptics":  "^8.0.2",
-                         "@capacitor/keyboard":  "^8.0.2",
-                         "@capacitor/local-notifications":  "^8.0.2",
-                         "@capacitor/network":  "^8.0.1",
-                         "@capacitor/preferences":  "^8.0.1",
-                         "@capacitor/status-bar":  "^8.0.2",
-                         "prop-types":  "^15.8.1",
-                         "react":  "^19.2.8",
-                         "react-dom":  "^19.2.8"
-                     },
-    "devDependencies":  {
-                            "@capacitor/cli":  "^8.5.0",
-                            "@testing-library/jest-dom":  "^7.0.0",
-                            "@testing-library/react":  "^16.3.2",
-                            "@testing-library/user-event":  "^14.6.3",
-                            "@types/react":  "^19.2.18",
-                            "@types/react-dom":  "^19.2.4",
-                            "@vitejs/plugin-react":  "^6.0.5",
-                            "@vitest/coverage-v8":  "^4.1.10",
-                            "electron":  "^43.3.0",
-                            "electron-builder":  "^26.15.3",
-                            "eslint":  "^8.55.0",
-                            "eslint-plugin-react":  "^7.33.2",
-                            "eslint-plugin-react-hooks":  "^4.6.0",
-                            "eslint-plugin-react-refresh":  "^0.4.5",
-                            "jsdom":  "^30.0.1",
-                            "vite":  "^8.2.0",
-                            "vitest":  "^4.1.10"
-                        },
-    "keywords":  [
-                     "chat",
-                     "agent",
-                     "openclaw",
-                     "hermes",
-                     "ai",
-                     "local-first"
-                 ],
-    "author":  "ncsound919",
-    "license":  "MIT"
+    "name": "open-chat",
+    "main": "electron/main.js",
+    "version": "1.1.0",
+    "description": "Private, local-first chat app for autonomous agents (OpenClaw, Hermes, Draymond Orchestrator, SubTeam, Uplift Bridge, ntfy)",
+    "type": "module",
+    "engines": {
+        "node": ">=20.19.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ncsound919/Open-Chat.git"
+    },
+    "bugs": {
+        "url": "https://github.com/ncsound919/Open-Chat/issues"
+    },
+    "homepage": "https://github.com/ncsound919/Open-Chat#readme",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview",
+        "lint": "eslint src --report-unused-disable-directives --max-warnings 0",
+        "test": "vitest run",
+        "test:coverage": "vitest run --coverage",
+        "electron:dev": "vite build && electron .",
+        "electron:build": "vite build && electron-builder --win --mac --linux",
+        "android:dev": "vite build && npx cap sync android && npx cap open android",
+        "android:build": "vite build && npx cap sync android",
+        "android:sync": "npx cap sync android",
+        "android:open": "npx cap open android"
+    },
+    "dependencies": {
+        "@capacitor/android": "^8.3.0",
+        "@capacitor/app": "^8.1.0",
+        "@capacitor/haptics": "^8.0.2",
+        "@capacitor/keyboard": "^8.0.2",
+        "@capacitor/local-notifications": "^8.0.2",
+        "@capacitor/network": "^8.0.1",
+        "@capacitor/preferences": "^8.0.1",
+        "@capacitor/status-bar": "^8.0.2",
+        "@open-chat/litert-lm": "file:src/plugins/capacitor-litert-lm",
+        "@open-chat/onnx-imagegen": "file:src/plugins/capacitor-onnx-imagegen",
+        "@open-chat/phone-control": "file:src/plugins/capacitor-phone-control",
+        "prop-types": "^15.8.1",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
+        "ws": "^8.21.3"
+    },
+    "devDependencies": {
+        "@capacitor/cli": "^8.5.0",
+        "@testing-library/jest-dom": "^7.0.0",
+        "@testing-library/react": "^16.3.2",
+        "@testing-library/user-event": "^14.6.3",
+        "@types/react": "^19.2.18",
+        "@types/react-dom": "^19.2.4",
+        "@vitejs/plugin-react": "^6.0.5",
+        "@vitest/coverage-v8": "^4.1.10",
+        "electron": "^43.3.0",
+        "electron-builder": "^26.15.3",
+        "eslint": "^8.55.0",
+        "eslint-plugin-react": "^7.33.2",
+        "eslint-plugin-react-hooks": "^4.6.0",
+        "eslint-plugin-react-refresh": "^0.4.5",
+        "jsdom": "^30.0.1",
+        "vite": "^8.2.0",
+        "vitest": "^4.1.10"
+    },
+    "keywords": [
+        "chat",
+        "agent",
+        "openclaw",
+        "hermes",
+        "ai",
+        "local-first"
+    ],
+    "author": "ncsound919",
+    "license": "MIT"
 }

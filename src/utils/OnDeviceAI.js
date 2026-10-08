@@ -265,10 +265,9 @@ export async function localChat(prompt, options = {}) {
  * ── GGUF provider (Gemma 3 4B on-device, tool-calling + skills) ────────────
  * Runs GGUF models NATIVELY on the phone — NOT via CDN llama-cpp-wasm (WASM
  * has no GPU/NPU access and is far too slow for a 4B model in a WebView).
- * Provider chain:
+* Provider chain:
  *   1. Native llama.cpp Capacitor bridge (`@capacitor/llama`, JNI + Vulkan)
- *   2. Google MediaPipe LLM Inference API (`@capacitor/mediapipe`, .task bundle)
- *   3. Desktop fallback: WebGPU WASM (dev only)
+ *   2. Desktop fallback: WebGPU WASM (dev only)
  * Tool calling uses Gemma 3's structured chat-template format (a JSON tool
  * call turn → execute → tool result turn → final answer).
  */
@@ -311,10 +310,7 @@ async function loadGgufRuntime() {
   // 1) Native llama.cpp bridge (real GGUF + Vulkan) on the phone.
   const llama = await withTimeout(nativeModule("@capacitor/llama"), 2500, "llama-plugin");
   if (llama?.LLaMA) return { runtime: "native-llama", api: llama.LLaMA };
-  // 2) MediaPipe LLM Inference (GPU-accelerated, official Gemma, .task bundle).
-  const mp = await withTimeout(nativeModule("@capacitor/mediapipe"), 2500, "mediapipe-plugin");
-  if (mp?.LLM) return { runtime: "mediapipe", api: mp.LLM };
-  // 3) Desktop-dev WASM fallback — NEVER on the phone (a CDN fetch from a
+  // 2) Desktop-dev WASM fallback — NEVER on the phone (a CDN fetch from a
   //    WebView can stall the renderer, and WASM is useless without GPU/NPU).
   if (await isNativeShell()) return { runtime: "none", api: null };
   const mod = await withTimeout(
@@ -343,9 +339,6 @@ export async function initGguf(modelKey = "gemma3-4b", onProgress) {
   let session;
   if (runtime === "native-llama") {
     session = await api.loadModel({ modelFileName: ggufName, contextSize: 4096, gpu: "vulkan" });
-  } else if (runtime === "mediapipe") {
-    const asset = await api.loadModelFromAssets(ggufName.replace(/\.gguf$/, ".task"));
-    session = { runtime: "mediapipe", asset };
   } else {
     session = await api.createSession({
       modelFilePath: `https://huggingface.co/bartowski/gemma-3-4b-it-GGUF/resolve/main/${ggufName}`,
@@ -378,7 +371,6 @@ export async function chatGguf(prompt, options = {}) {
   const complete = async (turns) => {
     const transcript = turns.map((m) => `${m.role}: ${m.content}`).join("\n");
     if (runtime === "native-llama") return api.chat(session, turns);
-    if (runtime === "mediapipe") return api.generateResponse(transcript);
     return session.prompt(transcript);
   };
 

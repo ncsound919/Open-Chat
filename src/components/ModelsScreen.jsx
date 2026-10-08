@@ -281,8 +281,8 @@ export function ModelsScreen({
                 Private chat engine
               </div>
               <div style={{ fontSize: 12, color: "#555568" }}>
-                {provider === PROVIDER.MEDIAPIPE
-                  ? "Gemma (MediaPipe) · GPU/NPU"
+                {provider === PROVIDER.MEDIAPIPE || provider === PROVIDER.LITERT_LM
+                  ? "LiteRT-LM · CPU/GPU"
                   : provider === PROVIDER.NANO
                     ? "Gemini Nano"
                     : provider === PROVIDER.WEBLLM

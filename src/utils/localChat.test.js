@@ -11,7 +11,8 @@ import {
 } from "./localChat.js";
 
 vi.mock("./modelRegistry.js", () => ({
-  loadMediaPipe: vi.fn(async () => null),
+  loadLitertLm: vi.fn(async () => null),
+  reloadLitertLmWithBackend: vi.fn(async () => true),
 }));
 
 describe("buildGemmaPrompt", () => {
@@ -214,7 +215,7 @@ describe("chatLocal", () => {
       cancel: vi.fn(async () => ({})),
     };
     vi.doMock("./modelRegistry.js", () => ({
-      loadMediaPipe: vi.fn(async () => mpMock),
+      loadLitertLm: vi.fn(async () => mpMock),
     }));
     vi.doMock("./OnDeviceAI.js", () => ({
       isAvailable: vi.fn(async () => false),
@@ -266,7 +267,7 @@ describe("chatLocal", () => {
       cancel: vi.fn(async () => ({})),
     };
     vi.doMock("./modelRegistry.js", () => ({
-      loadMediaPipe: vi.fn(async () => mpMock),
+      loadLitertLm: vi.fn(async () => mpMock),
     }));
     vi.doMock("./OnDeviceAI.js", () => ({
       isAvailable: vi.fn(async () => false),
@@ -291,7 +292,7 @@ describe("chatLocal", () => {
       cancel: vi.fn(async () => ({})),
     };
     vi.doMock("./modelRegistry.js", () => ({
-      loadMediaPipe: vi.fn(async () => mpMock),
+      loadLitertLm: vi.fn(async () => mpMock),
     }));
     vi.doMock("./OnDeviceAI.js", () => ({
       isAvailable: vi.fn(async () => false),

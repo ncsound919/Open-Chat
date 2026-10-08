@@ -711,8 +711,9 @@ export function Settings({
                 onChange={updateField("model")}
               >
                 <option value="auto">Auto (best available)</option>
-                <option value="gemma_e4b">Gemma 3n E4B (flagship)</option>
-                <option value="gemma_e2b">Gemma 3n E2B (fast)</option>
+                <option value="qwen3_5_4b">Qwen3.5 4B (flagship)</option>
+                <option value="qwen3_5_0_8b">Qwen3.5 0.8B (fast)</option>
+                <option value="gemma4_e2b">Gemma 4 E2B (multimodal)</option>
                 <option value="nano">Gemini Nano</option>
                 <option value="webllm">WebLLM (WebGPU)</option>
               </select>

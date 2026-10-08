@@ -1,7 +1,7 @@
 {
-  "name": "@open-chat/mediapipe-gemma",
+  "name": "@open-chat/litert-lm",
   "version": "1.0.0",
-  "description": "Open-Chat native on-device Gemma runtime via MediaPipe tasks-genai: download, load, stream, and tool-call Gemma E2B/E4B .task bundles fully on-device.",
+  "description": "Open-Chat native on-device LLM runtime via Google LiteRT-LM: download, load, stream, and tool-call Qwen3.5 / Gemma 4 .litertlm bundles fully on-device.",
   "type": "module",
   "main": "web/index.js",
   "module": "web/index.js",
@@ -13,9 +13,10 @@
   "keywords": [
     "capacitor",
     "plugin",
-    "mediapipe",
-    "gemma",
+    "litert",
+    "litert-lm",
     "llm",
+    "qwen",
     "on-device"
   ],
   "capacitor": {

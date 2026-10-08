@@ -1,4 +1,4 @@
-package com.openchat.mediapipegemma
+package com.openchat.litertlm
 
 import android.util.Log
 import com.getcapacitor.JSArray
@@ -7,12 +7,15 @@ import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
-import com.google.common.util.concurrent.FutureCallback
-import com.google.common.util.concurrent.Futures
-import com.google.common.util.concurrent.MoreExecutors
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
-import com.google.mediapipe.tasks.genai.llminference.ProgressListener
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.SamplerConfig
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -20,25 +23,27 @@ import java.net.URL
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.max
 
 /**
- * MediaPipeGemma — on-device Gemma (tasks-genai).
+ * LitertLmPlugin — on-device LLM runtime via Google LiteRT-LM.
  *
- * Downloads .task bundles into getFilesDir()/models, loads one into the
- * MediaPipe LLM session, and streams generations via notifyListeners.
+ * Downloads `.litertlm` bundles into getFilesDir()/models, initializes an
+ * [Engine], holds one persistent [Conversation] (system prompt seeded once in
+ * the KV cache), and streams generations via notifyListeners. JS-facing method
+ * names and argument shapes mirror the retired MediaPipe plugin so the chat
+ * loop swaps providers with zero contract changes.
  */
-@CapacitorPlugin(name = "MediaPipeGemma")
-class MediaPipeGemmaPlugin : Plugin() {
+@CapacitorPlugin(name = "LitertLm")
+class LitertLmPlugin : Plugin() {
 
     companion object {
-        private const val TAG = "MediaPipeGemma"
+        private const val TAG = "LitertLm"
         private const val MODELS_DIR = "models"
     }
 
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private var llm: LlmInference? = null
-    private var persistentSession: LlmInferenceSession? = null
+    private var engine: Engine? = null
+    private var conversation: Conversation? = null
     private var loadedFileName: String? = null
     private var loadedBackend: String? = null
     private val cancelled = AtomicBoolean(false)
@@ -53,7 +58,7 @@ class MediaPipeGemmaPlugin : Plugin() {
     fun getStatus(call: PluginCall) {
         val ret = JSObject()
         ret.put("available", true)
-        ret.put("modelLoaded", llm != null)
+        ret.put("modelLoaded", engine != null)
         ret.put("modelPath", loadedFileName?.let { File(modelsDir(), it).absolutePath } ?: "")
         ret.put("loadedFileName", loadedFileName ?: "")
         ret.put("backend", loadedBackend ?: "none")
@@ -63,7 +68,7 @@ class MediaPipeGemmaPlugin : Plugin() {
     @PluginMethod
     fun listModels(call: PluginCall) {
         val models = JSArray()
-        modelsDir().listFiles { f -> f.isFile && f.name.endsWith(".task") }
+        modelsDir().listFiles { f -> f.isFile && f.name.endsWith(".litertlm") }
             ?.sortedByDescending { it.lastModified() }
             ?.forEach { f ->
                 val o = JSObject()
@@ -144,6 +149,19 @@ class MediaPipeGemmaPlugin : Plugin() {
         }
     }
 
+    private fun closeEngine() {
+        try {
+            conversation?.close()
+        } catch (_: Exception) {
+        }
+        conversation = null
+        try {
+            engine?.close()
+        } catch (_: Exception) {
+        }
+        engine = null
+    }
+
     @PluginMethod
     fun loadModel(call: PluginCall) {
         val fileName = call.getString("fileName")?.trim()?.takeIf { it.isNotEmpty() } ?: run {
@@ -154,32 +172,24 @@ class MediaPipeGemmaPlugin : Plugin() {
             call.reject("model file not found: $fileName")
             return
         }
-        val maxTokens = call.getInt("maxTokens") ?: 4096
-        val topK = call.getInt("topK") ?: 40
         val backendName = call.getString("backend") ?: "auto"
 
         ioExecutor.execute {
             try {
-                llm?.close()
-            } catch (_: Exception) {
-            }
-            try {
-                persistentSession?.close()
-            } catch (_: Exception) {
-            }
-            persistentSession = null
-            try {
-                val builder = LlmInference.LlmInferenceOptions.builder()
-                    .setModelPath(file.absolutePath)
-                    .setMaxTokens(maxTokens)
-                    .setMaxTopK(topK)
-                when (backendName.lowercase()) {
-                    "gpu" -> builder.setPreferredBackend(LlmInference.Backend.GPU)
-                    "cpu" -> builder.setPreferredBackend(LlmInference.Backend.CPU)
-                    else -> builder.setPreferredBackend(LlmInference.Backend.DEFAULT)
+                closeEngine()
+                val backend = when (backendName.lowercase()) {
+                    "gpu" -> Backend.GPU()
+                    "cpu" -> Backend.CPU()
+                    else -> Backend.CPU()
                 }
-                val session = LlmInference.createFromOptions(context, builder.build())
-                llm = session
+                val config = EngineConfig(
+                    modelPath = file.absolutePath,
+                    backend = backend,
+                    cacheDir = context.cacheDir.absolutePath,
+                )
+                val e = Engine(config)
+                e.initialize()
+                engine = e
                 loadedFileName = fileName
                 loadedBackend = backendName.lowercase()
                 val ret = JSObject()
@@ -194,33 +204,26 @@ class MediaPipeGemmaPlugin : Plugin() {
         }
     }
 
-    /**
-     * Begin (or reset) a persistent conversation session. Optionally seeds the
-     * system prompt once so it is NOT re-processed on every generation turn.
-     * Without an active session the per-turn `generateSession` calls reject.
-     */
+    /** Begin (or reset) the persistent conversation, seeding the system prompt once. */
     @PluginMethod
     fun beginSession(call: PluginCall) {
         val systemPrompt = call.getString("systemPrompt") ?: ""
-        val llm = this.llm
-        if (llm == null) {
+        val engine = this.engine
+        if (engine == null) {
             call.reject("no model loaded")
             return
         }
         ioExecutor.execute {
             try {
-                persistentSession?.close()
+                conversation?.close()
             } catch (_: Exception) {
             }
             try {
-                val newSession = LlmInferenceSession.createFromOptions(
-                    llm,
-                    LlmInferenceSession.LlmInferenceSessionOptions.builder().build()
+                val cfg = ConversationConfig(
+                    systemInstruction = if (systemPrompt.isNotEmpty()) Contents.of(systemPrompt) else null,
+                    samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7),
                 )
-                persistentSession = newSession
-                if (systemPrompt.isNotEmpty()) {
-                    newSession.addQueryChunk(systemPrompt)
-                }
+                conversation = engine.createConversation(cfg)
                 call.resolve(JSObject().put("ok", true))
             } catch (e: Exception) {
                 Log.e(TAG, "beginSession failed", e)
@@ -229,63 +232,56 @@ class MediaPipeGemmaPlugin : Plugin() {
         }
     }
 
-    /**
-     * Generate against the persistent session, appending `prompt` to the
-     * ongoing context (KV cache) instead of reprocessing the full prompt.
-     */
+    /** Generate against the persistent conversation, appending `prompt` to context. */
     @PluginMethod
     fun generateSession(call: PluginCall) {
         val prompt = call.getString("prompt")?.takeIf { it.isNotEmpty() } ?: run {
             call.reject("prompt required"); return
         }
         val sessionId = call.getString("sessionId") ?: "default"
-        val session = persistentSession ?: run {
+        val conversation = this.conversation ?: run {
             call.reject("no active session — call beginSession first"); return
         }
         cancelled.set(false)
         ioExecutor.execute {
             try {
-                session.addQueryChunk(prompt)
                 val sb = StringBuilder()
-                val future = session.generateResponseAsync(
-                    object : ProgressListener<String> {
-                        override fun run(partial: String, done: Boolean) {
-                            if (partial.isNotEmpty()) {
-                                sb.append(partial)
-                                val ev = JSObject()
-                                ev.put("sessionId", sessionId)
-                                ev.put("text", partial)
-                                ev.put("done", done)
-                                notifyListeners("generate:progress", ev, false)
-                            }
-                            if (done) {
-                                val doneEv = JSObject()
-                                doneEv.put("sessionId", sessionId)
-                                doneEv.put("text", "")
-                                doneEv.put("done", true)
-                                notifyListeners("generate:progress", doneEv, false)
-                            }
+                val callback = object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        val partial = message.toString()
+                        if (partial.isNotEmpty()) {
+                            sb.append(partial)
+                            val ev = JSObject()
+                            ev.put("sessionId", sessionId)
+                            ev.put("text", partial)
+                            ev.put("done", false)
+                            notifyListeners("generate:progress", ev, false)
                         }
                     }
-                )
-                Futures.addCallback(future, object : FutureCallback<String> {
-                    override fun onSuccess(result: String) {
+
+                    override fun onDone() {
                         if (cancelled.get()) {
                             call.reject("cancelled")
                             return
                         }
+                        val doneEv = JSObject()
+                        doneEv.put("sessionId", sessionId)
+                        doneEv.put("text", "")
+                        doneEv.put("done", true)
+                        notifyListeners("generate:progress", doneEv, false)
                         val ret = JSObject()
-                        ret.put("text", result ?: sb.toString())
+                        ret.put("text", sb.toString())
                         ret.put("ok", true)
                         call.resolve(ret)
                     }
 
-                    override fun onFailure(t: Throwable) {
-                        Log.e(TAG, "generateSession failed", t)
+                    override fun onError(throwable: Throwable) {
+                        Log.e(TAG, "generateSession failed", throwable)
                         if (cancelled.get()) call.reject("cancelled")
-                        else call.reject("generateSession failed: ${t.message}")
+                        else call.reject("generateSession failed: ${throwable.message}")
                     }
-                }, MoreExecutors.directExecutor())
+                }
+                conversation.sendMessageAsync(prompt, callback)
             } catch (e: Exception) {
                 Log.e(TAG, "generateSession call failed", e)
                 call.reject("generateSession failed: ${e.message}")
@@ -293,77 +289,77 @@ class MediaPipeGemmaPlugin : Plugin() {
         }
     }
 
-    /** Drop the persistent session context (start a fresh conversation). */
+    /** Drop the persistent conversation (start a fresh one). */
     @PluginMethod
     fun resetSession(call: PluginCall) {
         ioExecutor.execute {
             try {
-                persistentSession?.close()
+                conversation?.close()
             } catch (_: Exception) {
             }
-            persistentSession = null
+            conversation = null
             call.resolve(JSObject().put("ok", true))
         }
     }
 
+    /** Stateless single-turn generation via a throwaway conversation. */
     @PluginMethod
     fun generate(call: PluginCall) {
         val prompt = call.getString("prompt")?.takeIf { it.isNotEmpty() } ?: run {
             call.reject("prompt required"); return
         }
         val sessionId = call.getString("sessionId") ?: "default"
-        val session = llm
-        if (session == null) {
+        val engine = this.engine
+        if (engine == null) {
             call.reject("no model loaded")
             return
         }
         cancelled.set(false)
         ioExecutor.execute {
+            var oneShot: Conversation? = null
             try {
+                oneShot = engine.createConversation()
                 val sb = StringBuilder()
-                val future = session.generateResponseAsync(
-                    prompt,
-                    object : ProgressListener<String> {
-                        override fun run(partial: String, done: Boolean) {
-                            if (partial.isNotEmpty()) {
-                                sb.append(partial)
-                                val ev = JSObject()
-                                ev.put("sessionId", sessionId)
-                                ev.put("text", partial)
-                                ev.put("done", done)
-                                notifyListeners("generate:progress", ev, false)
-                            }
-                            if (done) {
-                                val doneEv = JSObject()
-                                doneEv.put("sessionId", sessionId)
-                                doneEv.put("text", "")
-                                doneEv.put("done", true)
-                                notifyListeners("generate:progress", doneEv, false)
-                            }
+                val callback = object : MessageCallback {
+                    override fun onMessage(message: Message) {
+                        val partial = message.toString()
+                        if (partial.isNotEmpty()) {
+                            sb.append(partial)
+                            val ev = JSObject()
+                            ev.put("sessionId", sessionId)
+                            ev.put("text", partial)
+                            ev.put("done", false)
+                            notifyListeners("generate:progress", ev, false)
                         }
                     }
-                )
-                Futures.addCallback(future, object : FutureCallback<String> {
-                    override fun onSuccess(result: String) {
-                        if (cancelled.get()) {
-                            call.reject("cancelled")
-                            return
-                        }
+
+                    override fun onDone() {
+                        val doneEv = JSObject()
+                        doneEv.put("sessionId", sessionId)
+                        doneEv.put("text", "")
+                        doneEv.put("done", true)
+                        notifyListeners("generate:progress", doneEv, false)
                         val ret = JSObject()
-                        ret.put("text", result ?: sb.toString())
+                        ret.put("text", sb.toString())
                         ret.put("ok", true)
                         call.resolve(ret)
                     }
 
-                    override fun onFailure(t: Throwable) {
-                        Log.e(TAG, "generate failed", t)
+                    override fun onError(throwable: Throwable) {
+                        Log.e(TAG, "generate failed", throwable)
                         if (cancelled.get()) call.reject("cancelled")
-                        else call.reject("generate failed: ${t.message}")
+                        else call.reject("generate failed: ${throwable.message}")
                     }
-                }, MoreExecutors.directExecutor())
+                }
+                oneShot.sendMessageAsync(prompt, callback)
             } catch (e: Exception) {
                 Log.e(TAG, "generate call failed", e)
                 call.reject("generate failed: ${e.message}")
+            } finally {
+                try {
+                    oneShot?.close()
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -371,22 +367,15 @@ class MediaPipeGemmaPlugin : Plugin() {
     @PluginMethod
     fun cancel(call: PluginCall) {
         cancelled.set(true)
+        // Best-effort native cancel is not exposed on Conversation; the
+        // cancelled flag stops progress events and rejects the in-flight call.
         call.resolve(JSObject().put("ok", true))
     }
 
     @PluginMethod
     fun unloadModel(call: PluginCall) {
         ioExecutor.execute {
-            try {
-                llm?.close()
-            } catch (_: Exception) {
-            }
-            try {
-                persistentSession?.close()
-            } catch (_: Exception) {
-            }
-            llm = null
-            persistentSession = null
+            closeEngine()
             loadedFileName = null
             loadedBackend = null
             call.resolve(JSObject().put("ok", true))
@@ -405,17 +394,9 @@ class MediaPipeGemmaPlugin : Plugin() {
         }
         if (fileName == loadedFileName) {
             ioExecutor.execute {
-                try {
-                    llm?.close()
-                } catch (_: Exception) {
-                }
-                try {
-                    persistentSession?.close()
-                } catch (_: Exception) {
-                }
-                llm = null
-                persistentSession = null
+                closeEngine()
                 loadedFileName = null
+                loadedBackend = null
                 if (file.delete()) call.resolve(JSObject().put("ok", true))
                 else call.reject("delete failed")
             }
@@ -427,16 +408,7 @@ class MediaPipeGemmaPlugin : Plugin() {
 
     override fun handleOnDestroy() {
         ioExecutor.shutdownNow()
-        try {
-            llm?.close()
-        } catch (_: Exception) {
-        }
-        try {
-            persistentSession?.close()
-        } catch (_: Exception) {
-        }
-        llm = null
-        persistentSession = null
+        closeEngine()
         loadedFileName = null
         loadedBackend = null
         super.handleOnDestroy()

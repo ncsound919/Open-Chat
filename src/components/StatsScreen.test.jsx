@@ -55,6 +55,43 @@ vi.mock("../protocols/DraymondOrchestratorClient.js", () => ({
         },
       });
     }
+    getEcosystemStatus() {
+      return Promise.resolve({
+        ok: true,
+        generatedAt: "2026-09-02T00:00:00.000Z",
+        narrative:
+          "Revenue is $1.3k of the $5k monthly target with 1 of 2 agents up. Marketing is weighted toward listmonk.",
+        narrativeSource: "llm",
+        mission: {
+          revenueUsd: 1250,
+          totalMonthlyTarget: 5000,
+          gapUsd: 3750,
+          byService: {},
+          opportunities: { total: 3, byStage: {} },
+          velocity: { leads: 9, won: 2, invoiced: 1, paid: 1 },
+        },
+        fleet: {
+          checked: 2,
+          up: 1,
+          down: 1,
+          sweepFresh: true,
+          upAgents: [],
+          downAgents: [],
+          criticalMoments: [],
+        },
+        teams: {
+          strategy: null,
+          marketing: {
+            generatedAt: "2026-09-02T00:00:00.000Z",
+            recommended: "listmonk",
+            rationale: "Owned audience, highest LTV.",
+            guard: { allowed: true, reason: "Approved." },
+            allocation: [],
+          },
+        },
+        actions: [],
+      });
+    }
   },
 }));
 
@@ -124,9 +161,10 @@ describe("StatsScreen", () => {
   it("renders the revenue pulse (money) section", async () => {
     render(<StatsScreen {...baseProps} />);
     expect(await screen.findByText("Revenue pulse")).toBeTruthy();
-    expect(screen.getByText("$1.3k")).toBeTruthy(); // settled revenue ($1250)
+    // "$1.3k" and "9" also appear in the EcosystemStatusCard, so scope to all.
+    expect(screen.getAllByText("$1.3k").length).toBeGreaterThan(0); // settled revenue ($1250)
     expect(screen.getByText("$33k")).toBeTruthy(); // monthly target
-    expect(screen.getByText("9")).toBeTruthy(); // active leads
+    expect(screen.getAllByText("9").length).toBeGreaterThan(0); // active leads
     expect(screen.getByText(/aetherdesk/)).toBeTruthy();
   });
 

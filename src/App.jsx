@@ -12,6 +12,7 @@ import { Chat } from "./components/Chat.jsx";
 import { SearchResults } from "./components/SearchResults.jsx";
 import { Settings } from "./components/Settings.jsx";
 import { GeneralSettings, buildServerBot } from "./components/GeneralSettings.jsx";
+import { ScenarioEvalView } from "./pages/ScenarioEvalView.jsx";
 import { AuditLog } from "./components/AuditLog.jsx";
 import { ToolExecutionConsole } from "./components/ToolExecutionConsole.jsx";
 import { DeveloperPanel } from "./components/DeveloperPanel.jsx";
@@ -23,6 +24,8 @@ import { UpliftBridgeClient } from "./protocols/UpliftBridgeClient.js";
 import { subTeamStream, subTeamHealthCheck } from "./protocols/SubTeamClient.js";
 import { DraymondOrchestratorClient } from "./protocols/DraymondOrchestratorClient.js";
 import { LocalModelClient } from "./protocols/LocalModelClient.js";
+import { detectResearchIntent } from "./utils/researchIntent.js";
+import { deepResearch } from "./utils/researchTools.js";
 import { NtfyClient } from "./protocols/NtfyClient.js";
 import { A2AClient } from "./protocols/A2AClient.js";
 import { MCPHostClient } from "./protocols/MCPHostClient.js";
@@ -95,12 +98,17 @@ export default function App() {
   const [isNewBot, setIsNewBot] = useState(false);
   const [mode, setMode] = useState(loadMode);
   const [screen, setScreen] = useState(() => {
+    // Boot restore is whitelisted so a stale/corrupt value can never boot the
+    // app into a screen with no exit (dev-only screens like "eval" are
+    // deliberately excluded — reopen them from the sidebar during a session).
+    const RESTORABLE = ["home", "chats", "agents", "models", "work", "stats", "approvals", "settings"];
     try {
-      return localStorage.getItem("openchat_screen_v1") || "home";
+      const saved = localStorage.getItem("openchat_screen_v1");
+      return saved && RESTORABLE.includes(saved) ? saved : "home";
     } catch {
       return "home";
     }
-  }); // home | chats | agents | models | work | stats | approvals | settings
+  }); // home | chats | agents | models | eval | work | stats | approvals | settings
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Remember the last visited screen across launches.
@@ -289,7 +297,7 @@ export default function App() {
       : null
   );
 
-  // â”€â”€ Persist state to localStorage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Persist state to localStorage ──────────────────────────────────────────
   useEffect(() => {
     saveHist(history);
   }, [history]);
@@ -360,12 +368,12 @@ export default function App() {
     []
   );
 
-  // â”€â”€ Status management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Status management ───────────────────────────────────────────────────────
   const setStatus = useCallback((id, status) => {
     setStatuses((prev) => ({ ...prev, [id]: status }));
   }, []);
 
-  // â”€â”€ OpenClaw connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── OpenClaw connection ─────────────────────────────────────────────────────
   const connectClaw = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -389,7 +397,7 @@ export default function App() {
     [setStatus]
   );
 
-  // â”€â”€ Uplift Bridge connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Uplift Bridge connection ────────────────────────────────────────────────
   const connectUpliftBridge = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -421,7 +429,7 @@ export default function App() {
     [setStatus]
   );
 
-  // â”€â”€ Draymond Orchestrator connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Draymond Orchestrator connection ────────────────────────────────────────
   const connectDraymond = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -457,7 +465,7 @@ export default function App() {
               b.agentRef === agentId
                 ? {
                     ...b,
-                    tagline: `Agent Â· ${agent.status ?? "unknown"}`,
+                    tagline: `Agent · ${agent.status ?? "unknown"}`,
                     avatarUrl: agent.avatarUrl || b.avatarUrl || `/avatars/${agentId}.png`,
                     avatar: "",
                   }
@@ -470,7 +478,7 @@ export default function App() {
             avatar: "",
             avatarUrl: agent.avatarUrl || `/avatars/${agentId}.png`,
             color: "#22d3ee",
-            tagline: `Agent Â· ${agent.status ?? "unknown"}`,
+            tagline: `Agent · ${agent.status ?? "unknown"}`,
             protocol: "draymond",
             host: bot.host,
             port: bot.port,
@@ -517,7 +525,7 @@ export default function App() {
     [setStatus]
   );
 
-  // â”€â”€ ntfy subscription connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── ntfy subscription connection ────────────────────────────────────────────
   const connectNtfy = useCallback(
     async (bot) => {
       // Disconnect existing client
@@ -529,7 +537,7 @@ export default function App() {
       const client = new NtfyClient(bot.host, bot.port, bot.token, bot.topic);
       client.onStatusChange = (status) => setStatus(bot.id, status);
       client.onMessage = (parsed) => {
-        // Dedupe by ntfy message id (belt-and-suspenders â€” the stream
+        // Dedupe by ntfy message id (belt-and-suspenders — the stream
         // can redeliver on reconnect).
         if (seenNtfyIds.current.has(parsed.id)) return;
         seenNtfyIds.current.add(parsed.id);
@@ -547,7 +555,7 @@ export default function App() {
           actions: Array.isArray(parsed.actions) ? parsed.actions : [],
         });
 
-        // Auto-speak Draymond phase recaps (evening recap â†’ spoken on the
+        // Auto-speak Draymond phase recaps (evening recap → spoken on the
         // phone) for bots that have voice-calling enabled. Recaps arrive via
         // ntfy with a "recap" tag from Draymond's communicator.
         const isRecap =
@@ -592,7 +600,7 @@ export default function App() {
     [setStatus]
   );
 
-  // â”€â”€ Local on-device chat connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Local on-device chat connection ─────────────────────────────────────────
   const connectA2A = useCallback(
     async (bot) => {
       if (a2aRefs.current[bot.id]) {
@@ -755,7 +763,7 @@ export default function App() {
     return fallbackClient.executeAction(action);
   }, [bots]);
 
-  // â”€â”€ Auto-connect bots on mount and when bots list changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Auto-connect bots on mount and when bots list changes ──────────────────
   useEffect(() => {
     // Connect OpenClaw bots
     bots
@@ -899,7 +907,7 @@ export default function App() {
     };
   }, []);
 
-  // â”€â”€ Android hardware back button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Android hardware back button ───────────────────────────────────────────
   useEffect(() => {
     if (!isNative) return;
 
@@ -909,19 +917,19 @@ export default function App() {
       try {
         const { App: CapApp } = await import("@capacitor/app");
         const handle = await CapApp.addListener("backButton", () => {
-          // Navigate: Settings â†’ Chat/Inbox, Chat â†’ Inbox
+          // Navigate: Settings → Chat/Inbox, Chat → Inbox
           if (showCfg) {
             setCfgBot(null);
             setShowCfg(false);
           } else if (activeId) {
             setActiveId(null);
           }
-          // At inbox level â€” do nothing (Capacitor default would minimize)
+          // At inbox level — do nothing (Capacitor default would minimize)
         });
         removeListener = handle.remove;
         if (cancelled) removeListener();
       } catch {
-        // Plugin not available â€” ignore
+        // Plugin not available — ignore
       }
     })();
 
@@ -931,7 +939,7 @@ export default function App() {
     };
   }, [showCfg, activeId]);
 
-  // â”€â”€ Network change detection (native) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Network change detection (native) ──────────────────────────────────────
   useEffect(() => {
     if (!isNative) return;
 
@@ -941,7 +949,7 @@ export default function App() {
         const { Network } = await import("@capacitor/network");
         const handle = await Network.addListener("networkStatusChange", (status) => {
           if (status.connected) {
-            console.log("[OpenChat] Network restored â€” flushing offline queues");
+            console.log("[OpenChat] Network restored — flushing offline queues");
             // Flush offline queues for all Draymond clients
             Object.values(orchestratorRefs.current).forEach((client) => {
               if (client.flushOfflineQueue) client.flushOfflineQueue();
@@ -950,7 +958,7 @@ export default function App() {
         });
         removeListener = handle.remove;
       } catch {
-        // Plugin not available â€” ignore
+        // Plugin not available — ignore
       }
     })();
 
@@ -959,7 +967,7 @@ export default function App() {
     };
   }, []);
 
-  // â”€â”€ Message management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Message management ──────────────────────────────────────────────────────
   function addMessage(botId, msg) {
     setHistory((prev) => ({
       ...prev,
@@ -1004,7 +1012,7 @@ export default function App() {
     setHistory((prev) => ({ ...prev, [botId]: [] }));
   }
 
-  // â”€â”€ Send message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Send message ────────────────────────────────────────────────────────────
   async function sendMessage() {
     const text = input.trim();
     if (!text || !bot || streamingBotId) return;
@@ -1034,7 +1042,7 @@ export default function App() {
         // OpenClaw WebSocket
         const client = clawRefs.current[bot.id];
         if (!client || client.ws?.readyState !== WebSocket.OPEN) {
-          throw new Error("Not connected â€” check Settings");
+          throw new Error("Not connected — check Settings");
         }
 
         const finalText = await client.send(text, (delta) => {
@@ -1046,7 +1054,7 @@ export default function App() {
         });
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "âœ“",
+          text: streamBuf.current || finalText || "✓",
           streaming: false,
         });
 
@@ -1147,7 +1155,7 @@ export default function App() {
         // Uplift Bridge
         const client = clawRefs.current[bot.id];
         if (!client || !client.sessionId) {
-          throw new Error("Not connected â€” check Settings");
+          throw new Error("Not connected — check Settings");
         }
 
         abortRef.current = new AbortController();
@@ -1165,7 +1173,7 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "âœ“",
+          text: streamBuf.current || finalText || "✓",
           streaming: false,
         });
 
@@ -1224,7 +1232,32 @@ export default function App() {
           client = orchestratorRefs.current[bot.id];
         }
         if (!client || client.status !== "connected") {
-          throw new Error("Orchestrator not connected â€” check Settings");
+          throw new Error("Orchestrator not connected — check Settings");
+        }
+
+        // News pre-flight: detect news/research intent and handle locally
+        // using the Cloudflare news-worker. Bypasses the LLM chain when
+        // the orchestrator's LLM providers are unavailable (429/402/401).
+        const intent = detectResearchIntent(text);
+        if (intent?.kind === "news") {
+          const dr = await deepResearch({ query: intent.query, kind: "news", liveWeb: false });
+          const responseText = dr.ok
+            ? `Here's what's in the news for: **${intent.query}**\n\n` +
+              `Sources: ${dr.sourcesUsed?.join(", ") || "unknown"}\n\n` +
+              (dr.summary || "No results found.")
+            : `News lookup failed: ${dr.error || "No results for this query."}`;
+
+          updateLastMessage(bot.id, {
+            text: responseText,
+            streaming: false,
+          });
+          setHistory((prev) => ({
+            ...prev,
+            [bot.id]: (prev[bot.id] || []).map((m) =>
+              m.id === userMsg.id ? { ...m, read: true } : m
+            ),
+          }));
+          return;
         }
 
         abortRef.current = new AbortController();
@@ -1259,7 +1292,7 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || result.text || "âœ“",
+          text: streamBuf.current || result.text || "✓",
           streaming: false,
           workflowId,
         });
@@ -1272,21 +1305,21 @@ export default function App() {
           ),
         }));
       } else if (bot.protocol === "ntfy") {
-        // ntfy publish â€” forward the message to the subscribed topic
+        // ntfy publish — forward the message to the subscribed topic
         const client = ntfyRefs.current[bot.id];
         if (!client || client.status !== "connected") {
-          throw new Error("ntfy not connected â€” check Settings");
+          throw new Error("ntfy not connected — check Settings");
         }
 
         const ok = await client.publish({
-          title: `${bot.name} Â· ${new Date().toLocaleTimeString()}`,
+          title: `${bot.name} · ${new Date().toLocaleTimeString()}`,
           message: text,
         });
 
         updateLastMessage(bot.id, {
           text: ok
-            ? "âœ“ Published"
-            : "âš  Publish failed â€” check ntfy connection",
+            ? "✓ Published"
+            : "⚠ Publish failed — check ntfy connection",
           streaming: false,
         });
 
@@ -1323,7 +1356,7 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "âœ“",
+          text: streamBuf.current || finalText || "✓",
           streaming: false,
           ...(streamImageRef.current ? { image: streamImageRef.current } : {}),
         });
@@ -1353,7 +1386,7 @@ export default function App() {
           client = localRefs.current[bot.id];
         }
         if (!client || (client.status !== "connected" && client.status !== "no-model")) {
-          throw new Error("Local model not ready â€” check Models");
+          throw new Error("Local model not ready — check Models");
         }
 
         abortRef.current = new AbortController();
@@ -1385,7 +1418,7 @@ export default function App() {
         );
 
         updateLastMessage(bot.id, {
-          text: streamBuf.current || finalText || "âœ“",
+          text: streamBuf.current || finalText || "✓",
           streaming: false,
           ...(streamImageRef.current ? { image: streamImageRef.current } : {}),
         });
@@ -1404,7 +1437,7 @@ export default function App() {
       }
     } catch (e) {
       const errText =
-        e.name === "AbortError" ? "[interrupted]" : `âš  ${e.message}`;
+        e.name === "AbortError" ? "[interrupted]" : `⚠ ${e.message}`;
       updateLastMessage(bot.id, {
         text: errText,
         streaming: false,
@@ -1450,14 +1483,14 @@ export default function App() {
     setStreamingBotId((cur) => (cur === bot.id ? null : cur));
   }
 
-  // â”€â”€ Open chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Open chat ───────────────────────────────────────────────────────────────
   function openChat(id) {
     setActiveId(id);
     setHistory((prev) => markAllSeen(prev, id));
     setSearchMode("bots");
   }
 
-  // â”€â”€ Sidebar / screen navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Sidebar / screen navigation ────────────────────────────────────────────
   const totalUnread = Object.values(history).reduce(
     (sum, msgs) =>
       sum + (Array.isArray(msgs) ? msgs.filter((m) => m.role === "bot" && !m.read).length : 0),
@@ -1480,8 +1513,11 @@ export default function App() {
   }, [bots, history]);
 
   const LOCAL_MODEL_LABELS = {
-    gemma_e4b: "Gemma 3n ready",
-    gemma_e2b: "Gemma 3n ready",
+    qwen3_5_4b: "Qwen3.5 4B ready",
+    qwen3_5_0_8b: "Qwen3.5 0.8B ready",
+    gemma4_e2b: "Gemma 4 E2B ready",
+    gemma_e4b: "LiteRT-LM ready",
+    gemma_e2b: "LiteRT-LM ready",
     nano: "Gemini Nano ready",
     webllm: "WebLLM ready",
   };
@@ -1522,11 +1558,13 @@ export default function App() {
   /** Select the model used by the Private Local bot. */
   function handleSelectLocalModel(entry) {
     const modelKey =
-      entry?.id === "gemma-e2b"
-        ? "gemma_e2b"
-        : entry?.provider === "mediapipe"
-          ? "gemma_e4b"
-          : "auto";
+      entry?.id === "qwen3-5-0-8b"
+        ? "qwen3_5_0_8b"
+        : entry?.id === "gemma4-e2b"
+          ? "gemma4_e2b"
+          : entry?.provider === "litertlm"
+            ? "qwen3_5_4b"
+            : "auto";
     setBots((prev) =>
       prev.map((b) => (b.id === "local" ? { ...b, model: modelKey } : b))
     );
@@ -1550,7 +1588,7 @@ export default function App() {
     return res?.ok === true;
   }
 
-  // â”€â”€ Bot management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Bot management ────────────────────────────────────────────────────────────
   function addBot() {
     const newBot = {
       id: uuid(),
@@ -1637,7 +1675,7 @@ export default function App() {
     } else {
       // Update existing bot
       setBots((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
-      // Protocol/host/token may have changed â€” tear down any previous client.
+      // Protocol/host/token may have changed — tear down any previous client.
       disconnectBotClients(updated.id);
     }
 
@@ -1683,7 +1721,7 @@ export default function App() {
     setUnreadNotifications(0);
   }
 
-  // â”€â”€ Phase 4 & 5 handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Phase 4 & 5 handlers ────────────────────────────────────────────────────
 
   // Tool execution
   function handleExecuteTool(toolName, parameters) {
@@ -1738,7 +1776,7 @@ export default function App() {
     reconnectBot(updatedBot);
   }
 
-  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div
       style={{
@@ -1810,6 +1848,9 @@ export default function App() {
               onOpenMenu={() => setSidebarOpen(true)}
               onSyncBenchmarks={handleSyncBenchmarks}
             />
+          )}
+          {screen === "eval" && (
+            <ScenarioEvalView model={localBotCfg?.model || "auto"} onOpenMenu={() => setSidebarOpen(true)} />
           )}
           {screen === "work" && (
             <WorkScreen

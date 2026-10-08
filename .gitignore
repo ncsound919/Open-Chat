@@ -53,3 +53,7 @@ Thumbs.db
 .env.local.bak
 openchat.err.log
 openchat.out.log
+
+# Root-level scratch/diagnostic scripts — dev-only, some embed a live
+# Draymond bearer token. NEVER commit.
+/*.cjs

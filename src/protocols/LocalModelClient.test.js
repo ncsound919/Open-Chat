@@ -56,7 +56,7 @@ vi.mock("../utils/appRecipes.js", () => ({
 }));
 
 vi.mock("../utils/modelRegistry.js", () => ({
-  autoLoadMediaPipeModel: vi.fn(async () => null),
+  autoLoadLitertLmModel: vi.fn(async () => null),
 }));
 
 vi.mock("../utils/researchTools.js", () => ({
@@ -85,7 +85,7 @@ vi.mock("../utils/researchIntent.js", () => ({
 import { chatLocal } from "../utils/localChat.js";
 import { execPhoneTool } from "../utils/phoneTools.js";
 import { resolveProvider } from "../utils/localChat.js";
-import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
+import { autoLoadLitertLmModel } from "../utils/modelRegistry.js";
 import { runCloudTool } from "../utils/cloudIntegrations.js";
 import { runRecipe } from "../utils/appRecipes.js";
 import { deepResearch } from "../utils/researchTools.js";
@@ -119,21 +119,21 @@ describe("LocalModelClient", () => {
 
   it("auto-loads a mediapipe model and connects when no provider is ready", async () => {
     resolveProvider.mockResolvedValueOnce("none").mockResolvedValueOnce("mediapipe");
-    autoLoadMediaPipeModel.mockResolvedValue("/m/loaded");
+    autoLoadLitertLmModel.mockResolvedValue("/m/loaded");
 
     const statuses = [];
     const client = new LocalModelClient({ id: "local", model: "auto" });
     client.onStatusChange = (s) => statuses.push(s);
 
     const status = await client.connect();
-    expect(autoLoadMediaPipeModel).toHaveBeenCalled();
+    expect(autoLoadLitertLmModel).toHaveBeenCalled();
     expect(status).toBe("connected");
     expect(statuses).toEqual(["connected"]);
   });
 
   it("stays no-model when auto-load finds nothing", async () => {
     resolveProvider.mockResolvedValue("none");
-    autoLoadMediaPipeModel.mockResolvedValue(null);
+    autoLoadLitertLmModel.mockResolvedValue(null);
 
     const client = new LocalModelClient({ id: "local", model: "auto" });
     const status = await client.connect();

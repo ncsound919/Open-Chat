@@ -2,40 +2,59 @@
  * modelRegistry — unified local-model detection for Open-Chat.
  *
  * Sources (in priority order):
- *   1. On-device MediaPipe Gemma bundles (.task files in app storage)
+ *   1. On-device LiteRT-LM bundles (.litertlm files in app storage) — Qwen3.5,
+ *      Gemma 4, etc. via the LiteRT-LM runtime (successor to MediaPipe).
  *   2. Chrome Prompt API / Gemini Nano
  *   3. WebLLM (WebGPU)
  *   4. OpenAI-compatible local servers (Ollama, LM Studio, llama.cpp, …)
  *
  * Every detected model normalizes to a `ModelEntry` so the Models screen
  * can render one consistent card list: name, kind, size, state, actions.
+ *
+ * Legacy note: MediaPipe LLM Inference was removed. `loadMediaPipe` /
+ * `MEDIAPIPE_DEFAULT_MODELS` / `autoLoadMediaPipeModel` etc. remain as
+ * deprecated aliases so older importers keep working — they now resolve the
+ * LiteRT-LM runtime.
  */
 
 import { scanLocalModels } from "./localModels.js";
 
-/** Default MediaPipe Gemma bundles (downloaded on demand from HuggingFace). */
-export const MEDIAPIPE_DEFAULT_MODELS = [
+/** Default LiteRT-LM bundles (downloaded on demand from HuggingFace). */
+export const LITERT_DEFAULT_MODELS = [
   {
-    id: "gemma-e4b",
-    name: "Gemma 3n E4B",
-    fileName: "gemma-3n-E4B-it-int4.task",
-    url:
-      "https://huggingface.co/mannyf/gemma-3n-E4B-it-int4.task/resolve/main/gemma-3n-E4B-it-int4.task",
-    sizeBytes: 4405655031,
+    id: "qwen3-5-4b",
+    name: "Qwen3.5 4B",
+    fileName: "Qwen3.5-4B_int8.litertlm",
+    url: "https://huggingface.co/litert-community/Qwen3.5-4B/resolve/main/Qwen3.5-4B_int8.litertlm",
+    sizeBytes: 4_102_000_000,
     kind: "ondevice",
-    tagline: "Flagship · phone control + reasoning",
+    contextTokens: 4096,
+    tagline: "Flagship · agentic + tool calling · 4.1 GB (12GB+ device)",
   },
   {
-    id: "gemma-e2b",
-    name: "Gemma 3n E2B",
-    fileName: "gemma-3n-E2B-it-int4.task",
-    url:
-      "https://huggingface.co/FUNFUN32/gemma-3n-E2B-it-int4.task/resolve/main/gemma-3n-E2B-it-int4.task",
-    sizeBytes: 2991480387,
+    id: "qwen3-5-0-8b",
+    name: "Qwen3.5 0.8B",
+    fileName: "Qwen3.5-0.8B_int8.litertlm",
+    url: "https://huggingface.co/litert-community/Qwen3.5-0.8B/resolve/main/Qwen3.5-0.8B_int8.litertlm",
+    sizeBytes: 978_000_000,
     kind: "ondevice",
-    tagline: "Fast · daily chat + quick tasks",
+    contextTokens: 4096,
+    tagline: "Fast · ~978 MB · great on 8GB phones",
+  },
+  {
+    id: "gemma4-e2b",
+    name: "Gemma 4 E2B",
+    fileName: "gemma-4-E2B-it.litertlm",
+    url: "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+    sizeBytes: 2_583_000_000,
+    kind: "ondevice",
+    contextTokens: 2048,
+    tagline: "Multimodal · native function tokens · Apache-2.0",
   },
 ];
+
+/** Legacy alias for importers that haven't migrated yet. */
+export const MEDIAPIPE_DEFAULT_MODELS = LITERT_DEFAULT_MODELS;
 
 /** Model lifecycle states. */
 export const MODEL_STATE = {
@@ -47,24 +66,28 @@ export const MODEL_STATE = {
   ERROR: "error",
 };
 
-/** Normalize a raw MediaPipe bundle record from the native plugin. */
-export function mediaPipeBundleToEntry(bundle) {
-  const known = MEDIAPIPE_DEFAULT_MODELS.find((m) => m.fileName === bundle.fileName);
+/** Normalize a raw LiteRT-LM bundle record from the native plugin. */
+export function litertBundleToEntry(bundle) {
+  const known = LITERT_DEFAULT_MODELS.find((m) => m.fileName === bundle.fileName);
   return {
     id: known?.id ?? bundle.fileName,
-    name: known?.name ?? bundle.fileName.replace(/\.task$/, ""),
+    name: known?.name ?? bundle.fileName.replace(/\.(litertlm|task)$/, ""),
     fileName: bundle.fileName,
     url: known?.url ?? "",
     sizeBytes: bundle.sizeBytes ?? 0,
     kind: "ondevice",
-    provider: "mediapipe",
+    provider: "litertlm",
+    contextTokens: known?.contextTokens,
     path: bundle.path ?? "",
     loaded: bundle.loaded === true,
     tagline: known?.tagline ?? "Local model bundle",
   };
 }
 
-const MEDIAPIPE_METHODS = [
+/** Legacy alias. */
+export const mediaPipeBundleToEntry = litertBundleToEntry;
+
+const LITERT_METHODS = [
   "getStatus",
   "listModels",
   "downloadModel",
@@ -124,31 +147,34 @@ function adapter(raw, methodNames) {
 }
 
 /**
- * Load the native MediaPipeGemma plugin safely (returns null off-device).
+ * Load the native LitertLm plugin safely (returns null off-device).
  * Prefers the already-registered Capacitor plugin (window.Capacitor.Plugins)
  * to avoid the runtime chunk-import path entirely; falls back to the module
  * import for web/tests. Always returns a plain adapter, never the proxy.
  * @returns {Promise<object|null>} plugin adapter or null
  */
-export async function loadMediaPipe() {
+export async function loadLitertLm() {
   try {
     const cap = typeof window !== "undefined" ? window.Capacitor : null;
-    const raw = cap?.Plugins?.MediaPipeGemma;
-    const api = raw ? adapter(raw, MEDIAPIPE_METHODS) : null;
+    const raw = cap?.Plugins?.LitertLm;
+    const api = raw ? adapter(raw, LITERT_METHODS) : null;
     if (api && typeof api.getStatus === "function") return api;
   } catch {
     /* fall through to module import */
   }
   try {
-    const mod = await import("@open-chat/mediapipe-gemma");
-    const raw = mod?.default ?? mod?.MediaPipeGemma ?? null;
-    const api = raw ? adapter(raw, MEDIAPIPE_METHODS) : null;
+    const mod = await import("@open-chat/litert-lm");
+    const raw = mod?.default ?? mod?.LitertLm ?? null;
+    const api = raw ? adapter(raw, LITERT_METHODS) : null;
     if (api && typeof api.getStatus === "function") return api;
     return null;
   } catch {
     return null;
   }
 }
+
+/** Deprecated alias — resolves the LiteRT-LM runtime (MediaPipe removed). */
+export const loadMediaPipe = loadLitertLm;
 
 /**
  * Load the native PhoneControl plugin safely (returns null off-device).
@@ -197,19 +223,22 @@ export async function loadOnnxImageGen() {
 }
 
 /**
- * Detect on-device MediaPipe bundles currently present in app storage.
+ * Detect on-device LiteRT-LM bundles currently present in app storage.
  * @returns {Promise<ModelEntry[]>}
  */
-export async function detectMediaPipeBundles() {
-  const mp = await loadMediaPipe();
-  if (!mp?.listModels) return [];
+export async function detectLitertLmBundles() {
+  const rt = await loadLitertLm();
+  if (!rt?.listModels) return [];
   try {
-    const { models = [] } = await mp.listModels();
-    return models.map(mediaPipeBundleToEntry);
+    const { models = [] } = await rt.listModels();
+    return models.map(litertBundleToEntry);
   } catch {
     return [];
   }
 }
+
+/** Deprecated alias. */
+export const detectMediaPipeBundles = detectLitertLmBundles;
 
 /**
  * Preferred on-device backend ("cpu" | "gpu").
@@ -239,45 +268,45 @@ export function setPreferredBackend(backend) {
 }
 
 /** Reload the currently loaded bundle with the given backend. */
-export async function reloadMediaPipeWithBackend(backend = getPreferredBackend()) {
-  const mp = await loadMediaPipe();
-  if (!mp?.loadModel) return false;
+export async function reloadLitertLmWithBackend(backend = getPreferredBackend()) {
+  const rt = await loadLitertLm();
+  if (!rt?.loadModel) return false;
   try {
-    const status = await mp.getStatus();
+    const status = await rt.getStatus();
     const fileName = String(status?.modelPath || "").split(/[\\/]/).pop();
     if (!fileName) return false;
-    const res = await mp.loadModel({ fileName, maxTokens: 4096, topK: 40, backend });
+    const res = await rt.loadModel({ fileName, backend });
     return res?.ok === true;
   } catch {
     return false;
   }
 }
 
+/** Deprecated alias. */
+export const reloadMediaPipeWithBackend = reloadLitertLmWithBackend;
+
 /**
- * Ensure an on-device MediaPipe bundle is loaded, loading the most recently
+ * Ensure an on-device LiteRT-LM bundle is loaded, loading the most recently
  * added bundle if none is currently loaded. This makes the "private local"
- * bot (and the on-device engine) usable without a manual load step.
+ * bot usable without a manual load step.
  * @returns {Promise<string|null>} the loaded model path, or null
  */
-export async function autoLoadMediaPipeModel() {
-  const mp = await loadMediaPipe();
-  if (!mp?.listModels || !mp?.loadModel) return null;
+export async function autoLoadLitertLmModel() {
+  const rt = await loadLitertLm();
+  if (!rt?.listModels || !rt?.loadModel) return null;
   try {
-    const status = await mp.getStatus();
+    const status = await rt.getStatus();
     if (status?.modelLoaded) return status.modelPath || null;
   } catch {
     /* fall through to (re)load */
   }
   try {
-    const { models = [] } = await mp.listModels();
+    const { models = [] } = await rt.listModels();
     if (models.length === 0) return null;
     const bundle = models[0]; // native plugin sorts newest-first
-    // Backend honors the user's Settings preference (default cpu — see note
-    // above getPreferredBackend).
-    const res = await mp.loadModel({
+    // Backend honors the user's Settings preference (default cpu).
+    const res = await rt.loadModel({
       fileName: bundle.fileName,
-      maxTokens: 4096,
-      topK: 40,
       backend: getPreferredBackend(),
     });
     return res?.ok ? (res.modelPath || bundle.fileName) : null;
@@ -285,6 +314,9 @@ export async function autoLoadMediaPipeModel() {
     return null;
   }
 }
+
+/** Deprecated alias. */
+export const autoLoadMediaPipeModel = autoLoadLitertLmModel;
 
 /** Full-model detection hard cap — scanning must always finish. */
 const DETECT_TIMEOUT_MS = 8000;
@@ -314,9 +346,9 @@ export async function detectLocalModels({ includeServers = true, extraHost, sign
 async function detectLocalModelsInner({ includeServers, extraHost, signal }) {
   const sources = [];
 
-  const ondevice = await detectMediaPipeBundles();
+  const ondevice = await detectLitertLmBundles();
   if (ondevice.length) {
-    sources.push({ id: "ondevice", name: "On-device (MediaPipe)", models: ondevice });
+    sources.push({ id: "ondevice", name: "On-device (LiteRT-LM)", models: ondevice });
   }
 
   // Gemini Nano / WebLLM availability (best-effort; OnDeviceAI caches checks)

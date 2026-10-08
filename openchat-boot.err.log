@@ -1,0 +1,26 @@
+[2m10:31:29 PM[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [33mwarning: 
+[36mC:/Users/User/Downloads/Uplift/05_Apps/Open-Chat/src/utils/OnDeviceAI.js[33m
+[0m271 |  async function nativeModule(name) {
+272 |  	try {
+273 |  		return await import(name);
+    |                        ^^^^
+274 |  	} catch {
+275 |  		return null;[0m[33m
+The above dynamic import cannot be analyzed by Vite.
+See [34mhttps://vite.dev/guide/features#dynamic-import[33m for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[33m[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mC:/Users/User/Downloads/Uplift/05_Apps/Open-Chat/src/utils/OnDeviceAI.js[39m
+[2m10:31:29 PM[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [33mwarning: 
+[36mC:/Users/User/Downloads/Uplift/05_Apps/Open-Chat/src/utils/skillRegistry.js[33m
+[0m22 |  async function nativePlugin(name) {
+23 |  	try {
+24 |  		const mod = await import(name);
+   |                             ^^^^
+25 |  		const plugin = mod?.default ?? mod;
+26 |  		return plugin;[0m[33m
+The above dynamic import cannot be analyzed by Vite.
+See [34mhttps://vite.dev/guide/features#dynamic-import[33m for supported dynamic import formats. If this is intended to be left as-is, you can use the /* @vite-ignore */ comment inside the import() call to suppress this warning.
+[33m[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36mC:/Users/User/Downloads/Uplift/05_Apps/Open-Chat/src/utils/skillRegistry.js[39m

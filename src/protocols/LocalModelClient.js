@@ -6,7 +6,7 @@
  */
 
 import { chatLocal, resolveProvider, PROVIDER } from "../utils/localChat.js";
-import { autoLoadMediaPipeModel } from "../utils/modelRegistry.js";
+import { autoLoadLitertLmModel } from "../utils/modelRegistry.js";
 import { PHONE_TOOLS, execPhoneTool } from "../utils/phoneTools.js";
 import { GALAXY_AI_SKILLS, execGalaxySkill, isGalaxySkill } from "../utils/galaxyAi.js";
 import {
@@ -41,8 +41,11 @@ import { DRAYMOND_TOOL_NAMES } from "../utils/draymondTools.js";
 
 export const LOCAL_PROVIDER_HINTS = {
   auto: undefined,
-  gemma_e4b: PROVIDER.MEDIAPIPE,
-  gemma_e2b: PROVIDER.MEDIAPIPE,
+  qwen3_5_4b: PROVIDER.LITERT_LM,
+  qwen3_5_0_8b: PROVIDER.LITERT_LM,
+  gemma4_e2b: PROVIDER.LITERT_LM,
+  gemma_e4b: PROVIDER.LITERT_LM, // legacy alias
+  gemma_e2b: PROVIDER.LITERT_LM, // legacy alias
   nano: PROVIDER.NANO,
   webllm: PROVIDER.WEBLLM,
 };
@@ -117,13 +120,13 @@ export class LocalModelClient {
   }
 
   async connect() {
-    // Health check: is a model actually usable? If a MediaPipe bundle is
+    // Health check: is a model actually usable? If a LiteRT-LM bundle is
     // downloaded but not yet loaded, load it automatically so the "private
     // local" bot works out of the box.
     try {
       let provider = await resolveProvider();
       if (provider === PROVIDER.NONE) {
-        const loaded = await autoLoadMediaPipeModel();
+        const loaded = await autoLoadLitertLmModel();
         if (loaded) provider = await resolveProvider();
       }
       this.status = provider === PROVIDER.NONE ? "no-model" : "connected";

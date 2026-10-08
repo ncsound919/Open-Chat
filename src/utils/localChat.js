@@ -2,21 +2,20 @@
  * localChat — private, fully on-device chat + tool calling.
  *
  * Provider chain (all on-device, nothing leaves the phone):
- *   1. MediaPipe Gemma (.task bundle, GPU/NPU accelerated)
+ *   1. LiteRT-LM (.litertlm bundle, CPU/GPU/NPU via Google LiteRT-LM)
  *   2. Gemini Nano (Chrome Prompt API)
  *   3. WebLLM (WebGPU, runtime-loaded)
  *
- * Tool calling uses a JSON protocol the Gemma model is instructed to emit:
+ * Tool calling uses a JSON protocol the model is instructed to emit:
  *   {"tool":"<name>","args":{...}}
  * The loop executes the tool, feeds the result back as a user turn, and lets
- * the model produce the final answer (mirrors OnDeviceAI.chatGguf but wired
- * to the native MediaPipe runtime).
+ * the model produce the final answer.
  */
 
 import {
-  loadMediaPipe,
+  loadLitertLm,
   setPreferredBackend,
-  reloadMediaPipeWithBackend,
+  reloadLitertLmWithBackend,
 } from "./modelRegistry.js";
 
 /** Gemma chat-template markers used by the MediaPipe task bundles. */
@@ -26,11 +25,14 @@ const TURN_END = "<end_of_turn>";
 
 /** Provider identifiers. */
 export const PROVIDER = {
-  MEDIAPIPE: "mediapipe",
+  LITERT_LM: "litertlm",
   NANO: "nano",
   WEBLLM: "webllm",
   NONE: "none",
 };
+
+/** Deprecated alias — MediaPipe was removed; the native runtime is LiteRT-LM. */
+PROVIDER.MEDIAPIPE = PROVIDER.LITERT_LM;
 
 /**
  * Format messages + system prompt into a Gemma chat-template prompt.
@@ -172,13 +174,13 @@ export function buildToolSchema(tools) {
  * @returns {Promise<string>} full text
  */
 async function generateOnce(provider, prompt, onChunk, { signal, session = false } = {}) {
-  if (provider === PROVIDER.MEDIAPIPE) {
-    const mp = await loadMediaPipe();
-    if (!mp?.generate) throw new Error("MediaPipe runtime unavailable");
+  if (provider === PROVIDER.LITERT_LM || provider === PROVIDER.MEDIAPIPE) {
+    const rt = await loadLitertLm();
+    if (!rt?.generate) throw new Error("LiteRT-LM runtime unavailable");
     const sessionId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     let listener;
     let full = "";
-    // Watchdog: MediaPipe occasionally stalls mid-generation (native decode
+    // Watchdog: LiteRT-LM occasionally stalls mid-generation (native decode
     // hang). Two tiers — CPU prefill of a large prompt can legitimately take
     // minutes before the FIRST token, so allow a longer initial window;
     // once tokens are flowing, 60s of silence means a stall.
@@ -187,7 +189,7 @@ async function generateOnce(provider, prompt, onChunk, { signal, session = false
     const TOTAL_TIMEOUT_MS = 420_000;
     let lastActivity = Date.now();
     const startedAt = lastActivity;
-    const handle = await mp.addListener("generate:progress", (data) => {
+    const handle = await rt.addListener("generate:progress", (data) => {
       if (data?.sessionId !== sessionId) return;
       lastActivity = Date.now();
       if (data?.text) {
@@ -197,14 +199,14 @@ async function generateOnce(provider, prompt, onChunk, { signal, session = false
     });
     listener = handle;
     const abort = () => {
-      mp.cancel?.().catch?.(() => {});
+      rt.cancel?.().catch?.(() => {});
     };
     signal?.addEventListener?.("abort", abort);
     try {
       const call = { prompt, sessionId };
       let settled = false;
       let completed = false;
-      const genPromise = session ? mp.generateSession(call) : mp.generate(call);
+      const genPromise = session ? rt.generateSession(call) : rt.generate(call);
       const watchdog = (async () => {
         for (;;) {
           await new Promise((r) => setTimeout(r, 1000));
@@ -268,11 +270,11 @@ async function generateOnce(provider, prompt, onChunk, { signal, session = false
  */
 export async function resolveProvider() {
   const probe = async () => {
-    const mp = await loadMediaPipe();
-    if (mp?.getStatus) {
+    const rt = await loadLitertLm();
+    if (rt?.getStatus) {
       try {
-        const status = await mp.getStatus();
-        if (status?.modelLoaded) return PROVIDER.MEDIAPIPE;
+        const status = await rt.getStatus();
+        if (status?.modelLoaded) return PROVIDER.LITERT_LM;
       } catch {
         /* fall through */
       }
@@ -428,12 +430,12 @@ async function genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolH
  * stay in the session KV-cache, so the big system prompt is never reprocessed.
  */
 async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds }) {
-  const provider = PROVIDER.MEDIAPIPE;
-  const mp = await loadMediaPipe();
+  const provider = PROVIDER.LITERT_LM;
+  const rt = await loadLitertLm();
   const toolCalls = [];
 
   // Fall back to the generic full-prompt loop if the session API is missing.
-  if (!mp?.beginSession || !mp?.generateSession) {
+  if (!rt?.beginSession || !rt?.generateSession) {
     return genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider });
   }
 
@@ -443,7 +445,7 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
   const recentHistory = history.slice(0, -1).slice(-6);
   const seedPrompt = buildGemmaPrompt(baseSystem, recentHistory, { includeModelTurn: false });
   try {
-    await withTimeout(mp.beginSession({ systemPrompt: seedPrompt }), 15000, "beginSession");
+    await withTimeout(rt.beginSession({ systemPrompt: seedPrompt }), 15000, "beginSession");
   } catch (e) {
     throw new Error(`Session init failed: ${e.message}`);
   }
@@ -470,7 +472,7 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
       // runtime errored, or the watchdog cancelled a stall. Reset (bounded —
       // native teardown can hang) and degrade to the full-prompt loop so the
       // task still completes.
-      await tryNative(mp, "resetSession");
+      await tryNative(rt, "resetSession");
       return genericChatLoop({ baseSystem, history, onChunk, onToolCall, toolHandler, signal, maxRounds, provider });
     }
     if (reply === "") return { text: "", provider, toolCalls };
@@ -482,14 +484,14 @@ async function mediaPipeChatLoop({ baseSystem, history, onChunk, onToolCall, too
     if (looksDegenerate(reply) && degenerateRetries < 2) {
       degenerateRetries++;
       let reseeded = false;
-      await tryNative(mp, "resetSession");
+      await tryNative(rt, "resetSession");
       if (degenerateRetries >= 2) {
         setPreferredBackend("cpu");
-        await reloadMediaPipeWithBackend("cpu").catch(() => false);
+        await reloadLitertLmWithBackend("cpu").catch(() => false);
       }
       try {
         // beginSession needs the systemPrompt argument — bounded directly.
-        await withTimeout(mp.beginSession({ systemPrompt: seedPrompt }), 8000, "beginSession");
+        await withTimeout(rt.beginSession({ systemPrompt: seedPrompt }), 8000, "beginSession");
         reseeded = true;
       } catch {
         /* keep going with whatever state we have */
@@ -561,7 +563,7 @@ export async function chatLocal(options) {
   const baseSystem = systemPrompt ? `${systemPrompt}${toolSchema}` : toolSchema;
   const history = [...messages, { role: "user", content: userMessage }];
 
-  if (effectiveProvider === PROVIDER.MEDIAPIPE) {
+  if (effectiveProvider === PROVIDER.MEDIAPIPE || effectiveProvider === PROVIDER.LITERT_LM) {
     return mediaPipeChatLoop({
       baseSystem,
       history,

@@ -676,6 +676,24 @@ export class DraymondOrchestratorClient {
     }
   }
 
+  /**
+   * Pull the one-push ecosystem status snapshot — the single export Draymond
+   * packages for a button push: revenue pulse, fleet health, strategy +
+   * marketing team state, recommended actions, and a narrative paragraph.
+   * @returns {Promise<object|null>}
+   */
+  async getEcosystemStatus() {
+    const url = `${this.baseUrl}/v1/snapshot`;
+    try {
+      const res = await this._fetchJson(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (error) {
+      console.warn("Failed to get ecosystem status:", error.message);
+      return null;
+    }
+  }
+
   // ── Orchestrate with entity/chain routing ───────────────────────────────
 
   /**

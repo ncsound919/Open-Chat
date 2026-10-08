@@ -8,6 +8,7 @@ import {
   hermesSkills,
 } from "../protocols/HermesClient.js";
 import { DraymondOrchestratorClient } from "../protocols/DraymondOrchestratorClient.js";
+import { EcosystemStatusCard } from "./EcosystemStatusCard.jsx";
 
 const STATUS_COLOR = {
   connected: "#22c55e",
@@ -368,6 +369,9 @@ export function StatsScreen({
           padding: "4px 20px calc(env(safe-area-inset-bottom, 24px) + 72px)",
         }}
       >
+        {/* Ecosystem status — one-push snapshot (narrative + KPIs + teams) */}
+        {draymondBots.length > 0 && <EcosystemStatusCard bot={draymondBots[0]} />}
+
         {/* Fleet connectivity */}
         <div style={sectionTitle}>FLEET</div>
         {bots.length === 0 ? (

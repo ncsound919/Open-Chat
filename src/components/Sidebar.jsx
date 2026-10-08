@@ -9,6 +9,7 @@ const MENU = [
   { id: "stats", label: "Stats", icon: "📊" },
   { id: "work", label: "Work", icon: "📋" },
   { id: "models", label: "Models", icon: "🧠" },
+  { id: "eval", label: "Model Eval", icon: "🧪" },
   { id: "settings", label: "Settings", icon: "⚙️" },
 ];
 
