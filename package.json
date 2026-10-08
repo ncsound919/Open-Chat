@@ -30,7 +30,7 @@
                     "android:open":  "npx cap open android"
                 },
     "dependencies":  {
-                         "@capacitor/android":  "^8.3.0",
+                         "@capacitor/android":  "^8.5.2",
     "@open-chat/mediapipe-gemma":  "file:src/plugins/capacitor-mediapipe-gemma",
     "@open-chat/onnx-imagegen":  "file:src/plugins/capacitor-onnx-imagegen",
     "@open-chat/phone-control":  "file:src/plugins/capacitor-phone-control",
